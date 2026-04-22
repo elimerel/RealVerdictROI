@@ -451,7 +451,57 @@ TL;DR for any agent resuming the project: **Phase Q is done. The only thing stan
 2. Apply `supabase/migrations/002_compare_entries.sql` (**new in Q6** — without it, signed-in users see a sync-error banner on `/compare` but the app still works).
 3. Ensure env vars are set: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (Q3 + Q7), `SENTRY_DSN` (Q4, optional but recommended). See `.env.local.example`.
 
-**Next chat's starting prompt (recommended):** "Phase Q is complete per §16.R. Start Phase M — Stripe checkout and paid gating. Follow the concrete task list in §10 p4."
+**Next chat's starting prompt (recommended):** "Phase M shipped + Wave 1 credibility/conversion fixes shipped — read §16.S first, then continue Wave 1 P0 items still requiring operator action (auth flow, custom domain, annual plan, legal pages)."
+
+### 16.S — Phase M shipped + Wave 1 (credibility / conversion floor)
+
+This entry covers two layers of work shipped in the most recent session:
+**Phase M (Stripe + paid gating)** and **Wave 1** (positioning fixes + table-stakes infrastructure for a real launch).
+
+#### Phase M — Stripe checkout + paid gating (deployed to prod, test mode)
+
+- **`supabase/migrations/003_subscriptions.sql`** — `subscriptions(user_id PK, stripe_customer_id, stripe_subscription_id, status, price_id, current_period_end, cancel_at_period_end, updated_at)` with RLS (owner-only SELECT, all writes via service-role from the webhook).
+- **`lib/pro.ts`** — `getProStatus(userId)` (memoized via `React.cache`) and `isPro(user)`. Source of truth: `subscriptions.status IN ('active','trialing')` with non-expired `current_period_end`.
+- **`lib/stripe.ts`** — `getStripe()` singleton + `appBaseUrl()` helper.
+- **`lib/supabase/service.ts`** — `createServiceRoleClient()` for webhook + portal route. Bypasses RLS.
+- **`/api/stripe/checkout`** — POST. Signed-in users only. Creates a `subscription` checkout session with `client_reference_id = user.id`. Rate-limited via new `stripe-checkout` limiter.
+- **`/api/stripe/webhook`** — POST. Verifies signature, handles `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Wrapped in `withErrorReporting`. Reads `current_period_end` from `SubscriptionItem` first (Stripe API ≥2025-08-27 moved it there), falls back to `Subscription` for older fixtures.
+- **`/api/stripe/portal`** — POST. Looks up `stripe_customer_id` for the signed-in user via service-role client, mints a Billing Portal session, 303-redirects. Reuses `stripe-checkout` limiter.
+- **Free-tier limits** (added to `lib/ratelimit.ts`): `analysis-free-anon` (5/week), `analysis-free-user` (3/week), `stripe-webhook`, `stripe-checkout`. Enforced in `app/results/page.tsx` for non-Pro users — exceeding it renders `AnalysisQuotaExceeded` (countdown + upgrade CTA).
+- **Pro gating, client + server**:
+  - Comps tab on `/results` — Pro only; non-Pro see `ProCompsTeaser`.
+  - Save Deal — Pro only; client button redirects to `/pricing`, server `/api/deals/save` returns 402 `pro_required`.
+  - `/compare` remote sync — Pro only; non-Pro retain `localStorage` only. Server `/api/compare` returns 402 for non-Pro.
+- **`lib/observability.ts`** — `captureError` rewritten to extract messages and fields (`code`, `details`, `hint`, `status`) from any object shape, not just `Error`. Fixes the `"[object Object]"` Sentry events from Supabase `PostgrestError` and Stripe error objects.
+- **`/dashboard`** now shows a Plan badge (Pro · status / Free · upgrade), a "Manage billing" form-POST in the header for Pro users, and a `?checkout=success` welcome banner.
+
+#### Wave 1 — Credibility + conversion floor (shipped this session)
+
+The Phase M code shipped paid functionality, but the surface around it still read like an unfinished side project. Wave 1 closes that gap:
+
+- **Homepage rewritten** — dropped the "Early beta · built by one person · free while we're finding fit" badge. New H1: *"Know the max price this deal still works at."* Subhead leads with the walk-away angle: "walk into negotiations with a number, not a feeling." Bottom CTA replaced the "looking for 10 investors" beta-hunt with a real Pro upgrade pitch + methodology link. Footer gained Methodology / About / Pricing / Compare links.
+- **Pricing page reconciled with reality** — removed false claims ("AI advisor", "Address auto-fill", "PDF export" were listed as Pro features but are actually free / don't exist). New Free list correctly enumerates: 5/week limit, all metrics, walk-away ceiling, stress test, what-if sliders, auto-fill, AI advisor, share links. New Pro list is honest and tight: "Everything in Free with no weekly limit", live comps tab, saved portfolio, cross-device compare sync, 7-day refund. FAQ expanded with what-counts-as-an-analysis, what's-actually-different-in-Pro, and data-source attribution.
+- **`/about` page** — anti-hype positioning. Section headers: "Most rental analyzers tell you what you want to hear" → "We built RealVerdict because we kept watching that happen" → "What's different here" (live data, walk-away price, stress tests, no vague verdicts) → "What we're not" (no brokerage, no course, no Discord-mastermind, no lender referral kickbacks).
+- **`/methodology` page** — `Methodology · How RealVerdict scores a deal`. Six sections: source table for every input, exact formulas (NOI / cap / cash flow / DSCR / CoC / break-even / IRR), tier scoring table (75-100 STRONG BUY through 0-14 AVOID), walk-away binary search, stress test list, comps logic, "what we don't do (yet)". This is the SEO + trust anchor.
+- **`/results` hero restructured** — address now displayed as a prominent line *above* the verdict tier label (was previously a small inline pipe-separated string below). Subject identity is anchored above the answer.
+- **`/dashboard`** — Manage Billing form POST + Plan badge + welcome banner (see Phase M list above; shipped together).
+- **`app/sitemap.ts` + `app/robots.ts`** — indexable: `/`, `/pricing`, `/methodology`, `/about`. Disallowed: `/results` (per-deal URLs are crawl waste, not content), `/api/`, `/dashboard`, `/compare`. Reads `NEXT_PUBLIC_SITE_URL` → `NEXT_PUBLIC_APP_URL` → `VERCEL_URL` in that order.
+- **Quality gates green** — `npm run check`: tsc clean, eslint clean, **101/101 vitest pass**. (One stale empty `node_modules/@types/cheerio` directory was deleted; cheerio was removed in Q1 but a leftover dir was tripping `tsc`'s automatic-types include.)
+
+#### What still needs operator action (Wave 1 P0 follow-ups)
+
+Code-side Wave 1 is done. These items can't be solved by editing files:
+
+1. **Auth signup friction** — Supabase free-tier email confirmations are slow / spam-bucketed. Pick one: (a) disable email confirmation in Supabase dashboard (`Authentication → Providers → Email → Confirm email OFF`) for now, or (b) wire up Google OAuth (Google Cloud project + Supabase Provider config). Until this is fixed, anonymous traffic that wants to upgrade hits a wall.
+2. **Custom domain** — buy `realverdict.app` or `.io`, point DNS at Vercel, update `NEXT_PUBLIC_SITE_URL` + `NEXT_PUBLIC_APP_URL` in Vercel env, update Supabase auth redirect URLs, update Stripe webhook endpoint URL. The `real-verdict-roi.vercel.app` URL on a checkout page kills conversion.
+3. **Annual plan** — create a yearly recurring price in Stripe (suggest $190/yr ≈ "2 months free"), expose as a second `STRIPE_PRICE_ID_PRO_ANNUAL` env var, add a monthly/annual toggle on `/pricing`.
+4. **Legal pages** — Privacy Policy + Terms of Service. Stripe will eventually require them. Skip a generic boilerplate; use Termly or a lawyer.
+5. **Apply migration 003** — `supabase/migrations/003_subscriptions.sql` must be run in the Supabase SQL editor (in addition to 001 and 002 from Q6) before Pro gating works in prod.
+
+#### Next chat starting prompt (recommended)
+
+"Wave 1 (credibility/conversion floor) is shipped per §16.S. The remaining P0 items need operator action — see §16.S 'What still needs operator action.' Once auth + domain are sorted, the next big product bet is **bulk analysis / CSV import** for the active-investor segment (Wave 3 in the strategic plan). Before building it, validate demand by adding a 'Bulk analysis (Pro)' teaser slot on the homepage features section and tracking clicks via Plausible."
+
 
 ### 16.L — Phase Q kickoff: Q1 cleanup + Q2 test harness
 

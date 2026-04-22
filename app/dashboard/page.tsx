@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseEnv } from "@/lib/supabase/config";
+import { getProStatus } from "@/lib/pro";
 import {
   DealAnalysis,
   DealInputs,
@@ -22,7 +23,11 @@ type DealRow = {
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   if (!supabaseEnv().configured) {
     redirect("/login");
   }
@@ -33,10 +38,16 @@ export default async function DashboardPage() {
     redirect("/login?redirect=/dashboard");
   }
 
-  const { data: deals, error } = await supabase
-    .from("deals")
-    .select("id, created_at, address, inputs, results, verdict")
-    .order("created_at", { ascending: false });
+  const search = await searchParams;
+  const justUpgraded = search.checkout === "success";
+
+  const [{ data: deals, error }, proStatus] = await Promise.all([
+    supabase
+      .from("deals")
+      .select("id, created_at, address, inputs, results, verdict")
+      .order("created_at", { ascending: false }),
+    getProStatus(userRes.user.id),
+  ]);
 
   const rows = (deals ?? []) as DealRow[];
 
@@ -51,12 +62,24 @@ export default async function DashboardPage() {
             RealVerdict
           </Link>
           <div className="flex items-center gap-5 text-sm">
-            <Link
-              href="/pricing"
-              className="font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-            >
-              Pricing
-            </Link>
+            {proStatus.isPro ? (
+              <form action="/api/stripe/portal" method="post">
+                <button
+                  type="submit"
+                  className="font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                  title="Open the Stripe billing portal to manage your subscription"
+                >
+                  Manage billing
+                </button>
+              </form>
+            ) : (
+              <Link
+                href="/pricing"
+                className="font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+              >
+                Pricing
+              </Link>
+            )}
             <span className="hidden text-zinc-500 sm:inline dark:text-zinc-400">
               {userRes.user.email}
             </span>
@@ -74,11 +97,22 @@ export default async function DashboardPage() {
 
       <main className="flex-1">
         <div className="mx-auto w-full max-w-6xl px-6 py-12">
+          {justUpgraded && (
+            <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+              <strong>You&apos;re on Pro.</strong> Unlimited verdicts, live
+              comps, and saved portfolio are unlocked. Manage your subscription
+              anytime from the &quot;Manage billing&quot; link above.
+            </div>
+          )}
+
           <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-                Your saved deals
-              </h1>
+              <div className="mb-2 flex items-center gap-2">
+                <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+                  Your saved deals
+                </h1>
+                <PlanBadge isPro={proStatus.isPro} status={proStatus.status} />
+              </div>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {rows.length === 0
                   ? "No deals saved yet. Analyse one and save it from the results page."
@@ -202,6 +236,30 @@ function VerdictBadge({ tier }: { tier: VerdictTier }) {
     >
       {tier}
     </span>
+  );
+}
+
+function PlanBadge({
+  isPro,
+  status,
+}: {
+  isPro: boolean;
+  status: string | null;
+}) {
+  if (isPro) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+        Pro · {status ?? "active"}
+      </span>
+    );
+  }
+  return (
+    <Link
+      href="/pricing"
+      className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+    >
+      Free · upgrade
+    </Link>
   );
 }
 

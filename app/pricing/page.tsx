@@ -109,10 +109,13 @@ function FreeTierCard() {
       </div>
 
       <ul className="mt-6 flex flex-1 flex-col gap-3 text-sm text-zinc-700 dark:text-zinc-300">
-        <Feature>Limited full analyses per week (resets on a rolling window)</Feature>
-        <Feature>All metrics (cash flow, cap rate, DSCR, IRR, projections)</Feature>
-        <Feature>Live preview as you type</Feature>
-        <Feature>Shareable deal links</Feature>
+        <Feature>Up to 5 full analyses per week (rolling)</Feature>
+        <Feature>All metrics — cash flow, cap rate, DSCR, IRR, 5-year projections</Feature>
+        <Feature>Walk-away price ceiling on every deal</Feature>
+        <Feature>Stress test (5 scenarios) and what-if sliders</Feature>
+        <Feature>Auto-fill from any address or Zillow URL</Feature>
+        <Feature>AI advisor — ask follow-up questions about the deal</Feature>
+        <Feature>Shareable verdict links</Feature>
       </ul>
 
       <Link
@@ -149,13 +152,11 @@ function ProTierCard({ signedIn }: { signedIn: boolean }) {
       </div>
 
       <ul className="mt-6 flex flex-1 flex-col gap-3 text-sm text-zinc-700 dark:text-zinc-300">
-        <Feature highlighted>Unlimited deal analyses</Feature>
-        <Feature highlighted>AI advisor — ask anything about your deal</Feature>
-        <Feature highlighted>Save and track deals</Feature>
-        <Feature highlighted>Portfolio dashboard</Feature>
-        <Feature highlighted>PDF export</Feature>
-        <Feature highlighted>Address auto-fill from market data</Feature>
-        <Feature highlighted>Priority support</Feature>
+        <Feature highlighted>Everything in Free, with no weekly limit</Feature>
+        <Feature highlighted>Live sale &amp; rent comparables tab on every verdict</Feature>
+        <Feature highlighted>Save deals to your portfolio dashboard</Feature>
+        <Feature highlighted>Cross-device deal comparison sync</Feature>
+        <Feature highlighted>Cancel anytime · 7-day refund, no questions</Feature>
       </ul>
 
       <div className="mt-8">
@@ -207,15 +208,23 @@ function FAQ() {
   const items: Array<{ q: string; a: string }> = [
     {
       q: "Can I really use it free forever?",
-      a: "Yes. The free tier doesn't expire.",
+      a: "Yes. The free tier doesn't expire — up to 5 full analyses per rolling week.",
     },
     {
       q: "What counts as one analysis?",
-      a: "Each time you submit the form and view results.",
+      a: "Each time you submit a new property and view its verdict page. Re-opening a verdict you already ran doesn't count.",
+    },
+    {
+      q: "What's actually different in Pro?",
+      a: "Three things: (1) no weekly cap, (2) the live comparables tab on every verdict, (3) saving deals to your portfolio with cross-device sync. The verdict math, walk-away ceiling, stress tests, and AI advisor are free.",
+    },
+    {
+      q: "Where does the data come from?",
+      a: "RentCast for AVM and listings, Zillow for active listings, FRED for live mortgage rates, FHFA for metro appreciation, FEMA NFHL for flood zones, plus state-level tax and insurance averages. Every input has a source badge — see /methodology for full detail.",
     },
     {
       q: "Can I cancel anytime?",
-      a: "Yes. No contracts, no questions.",
+      a: "Yes. One click in the Stripe billing portal, no contract, no questions. 7-day refund if it didn't work for you.",
     },
   ];
   return (

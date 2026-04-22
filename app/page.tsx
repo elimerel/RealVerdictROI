@@ -76,7 +76,13 @@ export default async function Home({
           >
             RealVerdict
           </Link>
-          <div className="flex items-center gap-6 text-sm">
+          <div className="flex items-center gap-5 sm:gap-6 text-sm">
+            <Link
+              href="/methodology"
+              className="hidden sm:inline font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+            >
+              Methodology
+            </Link>
             <Link
               href="/compare"
               className="hidden sm:inline font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
@@ -112,23 +118,20 @@ export default async function Home({
       <main id="analyze" className="flex-1">
         <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 pt-10 pb-12 sm:pt-16">
           <div className="mb-10 text-center">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white/70 px-3 py-1 text-xs font-medium uppercase tracking-wider text-zinc-600 dark:border-zinc-800 dark:bg-black/40 dark:text-zinc-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              Early beta · built by one person · free while we&apos;re finding fit
-            </div>
             <h1 className="text-4xl font-bold tracking-tight text-zinc-900 sm:text-6xl dark:text-zinc-50 mb-4">
-              An honest verdict on your{" "}
+              Know the max price{" "}
               <span className="bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 bg-clip-text text-transparent">
-                next deal
+                this deal still works at.
               </span>
             </h1>
             <p className="text-lg leading-relaxed text-zinc-600 sm:text-xl dark:text-zinc-300 max-w-2xl mx-auto">
-              Paste a Zillow URL or address. In under 30 seconds you get the
-              real cash flow, cap rate, DSCR, IRR — plus the{" "}
+              Paste any address or Zillow URL. In 30 seconds: real cash flow,
+              cap rate, DSCR, IRR — and the{" "}
               <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                exact max offer
+                exact walk-away price
               </span>{" "}
-              before this becomes a bad deal.
+              before this stops being a good deal. So you walk into negotiations
+              with a number, not a feeling.
             </p>
           </div>
 
@@ -218,17 +221,16 @@ export default async function Home({
           </div>
         </section>
 
-        {/* BETA CTA — honest replacement for a pricing teaser until we have
-            paying users worth selling to. */}
+        {/* CTA — drives serious investors to Pro, casual users to a sample. */}
         <section className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-              Looking for 10 serious investors to break this tool.
+              Stop talking yourself into bad deals.
             </h2>
             <p className="mt-3 text-base text-zinc-600 dark:text-zinc-300">
-              Free forever for early users. In exchange: tell me where the
-              verdict is wrong, what numbers you wish were here, and what
-              you&apos;d actually pay for. The roadmap ships what you tell me.
+              Free for casual analysis. Pro is for investors actively underwriting
+              multiple deals a week — unlimited verdicts, live comparables, saved
+              portfolio, and cross-device sync.
             </p>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
               <Link
@@ -241,7 +243,13 @@ export default async function Home({
                 href="/pricing"
                 className="inline-flex h-11 items-center rounded-md border border-zinc-300 bg-white px-5 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400 dark:border-zinc-700 dark:bg-transparent dark:text-zinc-100 dark:hover:border-zinc-500"
               >
-                Future pricing
+                See pricing
+              </Link>
+              <Link
+                href="/methodology"
+                className="inline-flex h-11 items-center px-2 text-sm font-medium text-zinc-600 underline underline-offset-2 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              >
+                How the verdict is calculated →
               </Link>
             </div>
           </div>
@@ -249,10 +257,18 @@ export default async function Home({
       </main>
 
       <footer className="border-t border-zinc-200/70 dark:border-zinc-800/70">
-        <div className="mx-auto w-full max-w-6xl px-6 py-6 text-xs text-zinc-500 dark:text-zinc-500">
-          RealVerdict is an analytical tool for educational purposes. Always
-          verify assumptions with a qualified agent, lender, and tax advisor
-          before making an offer.
+        <div className="mx-auto w-full max-w-6xl px-6 py-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-xs text-zinc-500 dark:text-zinc-500">
+          <div>
+            RealVerdict is an analytical tool for educational purposes. Always
+            verify assumptions with a qualified agent, lender, and tax advisor
+            before making an offer.
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Link href="/methodology" className="hover:text-zinc-900 dark:hover:text-zinc-200">Methodology</Link>
+            <Link href="/about" className="hover:text-zinc-900 dark:hover:text-zinc-200">About</Link>
+            <Link href="/pricing" className="hover:text-zinc-900 dark:hover:text-zinc-200">Pricing</Link>
+            <Link href="/compare" className="hover:text-zinc-900 dark:hover:text-zinc-200">Compare</Link>
+          </div>
         </div>
       </footer>
     </div>

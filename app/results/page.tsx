@@ -479,7 +479,6 @@ function HeroSection({
   supabaseConfigured: boolean;
 }) {
   const contextParts: string[] = [];
-  if (address) contextParts.push(address);
   contextParts.push(formatCurrency(inputs.purchasePrice, 0));
   contextParts.push(`${formatCurrency(analysis.monthlyCashFlow, 0)}/mo`);
   contextParts.push(`Cap ${formatPercent(analysis.capRate, 1)}`);
@@ -490,6 +489,11 @@ function HeroSection({
   return (
     <section className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-10">
       <div className="lg:col-span-3 flex flex-col">
+        {address && (
+          <p className="mb-3 text-base font-semibold tracking-tight text-zinc-200 sm:text-lg break-words">
+            {address}
+          </p>
+        )}
         <h1
           className="text-4xl font-bold uppercase leading-none tracking-tight sm:text-5xl md:text-6xl"
           style={{ color: "var(--accent)" }}
