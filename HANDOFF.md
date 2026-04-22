@@ -498,9 +498,92 @@ Code-side Wave 1 is done. These items can't be solved by editing files:
 4. **Legal pages** — Privacy Policy + Terms of Service. Stripe will eventually require them. Skip a generic boilerplate; use Termly or a lawyer.
 5. **Apply migration 003** — `supabase/migrations/003_subscriptions.sql` must be run in the Supabase SQL editor (in addition to 001 and 002 from Q6) before Pro gating works in prod.
 
-#### Next chat starting prompt (recommended)
+#### Next chat starting prompt — SUPERSEDED
 
-"Wave 1 (credibility/conversion floor) is shipped per §16.S. The remaining P0 items need operator action — see §16.S 'What still needs operator action.' Once auth + domain are sorted, the next big product bet is **bulk analysis / CSV import** for the active-investor segment (Wave 3 in the strategic plan). Before building it, validate demand by adding a 'Bulk analysis (Pro)' teaser slot on the homepage features section and tracking clicks via Plausible."
+The original Wave 1 follow-on prompt (build bulk import) was overwritten by §16.T below.
+Read §16.T first.
+
+
+### 16.T — STRATEGY RESET: stop building, start auditing
+
+**Date:** end of the same session that shipped §16.S (Phase M + Wave 1). The user paused execution to step back and challenge the product's actual moat and accuracy. **No code was changed in this entry — it documents a decision, not a ship.**
+
+#### What the user said, in their own framing
+
+1. "Lets actually take a step back and look at the actual product we are selling, how it can beat the competition and stand out and be a really powerful tool doing something better or that nobody's doing that people would actually pay for."
+2. "Our product isn't actually ready yet as the analysis and all that still has major problems so we will have to work through those."
+3. "I could send you the Zillow page, RealVerdict dashboard, and results page and you can rethink and go over how you actually go about taking in all the data that you do and not only giving accurate results but also utilizing that data in the best way to get across to the user."
+4. The user agreed to swap to a fresh agent for the audit/strategy session, and to bring back the Chrome extension idea (originally Phase 5 distribution) into scope as potentially the actual product surface.
+
+#### Honest read on where the product stands
+
+Wave 1 made the *surface* presentable. The product underneath is still a slightly-better DealCheck, not something defensibly different. Specifically:
+
+- **Differentiation today is thin.** The walk-away price is novel. The rubric is tighter than competitors. Both are real but neither is enough — the rest of the surface (Numbers / Stress / What-if / Rubric / Comps tabs) is generic-calculator UX. An active investor paying $35/mo for DealCheck has no compelling reason to switch.
+- **Analysis quality is unverified.** The user states it has "major problems" but we haven't enumerated them. Until we audit on real listings the user has opinions about, every positioning conversation is downstream of a foundation we don't trust.
+- **We have no validated buyer.** Phase Q + Phase M shipped on the assumption that real investors would convert at $19/mo. Zero conversions to date. The pricing thesis is unfalsified.
+- **The Chrome extension was deferred too aggressively.** It was filed as Phase 5 "after launch" distribution. If the new positioning becomes "negotiation weapon for active buyers," the extension may be the actual product surface — the verdict overlays Zillow, where buyers already live, instead of being a tab they have to remember to visit. This needs to be weighed seriously, not buried.
+
+#### Ideas that came out of the strategic conversation (not committed to)
+
+These are candidate product bets for the new agent to weigh against each other. None are decided:
+
+1. **The Negotiation Pack** — every verdict generates a ready-to-send PDF/email: walk-away price + comp evidence + 3 weakest assumptions in the listing pro forma + stress scenarios that break it. Investor forwards to seller's agent as counteroffer rationale. *Nobody is doing this.*
+2. **Bulk pipeline triage** — paste 20 Zillow URLs, get 20 sortable verdicts. Real investors look at 30–100 listings/week and need to kill 95% in seconds.
+3. **Listing-quality intelligence** — auto-flag DOM anomalies, recent price drops, suspicious photos, agent-remarks weasel-words ("as-is," "investor special"), comp-mismatch on bed/bath count. Reading the listing like a 10-year pro, automated.
+4. **Comp reasoning explainer** — not just "5 comps, median $385k" but *why* these 5, where they disagree, what the implied range is with a confidence interval.
+5. **Live deal alerts** — "watch 78745, alert me on STRONG BUYs." Sticky recurring-revenue play.
+6. **Chrome / browser extension** — verdict overlay on Zillow itself. Zero-friction. Free distribution channel via Chrome Web Store. Could be the actual product, not a feature.
+
+The combo I'd argue most strongly for in the next session: **#6 (extension) + #1 (negotiation pack)** — meet buyers where they shop, then arm them with the offer rationale. Pitch becomes *"DealCheck calculates. RealVerdict closes."*
+
+#### Diagnostic questions the new agent must answer before recommending a build
+
+The user offered to send screenshots / URLs of (a) a real Zillow listing they have an opinion on, (b) the RealVerdict /results page for that same listing, (c) their dashboard. The new agent should ask for those *first* and use them to answer:
+
+1. **Are rent estimates off?** RentCast tends to overshoot in B/C neighborhoods, undershoot in A.
+2. **Are property tax estimates off?** RentCast assessor data is patchy; state-level fallback can be wildly wrong (TX effective rate varies 1.5%–3.5% by school district).
+3. **Is the verdict tier wrong on real deals?** Are STRONG BUYs the user would pass on showing up? Are deals they'd grab marked PASS?
+4. **Are comps catching the wrong properties?** 1-mile radius is too tight rural / too loose urban; bed/bath matching breaks on duplexes/condos.
+5. **Is the walk-away price unrealistic?** Showing $-$200k offers, or showing prices indistinguishable from list?
+6. **Is autofill missing critical inputs?** HOA, last-sale, year built, sqft are the usual culprits.
+7. **What killer info is on the page in raw form but isn't being used?** E.g. the listing has DOM data, photo count, price history, school ratings — what are we ignoring?
+
+#### Operator items still open from §16.S (not invalidated)
+
+These remain real and unfinished:
+1. Custom domain (real-verdict-roi.vercel.app is a trust killer on checkout)
+2. Annual plan in Stripe ($190/yr ≈ "2 months free")
+3. Privacy + Terms (use Termly, not boilerplate)
+4. Stripe live-mode switch (only after the above)
+
+The user has done: applied migration 003, disabled Supabase email confirmation, committed + pushed Wave 1.
+
+#### Next chat starting prompt — USE THIS ONE
+
+```
+Read §16.T first, then §16.S, then §19.
+
+We are NOT building features in this session. The plan is:
+
+1. Audit analysis quality on real Zillow listings I'll send you. Tell me
+   what's wrong, with specifics. Use the diagnostic questions in §16.T.
+
+2. Based on that audit + the candidate bets in §16.T, propose a sharpened
+   product positioning. Be willing to recommend killing features we built.
+
+3. Recommend the single next product bet — argue for one of: the negotiation
+   pack, bulk triage, listing-quality intelligence, comp reasoning explainer,
+   live deal alerts, or the Chrome extension. The Chrome extension is back
+   on the table — weigh it as a potential product surface, not just a
+   distribution channel.
+
+4. Write your conclusions into HANDOFF.md as §16.U + §20 so we have a
+   permanent record before any code is written.
+
+Switch to plan mode (read-only) until I explicitly ask you to write code.
+Ask me for the Zillow URLs and screenshots before doing anything else.
+```
 
 
 ### 16.L — Phase Q kickoff: Q1 cleanup + Q2 test harness
@@ -1100,3 +1183,73 @@ When verifying any change, re-run these four. They exercise the different failur
 4. **A Staten Island listing** (user-provided in prior chats) — tests the original "lazy warnings" regression didn't return.
 
 If any of these regresses, STOP — don't proceed with new data sources until the regression is understood and fixed.
+
+---
+
+## 19. Open product questions — strategy reset working list
+
+Working list for the post-§16.T strategy reset. Each item is open until explicitly resolved by the user. The new agent should treat this as the agenda, work through it in order, and write resolutions back into HANDOFF as items get answered.
+
+### 19.1 — Analysis accuracy audit (BLOCKING)
+
+The user states the analysis "still has major problems." We have not enumerated them. Until this is resolved, no positioning or feature work is justified.
+
+**Method:** user provides 2–3 real Zillow listings they have a strong opinion on. For each:
+
+- Compare what RealVerdict's `/results` page shows vs. what the listing actually says vs. what the user believes is true.
+- Specifically audit: AVM / list price, market rent, property tax, insurance, HOA, year built, sqft, beds/baths, comps selection, walk-away price, verdict tier.
+- Identify: which numbers are wrong, which are missing, which are present but presented poorly.
+
+**Deliverable:** new section §16.U documenting findings + a prioritized fix list.
+
+### 19.2 — Positioning decision
+
+What is RealVerdict, in one sentence, that DealCheck / Stessa / Mashvisor cannot also claim?
+
+**Candidates surfaced in the strategy conversation (§16.T):**
+
+| Positioning | Centerpiece feature | Honest cost |
+|---|---|---|
+| **Negotiation weapon for active buyers** | Walk-away price + Negotiation Pack | Forces us to build the Pack and prove the math |
+| **Pipeline triage at scale** | Bulk URL → sortable verdicts | Forces us to optimize for speed-of-judgment, not depth-of-analysis |
+| **Listing-quality intelligence** | Auto-flag DOM, price drops, agent-remarks weasel-words | Forces us to scrape and reason about Zillow itself, not just AVM |
+| **Browser-native verdict** | Chrome extension overlays Zillow | Forces us to build + maintain an extension, comply with Chrome Web Store, handle MLS-data terms |
+
+These are not mutually exclusive but pursuing all four = pursuing none. **Pick one to be the headline, at most one as supporting.** Defer the rest to future waves.
+
+### 19.3 — Chrome extension: feature, surface, or product?
+
+The extension was deferred to Phase 5 distribution in the original plan. Re-evaluating in light of §16.T:
+
+- **As a feature:** thin wrapper over the existing web app. Low-effort, low-distinctiveness.
+- **As a surface:** the primary place users interact with RealVerdict. Web dashboard becomes the portfolio + history. Verdicts happen on Zillow.
+- **As the product:** RealVerdict.com becomes a marketing site + onboarding for the extension; the actual product is the extension. Web verdict still exists for share-link recipients without the extension.
+
+This decision should fall out of §19.2. If the positioning is "negotiation weapon for active buyers," option 2 or 3 is likely. If it's "pipeline triage at scale," the extension is supporting at most.
+
+### 19.4 — Data quality remediation, after §19.1
+
+Once we know what's wrong from §19.1, the fix work likely splits into:
+
+- **Per-source recalibration** — RentCast AVM bias by neighborhood tier, tax-rate fallback by school district not state, HOA detection from listing text not just RentCast field, etc.
+- **Per-derivation hardening** — comp filtering when the area is dense vs. rural, walk-away binary search guard rails when verdict score is non-monotonic, etc.
+- **Per-presentation cleanup** — what's on the page in raw form but isn't being used, what's presented in a way that hides the answer.
+
+Defer until §19.1 is done.
+
+### 19.5 — Distribution & first-paying-customer plan
+
+The product has no validated buyer. Stripe is in test mode. Zero conversions. Before live-mode switch:
+
+- Identify 5–10 active investors in the user's network or BiggerPockets / REI subreddits to demo the post-§16.U product to.
+- Get qualitative feedback: would they pay $19/mo? $35? $50? What would they need to see to switch from DealCheck?
+- Only after at least 1 person says "I'd pay" → switch Stripe to live mode + ship the killer feature from §19.2 → ask them to convert.
+
+### 19.6 — Operator items still open from §16.S
+
+These do not block the strategy work but remain real:
+
+- [ ] Custom domain (`realverdict.app` or `.io`)
+- [ ] Annual Stripe plan ($190/yr)
+- [ ] Privacy + Terms (Termly)
+- [ ] Stripe live-mode switch (only after the killer feature from §19.2 is shipped + at least 1 demo says "yes")
