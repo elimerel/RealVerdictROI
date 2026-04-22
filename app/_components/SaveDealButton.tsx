@@ -21,12 +21,14 @@ export default function SaveDealButton({
   address,
   currentUrl,
   signedIn,
+  isPro,
   supabaseConfigured,
 }: {
   inputs: DealInputs;
   address?: string;
   currentUrl: string;
   signedIn: boolean;
+  isPro: boolean;
   supabaseConfigured: boolean;
 }) {
   const router = useRouter();
@@ -38,6 +40,12 @@ export default function SaveDealButton({
     if (!signedIn) {
       router.push(
         `/login?mode=signup&redirect=${encodeURIComponent(currentUrl)}`,
+      );
+      return;
+    }
+    if (!isPro) {
+      router.push(
+        `/pricing?redirect=${encodeURIComponent(currentUrl)}`,
       );
       return;
     }
@@ -89,11 +97,13 @@ export default function SaveDealButton({
 
   const label = !signedIn
     ? "Save this analysis"
-    : status.state === "saving"
-      ? "Saving…"
-      : status.state === "error"
-        ? "Try again"
-        : "Save this analysis";
+    : !isPro
+      ? "Save (Pro)"
+      : status.state === "saving"
+        ? "Saving…"
+        : status.state === "error"
+          ? "Try again"
+          : "Save this analysis";
 
   return (
     <div className="flex flex-col gap-2">

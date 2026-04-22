@@ -6,6 +6,8 @@ import {
   sanitiseInputs,
   type DealAnalysis,
 } from "@/lib/calculations";
+import { enforceRateLimit } from "@/lib/ratelimit";
+import { withErrorReporting, logEvent } from "@/lib/observability";
 
 // Allow the response up to a full minute — the longest answers can stream 15s+.
 export const maxDuration = 60;
@@ -18,7 +20,10 @@ type ChatRequestBody = {
   mode?: Mode;
 };
 
-export async function POST(req: Request) {
+export const POST = withErrorReporting("api.chat", async (req: Request) => {
+  const limited = await enforceRateLimit(req, "chat");
+  if (limited) return limited;
+
   if (!process.env.OPENAI_API_KEY) {
     return new Response(
       "OPENAI_API_KEY is not set. Add it to .env.local and restart the dev server.",
@@ -43,12 +48,15 @@ export async function POST(req: Request) {
   const inputs = sanitiseInputs(body.inputs);
   const analysis = analyseDeal(inputs);
 
-  // Explicit mode picks the model:
-  //   "verdict" → gpt-4o-mini (short, structured, cheap, fast)
-  //   "chat"    → gpt-4o     (richer reasoning on hypotheticals)
-  // If the client omits mode we assume follow-up chat.
   const mode: Mode = body.mode === "verdict" ? "verdict" : "chat";
   const model = mode === "verdict" ? "gpt-4o-mini" : "gpt-4o";
+
+  logEvent("chat.request", {
+    mode,
+    model,
+    verdict: analysis.verdict.tier,
+    msgCount: body.messages.length,
+  });
 
   const result = streamText({
     model: openai(model),
@@ -58,7 +66,7 @@ export async function POST(req: Request) {
   });
 
   return result.toUIMessageStreamResponse();
-}
+});
 
 // ---------------------------------------------------------------------------
 // System prompt — identical opener + banned-phrase guardrails for both modes,
@@ -175,8 +183,7 @@ Annual debt service: ${f(a.annualDebtService)}
 Cap rate: ${p(a.capRate, 2)}
 Cash-on-cash return: ${p(a.cashOnCashReturn, 2)}
 DSCR: ${isFinite(a.dscr) ? a.dscr.toFixed(2) : "∞ (no debt)"}
-Gross rent multiplier: ${a.grossRentMultiplier.toFixed(1)}
-1% rule: ${p(a.onePercentRule, 2)}
+Gross rent multiplier: ${a.grossRentMultiplier.toFixed(1)}× annual rent
 Operating expense ratio: ${p(a.operatingExpenseRatio, 0)}
 Break-even occupancy: ${p(a.breakEvenOccupancy, 0)}
 

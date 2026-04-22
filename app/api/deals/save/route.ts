@@ -6,13 +6,16 @@ import {
   DealInputs,
   sanitiseInputs,
 } from "@/lib/calculations";
+import { enforceRateLimit } from "@/lib/ratelimit";
+import { withErrorReporting, captureError, logEvent } from "@/lib/observability";
+import { isPro } from "@/lib/pro";
 
 type SaveBody = {
   inputs: DealInputs;
   address?: string;
 };
 
-export async function POST(req: Request) {
+export const POST = withErrorReporting("api.deals-save", async (req: Request) => {
   if (!supabaseEnv().configured) {
     return NextResponse.json(
       { error: "Supabase is not configured on this deployment." },
@@ -42,6 +45,17 @@ export async function POST(req: Request) {
     );
   }
 
+  // Per-user save budget (falls back to IP if somehow userId is absent).
+  const limited = await enforceRateLimit(req, "deals-save", userRes.user.id);
+  if (limited) return limited;
+
+  if (!(await isPro(userRes.user))) {
+    return NextResponse.json(
+      { error: "Pro subscription required.", code: "pro_required" },
+      { status: 402 },
+    );
+  }
+
   // Recompute from sanitised inputs so what we store always matches what
   // the engine would produce — no trusting client-side results.
   const inputs = sanitiseInputs(body.inputs);
@@ -60,6 +74,10 @@ export async function POST(req: Request) {
     .single();
 
   if (error) {
+    captureError(error, {
+      area: "api.deals-save",
+      extra: { stage: "supabase_insert", userId: userRes.user.id, code: error.code },
+    });
     return NextResponse.json(
       {
         error: `Could not save deal: ${error.message}. Did you run supabase/migrations/001_deals.sql?`,
@@ -68,5 +86,10 @@ export async function POST(req: Request) {
     );
   }
 
+  logEvent("deals.save", {
+    userId: userRes.user.id,
+    verdict: analysis.verdict.tier,
+  });
+
   return NextResponse.json({ id: data.id, createdAt: data.created_at });
-}
+});

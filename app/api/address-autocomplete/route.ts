@@ -1,4 +1,6 @@
 import type { NextRequest } from "next/server";
+import { enforceRateLimit } from "@/lib/ratelimit";
+import { withErrorReporting, captureError } from "@/lib/observability";
 
 // Nominatim proxy. The browser can't set a custom User-Agent (it's a
 // forbidden header), so we must relay the request from the server to comply
@@ -44,11 +46,16 @@ type NominatimRow = {
   };
 };
 
-export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q")?.trim();
-  if (!q || q.length < 4) {
-    return Response.json([]);
-  }
+export const GET = withErrorReporting(
+  "api.address-autocomplete",
+  async (req: NextRequest) => {
+    const limited = await enforceRateLimit(req, "address-autocomplete");
+    if (limited) return limited;
+
+    const q = req.nextUrl.searchParams.get("q")?.trim();
+    if (!q || q.length < 4) {
+      return Response.json([]);
+    }
 
   const url = new URL(NOMINATIM_URL);
   url.searchParams.set("q", q);
@@ -80,13 +87,14 @@ export async function GET(req: NextRequest) {
     const suggestions: AddressSuggestion[] = rows.map(formatRow);
     return Response.json(suggestions);
   } catch (err) {
+    captureError(err, { area: "api.address-autocomplete", extra: { q } });
     const message = err instanceof Error ? err.message : "Unknown error";
     return Response.json(
       { error: `Autocomplete failed: ${message}` },
       { status: 502 },
     );
   }
-}
+});
 
 function formatRow(r: NominatimRow): AddressSuggestion {
   const a = r.address ?? {};

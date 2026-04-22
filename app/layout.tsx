@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Analytics from "./_components/Analytics";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,10 +13,34 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// metadataBase lets relative OG / Twitter image URLs resolve to absolute ones.
+// Override via NEXT_PUBLIC_SITE_URL in production.
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
 export const metadata: Metadata = {
-  title: "RealVerdictROI — An honest verdict on your next real estate deal",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "RealVerdict — Know the max to offer before a deal goes bad",
+    template: "%s · RealVerdict",
+  },
   description:
-    "Run the full numbers on any rental property in seconds: cash flow, cap rate, cash-on-cash, DSCR, IRR, and a plain-English verdict on whether the deal is worth pursuing.",
+    "Paste any Zillow URL and get the verdict — cash flow, cap rate, DSCR, IRR — plus the exact maximum offer price before the deal stops being a good one.",
+  openGraph: {
+    type: "website",
+    siteName: "RealVerdict",
+    title: "RealVerdict — Know the max to offer before a deal goes bad",
+    description:
+      "An honest, AI-powered verdict on any rental property. With the one number no other analyzer gives you: the walk-away price.",
+    images: ["/api/og"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "RealVerdict — Know the max to offer before a deal goes bad",
+    description:
+      "An honest, AI-powered verdict on any rental property. With the walk-away price built in.",
+    images: ["/api/og"],
+  },
 };
 
 export default function RootLayout({
@@ -28,7 +53,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }

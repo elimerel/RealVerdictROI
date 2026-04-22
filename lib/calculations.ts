@@ -63,9 +63,21 @@ export type YearProjection = {
 
 export type VerdictTier = "excellent" | "good" | "fair" | "poor" | "avoid";
 
+export type RubricStatus = "win" | "ok" | "warn" | "fail";
+
+export type RubricItem = {
+  category: string;
+  metric: string;          // short-hand for the metric tested (e.g. "Cap rate 6.2%")
+  points: number;          // signed contribution to the score
+  maxPoints: number;       // upper bound for this category if perfectly satisfied
+  status: RubricStatus;
+  note: string;            // one-line explanation
+};
+
 export type Verdict = {
   tier: VerdictTier;
   score: number; // 0–100
+  breakdown: RubricItem[]; // ordered list of signals with their per-category points
   headline: string;
   summary: string;
   strengths: string[];
@@ -446,7 +458,7 @@ export function analyseDeal(raw: DealInputs): DealAnalysis {
     annualCashFlow,
     totalROI,
     irr: computedIrr,
-    onePercentRule,
+    grossRentMultiplier,
     breakEvenOccupancy,
     operatingExpenseRatio,
   });
@@ -512,162 +524,45 @@ type VerdictMetrics = {
   annualCashFlow: number;
   totalROI: number;
   irr: number;
-  onePercentRule: number;
+  grossRentMultiplier: number;
   breakEvenOccupancy: number;
   operatingExpenseRatio: number;
 };
 
 function renderVerdict(m: VerdictMetrics): Verdict {
-  // Each signal contributes up to ~15 points. Total is clamped to 0–100.
-  const signals: Array<{ points: number; strength?: string; risk?: string }> = [];
+  // A deal that's negative-year-1 can still be a good appreciation play —
+  // classic example is a low-cap-rate NJ / Long Island / CA market where the
+  // investor is underwriting for equity growth and rent catch-up rather than
+  // immediate cash flow. Hard-punishing those deals produces absurd outcomes
+  // like "AVOID" on a property with 10%+ IRR and a 2.5× equity multiple.
+  //
+  // When long-term math is clearly positive (IRR ≥ 8% AND total-ROI ≥ 50%
+  // over the hold period), we soften the year-1 CoC / DSCR fails — the
+  // shortfall is still flagged as "warn" but no longer torpedoes the score.
+  const appreciationRescue =
+    isFinite(m.irr) && m.irr >= 0.08 && m.totalROI >= 0.5;
 
-  // Cash-on-cash (target ≥ 8%)
-  if (m.cashOnCashReturn >= 0.12)
-    signals.push({
-      points: 18,
-      strength: `Strong ${(m.cashOnCashReturn * 100).toFixed(1)}% cash-on-cash return`,
-    });
-  else if (m.cashOnCashReturn >= 0.08)
-    signals.push({
-      points: 14,
-      strength: `Healthy ${(m.cashOnCashReturn * 100).toFixed(1)}% cash-on-cash return`,
-    });
-  else if (m.cashOnCashReturn >= 0.05)
-    signals.push({
-      points: 8,
-      risk: `Cash-on-cash only ${(m.cashOnCashReturn * 100).toFixed(1)}% — below the 8% comfort zone`,
-    });
-  else if (m.cashOnCashReturn >= 0)
-    signals.push({
-      points: 3,
-      risk: `Thin cash-on-cash (${(m.cashOnCashReturn * 100).toFixed(1)}%) leaves little margin for error`,
-    });
-  else
-    signals.push({
-      points: -10,
-      risk: `Negative cash-on-cash (${(m.cashOnCashReturn * 100).toFixed(1)}%) — you pay to own this`,
-    });
-
-  // Cap rate (target 6%+ for most US markets)
-  if (m.capRate >= 0.08)
-    signals.push({
-      points: 15,
-      strength: `High cap rate of ${(m.capRate * 100).toFixed(1)}%`,
-    });
-  else if (m.capRate >= 0.06)
-    signals.push({
-      points: 11,
-      strength: `Solid cap rate of ${(m.capRate * 100).toFixed(1)}%`,
-    });
-  else if (m.capRate >= 0.045)
-    signals.push({ points: 6 });
-  else
-    signals.push({
-      points: 0,
-      risk: `Low cap rate (${(m.capRate * 100).toFixed(1)}%) — betting on appreciation, not income`,
-    });
-
-  // DSCR (lender target ≥ 1.25)
-  if (!isFinite(m.dscr))
-    signals.push({ points: 12, strength: "No debt — every dollar of NOI is yours" });
-  else if (m.dscr >= 1.5)
-    signals.push({
-      points: 15,
-      strength: `Very safe ${m.dscr.toFixed(2)} DSCR`,
-    });
-  else if (m.dscr >= 1.25)
-    signals.push({
-      points: 11,
-      strength: `Comfortable ${m.dscr.toFixed(2)} DSCR`,
-    });
-  else if (m.dscr >= 1.0)
-    signals.push({
-      points: 4,
-      risk: `Tight ${m.dscr.toFixed(2)} DSCR — one bad month and you're underwater`,
-    });
-  else
-    signals.push({
-      points: -8,
-      risk: `DSCR below 1.0 (${m.dscr.toFixed(2)}) — NOI does not cover the mortgage`,
-    });
-
-  // IRR over hold period
-  if (isFinite(m.irr)) {
-    if (m.irr >= 0.15)
-      signals.push({
-        points: 18,
-        strength: `Excellent projected IRR of ${(m.irr * 100).toFixed(1)}%`,
-      });
-    else if (m.irr >= 0.1)
-      signals.push({
-        points: 12,
-        strength: `Strong projected IRR of ${(m.irr * 100).toFixed(1)}%`,
-      });
-    else if (m.irr >= 0.06)
-      signals.push({ points: 6 });
-    else if (m.irr >= 0)
-      signals.push({
-        points: 1,
-        risk: `Low IRR (${(m.irr * 100).toFixed(1)}%) — you can likely do better with an index fund`,
-      });
-    else
-      signals.push({
-        points: -8,
-        risk: `Negative IRR (${(m.irr * 100).toFixed(1)}%) — projected to lose money`,
-      });
-  }
-
-  // Break-even occupancy (target < 85%)
-  if (m.breakEvenOccupancy > 0 && m.breakEvenOccupancy < 0.8)
-    signals.push({
-      points: 10,
-      strength: `Low break-even occupancy of ${(m.breakEvenOccupancy * 100).toFixed(0)}%`,
-    });
-  else if (m.breakEvenOccupancy >= 0.95)
-    signals.push({
-      points: 0,
-      risk: `Break-even occupancy is ${(m.breakEvenOccupancy * 100).toFixed(0)}% — almost no vacancy tolerance`,
-    });
-  else if (m.breakEvenOccupancy >= 0.85)
-    signals.push({ points: 4 });
-
-  // 1% rule (monthly rent ≥ 1% of price)
-  if (m.onePercentRule >= 0.01)
-    signals.push({
-      points: 7,
-      strength: "Passes the 1% rule",
-    });
-  else if (m.onePercentRule >= 0.007)
-    signals.push({ points: 3 });
-  else
-    signals.push({
-      points: 0,
-      risk: `Rent is only ${(m.onePercentRule * 100).toFixed(2)}% of price — well below the 1% rule`,
-    });
-
-  // Total hold-period ROI
-  if (m.totalROI >= 1.5)
-    signals.push({
-      points: 10,
-      strength: `Projected total ROI of ${(m.totalROI * 100).toFixed(0)}% over the hold period`,
-    });
-  else if (m.totalROI >= 0.5)
-    signals.push({ points: 5 });
-  else if (m.totalROI < 0)
-    signals.push({
-      points: -5,
-      risk: `Projected total ROI is negative (${(m.totalROI * 100).toFixed(0)}%)`,
-    });
+  const breakdown: RubricItem[] = [
+    scoreCashOnCash(m.cashOnCashReturn, appreciationRescue),
+    scoreCapRate(m.capRate),
+    scoreDSCR(m.dscr, appreciationRescue),
+    scoreIRR(m.irr),
+    scoreBreakEven(m.breakEvenOccupancy),
+    scoreGRM(m.grossRentMultiplier),
+    scoreTotalROI(m.totalROI),
+  ];
 
   const score = Math.max(
     0,
-    Math.min(100, signals.reduce((s, sig) => s + sig.points, 0)),
+    Math.min(100, breakdown.reduce((s, r) => s + r.points, 0)),
   );
 
-  const strengths = signals
-    .filter((s) => s.strength)
-    .map((s) => s.strength as string);
-  const risks = signals.filter((s) => s.risk).map((s) => s.risk as string);
+  const strengths = breakdown
+    .filter((r) => r.status === "win")
+    .map((r) => r.note);
+  const risks = breakdown
+    .filter((r) => r.status === "warn" || r.status === "fail")
+    .map((r) => r.note);
 
   let tier: VerdictTier;
   let headline: string;
@@ -700,7 +595,251 @@ function renderVerdict(m: VerdictMetrics): Verdict {
       "The deal is projected to lose money or leave you dangerously exposed. There are better uses for this capital.";
   }
 
-  return { tier, score, headline, summary, strengths, risks };
+  return { tier, score, breakdown, headline, summary, strengths, risks };
+}
+
+// ---------------------------------------------------------------------------
+// Per-category scoring helpers. Each returns a RubricItem with a signed point
+// contribution, the maximum it could contribute under ideal conditions, and a
+// status that the UI uses to color the row.
+// ---------------------------------------------------------------------------
+
+function scoreCashOnCash(coc: number, appreciationRescue: boolean): RubricItem {
+  // Year-1 cash-on-cash is important but not determinative — plenty of real
+  // deals start cash-flow-negative and reach strong returns via rent growth
+  // and principal paydown. We cap the upside at 12pts (down from 18) so the
+  // scorecard doesn't double-count with IRR, and we cap the negative
+  // penalty at -3 when long-term math rescues the deal.
+  const category = "Cash-on-cash";
+  const metric = `${(coc * 100).toFixed(1)}% year-1 CoC`;
+  const maxPoints = 12;
+  if (coc >= 0.12)
+    return {
+      category, metric, maxPoints, points: 12, status: "win",
+      note: `Strong ${(coc * 100).toFixed(1)}% cash-on-cash return.`,
+    };
+  if (coc >= 0.08)
+    return {
+      category, metric, maxPoints, points: 9, status: "win",
+      note: `Healthy ${(coc * 100).toFixed(1)}% cash-on-cash return.`,
+    };
+  if (coc >= 0.05)
+    return {
+      category, metric, maxPoints, points: 5, status: "warn",
+      note: `Cash-on-cash only ${(coc * 100).toFixed(1)}% — below the 8% comfort zone.`,
+    };
+  if (coc >= 0)
+    return {
+      category, metric, maxPoints, points: 2, status: "warn",
+      note: `Thin cash-on-cash (${(coc * 100).toFixed(1)}%) leaves little margin for error.`,
+    };
+  // Negative CoC — soften if IRR/totalROI rescue the deal long-term.
+  if (appreciationRescue)
+    return {
+      category, metric, maxPoints, points: -3, status: "warn",
+      note: `Year-1 cash-on-cash is negative (${(coc * 100).toFixed(1)}%) — you'll feed this deal upfront, but long-term IRR and equity growth make the math work.`,
+    };
+  return {
+    category, metric, maxPoints, points: -8, status: "fail",
+    note: `Negative cash-on-cash (${(coc * 100).toFixed(1)}%) — you pay to own this.`,
+  };
+}
+
+function scoreCapRate(cap: number): RubricItem {
+  const category = "Cap rate";
+  const metric = `${(cap * 100).toFixed(1)}% NOI / price`;
+  const maxPoints = 15;
+  if (cap >= 0.08)
+    return {
+      category, metric, maxPoints, points: 15, status: "win",
+      note: `High cap rate of ${(cap * 100).toFixed(1)}%.`,
+    };
+  if (cap >= 0.06)
+    return {
+      category, metric, maxPoints, points: 11, status: "win",
+      note: `Solid cap rate of ${(cap * 100).toFixed(1)}%.`,
+    };
+  if (cap >= 0.045)
+    return {
+      category, metric, maxPoints, points: 6, status: "ok",
+      note: `Cap rate of ${(cap * 100).toFixed(1)}% is in the average range.`,
+    };
+  return {
+    category, metric, maxPoints, points: 0, status: "warn",
+    note: `Low cap rate (${(cap * 100).toFixed(1)}%) — betting on appreciation, not income.`,
+  };
+}
+
+function scoreDSCR(dscr: number, appreciationRescue: boolean): RubricItem {
+  const category = "DSCR";
+  const maxPoints = 15;
+  if (!isFinite(dscr))
+    return {
+      category, metric: "All cash (no debt)", maxPoints, points: 12, status: "win",
+      note: "No debt — every dollar of NOI is yours.",
+    };
+  const metric = `${dscr.toFixed(2)} (NOI / debt service)`;
+  if (dscr >= 1.5)
+    return {
+      category, metric, maxPoints, points: 15, status: "win",
+      note: `Very safe ${dscr.toFixed(2)} DSCR.`,
+    };
+  if (dscr >= 1.25)
+    return {
+      category, metric, maxPoints, points: 11, status: "win",
+      note: `Comfortable ${dscr.toFixed(2)} DSCR.`,
+    };
+  if (dscr >= 1.0)
+    return {
+      category, metric, maxPoints, points: 4, status: "warn",
+      note: `Tight ${dscr.toFixed(2)} DSCR — one bad month and you're underwater.`,
+    };
+  // Sub-1 DSCR: lender-alarm territory, still a warn/fail. Soften the hit if
+  // the long-term math rescues the deal — the real risk is refinancing, not
+  // insolvency, when equity is building quickly.
+  if (appreciationRescue)
+    return {
+      category, metric, maxPoints, points: -3, status: "warn",
+      note: `DSCR ${dscr.toFixed(2)} means year-1 NOI doesn't cover debt service — you'll carry the shortfall. Flagged but not disqualifying given the IRR and equity growth.`,
+    };
+  return {
+    category, metric, maxPoints, points: -8, status: "fail",
+    note: `DSCR below 1.0 (${dscr.toFixed(2)}) — NOI does not cover the mortgage.`,
+  };
+}
+
+function scoreIRR(irr: number): RubricItem {
+  // IRR is the single best summary statistic for a hold-period return, so we
+  // lean on it more heavily (max 22, up from 18) and give it an 8% tier
+  // between the 10% and 6% breakpoints. 8% ≈ long-run S&P 500 real return
+  // which is a reasonable "rescue threshold" for a cash-tight deal.
+  const category = "IRR (hold period)";
+  const maxPoints = 22;
+  if (!isFinite(irr))
+    return {
+      category, metric: "Could not converge", maxPoints, points: 0, status: "ok",
+      note: "IRR couldn't be computed for this cash-flow shape.",
+    };
+  const metric = `${(irr * 100).toFixed(1)}% annualised`;
+  if (irr >= 0.15)
+    return {
+      category, metric, maxPoints, points: 22, status: "win",
+      note: `Excellent projected IRR of ${(irr * 100).toFixed(1)}%.`,
+    };
+  if (irr >= 0.1)
+    return {
+      category, metric, maxPoints, points: 16, status: "win",
+      note: `Strong projected IRR of ${(irr * 100).toFixed(1)}%.`,
+    };
+  if (irr >= 0.08)
+    return {
+      category, metric, maxPoints, points: 11, status: "win",
+      note: `Solid projected IRR of ${(irr * 100).toFixed(1)}% — beats the stock market on average.`,
+    };
+  if (irr >= 0.06)
+    return {
+      category, metric, maxPoints, points: 6, status: "ok",
+      note: `Modest IRR of ${(irr * 100).toFixed(1)}% — roughly in line with the stock market.`,
+    };
+  if (irr >= 0)
+    return {
+      category, metric, maxPoints, points: 1, status: "warn",
+      note: `Low IRR (${(irr * 100).toFixed(1)}%) — you can likely do better with an index fund.`,
+    };
+  return {
+    category, metric, maxPoints, points: -8, status: "fail",
+    note: `Negative IRR (${(irr * 100).toFixed(1)}%) — projected to lose money.`,
+  };
+}
+
+function scoreBreakEven(be: number): RubricItem {
+  const category = "Vacancy tolerance";
+  const metric = `${(be * 100).toFixed(0)}% break-even occupancy`;
+  const maxPoints = 10;
+  if (be > 0 && be < 0.8)
+    return {
+      category, metric, maxPoints, points: 10, status: "win",
+      note: `Low break-even occupancy of ${(be * 100).toFixed(0)}% — lots of buffer.`,
+    };
+  if (be < 0.85)
+    return {
+      category, metric, maxPoints, points: 7, status: "ok",
+      note: `Break-even occupancy of ${(be * 100).toFixed(0)}% is workable.`,
+    };
+  if (be < 0.95)
+    return {
+      category, metric, maxPoints, points: 4, status: "warn",
+      note: `Break-even occupancy of ${(be * 100).toFixed(0)}% leaves limited room.`,
+    };
+  return {
+    category, metric, maxPoints, points: 0, status: "fail",
+    note: `Break-even occupancy is ${(be * 100).toFixed(0)}% — almost no vacancy tolerance.`,
+  };
+}
+
+function scoreGRM(grm: number): RubricItem {
+  // Gross Rent Multiplier = price / annual gross rent. Lower = better.
+  // 2025-2026 reference points by metro: Cleveland/Memphis ~7-9, Tampa/Atlanta
+  // ~10-13, Austin/Charlotte ~13-16, Boston/Seattle ~15-18, SF/NYC/LA ~18-25+.
+  // Target: under 12 is generally cash-flow friendly anywhere; over 18 means
+  // you are paying for appreciation, not income.
+  const category = "Price-to-rent (GRM)";
+  const metric = `${grm.toFixed(1)}× annual rent`;
+  const maxPoints = 7;
+  if (grm <= 0)
+    return {
+      category, metric: "—", maxPoints, points: 0, status: "ok",
+      note: "Couldn't compute GRM (need both rent and price).",
+    };
+  if (grm <= 9)
+    return {
+      category, metric, maxPoints, points: 7, status: "win",
+      note: `Strong price-to-rent (${grm.toFixed(1)}× annual). Cash flow comes easy at this multiple.`,
+    };
+  if (grm <= 12)
+    return {
+      category, metric, maxPoints, points: 5, status: "win",
+      note: `Healthy price-to-rent (${grm.toFixed(1)}× annual) for most US markets.`,
+    };
+  if (grm <= 15)
+    return {
+      category, metric, maxPoints, points: 3, status: "ok",
+      note: `Average price-to-rent (${grm.toFixed(1)}× annual) — typical of mid-tier metros.`,
+    };
+  if (grm <= 18)
+    return {
+      category, metric, maxPoints, points: 1, status: "warn",
+      note: `Expensive price-to-rent (${grm.toFixed(1)}× annual). Income margin is thin.`,
+    };
+  return {
+    category, metric, maxPoints, points: 0, status: "fail",
+    note: `Very high price-to-rent (${grm.toFixed(1)}× annual) — you're paying for appreciation, not cash flow.`,
+  };
+}
+
+function scoreTotalROI(roi: number): RubricItem {
+  const category = "Total ROI";
+  const metric = `${(roi * 100).toFixed(0)}% over hold period`;
+  const maxPoints = 10;
+  if (roi >= 1.5)
+    return {
+      category, metric, maxPoints, points: 10, status: "win",
+      note: `Projected total ROI of ${(roi * 100).toFixed(0)}% over the hold period.`,
+    };
+  if (roi >= 0.5)
+    return {
+      category, metric, maxPoints, points: 5, status: "ok",
+      note: `Projected total ROI of ${(roi * 100).toFixed(0)}% — adequate over the hold period.`,
+    };
+  if (roi >= 0)
+    return {
+      category, metric, maxPoints, points: 1, status: "warn",
+      note: `Projected total ROI of ${(roi * 100).toFixed(0)}% is weak.`,
+    };
+  return {
+    category, metric, maxPoints, points: -5, status: "fail",
+    note: `Projected total ROI is negative (${(roi * 100).toFixed(0)}%).`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -742,6 +881,197 @@ export function sanitiseInputs(raw: DealInputs): DealInputs {
     sellingCostsPercent: clamp(raw.sellingCostsPercent, 0, 100),
     holdPeriodYears: Math.max(1, Math.round(clamp(raw.holdPeriodYears, 1, 50))),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Offer-ceiling solver
+//
+// Given a set of inputs, finds the highest purchase price at which the deal
+// would still earn each verdict tier. Uses binary search — the verdict score
+// is monotonically non-increasing as price rises (price up → cap, CoC, DSCR,
+// IRR all fall), which gives us a clean inversion target.
+//
+// Result shape (each value is the max purchase price for that tier or better):
+//   { excellent?: number, good?: number, fair?: number, poor?: number }
+//
+// A tier is omitted if it isn't achievable at any price ≥ $1,000.
+// ---------------------------------------------------------------------------
+
+export type OfferCeiling = {
+  /** Max price at which the deal scores "excellent". */
+  excellent?: number;
+  /** Max price at which the deal scores at least "good". */
+  good?: number;
+  /** Max price at which the deal scores at least "fair". */
+  fair?: number;
+  /** Max price at which the deal scores at least "poor" (i.e. anything but "avoid"). */
+  poor?: number;
+  /** The currently-supplied price, echoed back for convenience. */
+  currentPrice: number;
+  /** The verdict tier at the current price. */
+  currentTier: VerdictTier;
+  /**
+   * The single price we recommend as the practical ceiling — defined as the
+   * max price for the best tier that is achievable. Investors negotiate
+   * against this number.
+   */
+  recommendedCeiling?: { price: number; tier: VerdictTier };
+  /**
+   * The practical negotiation target: the best tier that's reachable within
+   * a realistic discount from asking (≤10% under list). This is what we
+   * show as the headline — an investor doesn't usually bid $150k under a
+   * $500k listing to chase a "STRONG BUY" label; they negotiate a few
+   * points off and take "GOOD DEAL".
+   */
+  primaryTarget?: { price: number; tier: VerdictTier; discountPercent: number };
+  /**
+   * If the user is willing to negotiate harder, what's the next tier up and
+   * how much more off asking would they need? Shown as a secondary prompt.
+   */
+  stretchTarget?: { price: number; tier: VerdictTier; discountPercent: number };
+  /**
+   * A rate-buydown equivalent: buying down the interest rate 1pt costs
+   * roughly `buydownCostPer1pt` up front and saves `buydownPriceEquivPer1pt`
+   * in purchase-price terms. Helps investors see that negotiating rate vs
+   * price are interchangeable levers.
+   */
+  rateBuydown?: { costPer1pt: number; priceEquivPer1pt: number };
+};
+
+const TIER_ORDER: VerdictTier[] = ["avoid", "poor", "fair", "good", "excellent"];
+
+function tierAtLeast(tier: VerdictTier, target: VerdictTier): boolean {
+  return TIER_ORDER.indexOf(tier) >= TIER_ORDER.indexOf(target);
+}
+
+export function findOfferCeiling(inputs: DealInputs): OfferCeiling {
+  const safe = sanitiseInputs(inputs);
+  const baseAnalysis = analyseDeal(safe);
+
+  // We search across [1k, max(currentPrice * 5, 5M)] which covers virtually
+  // any single-family scenario. Binary-search 25 iterations gets ~1$ precision.
+  const lower = 1_000;
+  const upper = Math.max(safe.purchasePrice * 5, 5_000_000);
+
+  const ceilings: OfferCeiling = {
+    currentPrice: safe.purchasePrice,
+    currentTier: baseAnalysis.verdict.tier,
+  };
+
+  // Solve each tier independently. Each is the largest price at which
+  // analyseDeal({ price }).verdict.tier >= target.
+  for (const target of ["excellent", "good", "fair", "poor"] as const) {
+    const max = solveMaxPriceForTier(safe, target, lower, upper);
+    if (max !== null) {
+      ceilings[target] = max;
+    }
+  }
+
+  // Recommendation = the highest tier that's achievable at any price.
+  for (const target of ["excellent", "good", "fair", "poor"] as const) {
+    const price = ceilings[target];
+    if (price !== undefined) {
+      ceilings.recommendedCeiling = { price, tier: target };
+      break;
+    }
+  }
+
+  // Practical target = best tier reachable inside a realistic negotiation
+  // band (≤15% under list, or free upside if asking is already below). We
+  // want the headline to be an offer a buyer would actually make, not a
+  // lowball that would insult the seller.
+  const NEGOTIATION_BAND = 0.15;
+  const minRealistic = safe.purchasePrice * (1 - NEGOTIATION_BAND);
+  for (const target of ["excellent", "good", "fair", "poor"] as const) {
+    const price = ceilings[target];
+    if (price === undefined) continue;
+    if (price >= minRealistic) {
+      const discount = Math.max(0, (safe.purchasePrice - price) / safe.purchasePrice);
+      ceilings.primaryTarget = { price, tier: target, discountPercent: discount * 100 };
+      break;
+    }
+  }
+  // If nothing clears the negotiation band, we intentionally leave
+  // primaryTarget undefined. The card then renders "walk away" / "no
+  // realistic price clears the rubric" rather than recommending a lowball
+  // offer that no seller would ever accept. The absolute `recommendedCeiling`
+  // is still available for analytical use (stress test, rubric page, etc).
+
+  // Stretch target: next tier up from primary (only if it exists AND it's
+  // more than a rounding error away). Lets the UI offer "...or push for
+  // STRONG BUY with another $18k off".
+  if (ceilings.primaryTarget) {
+    const primaryIdx = TIER_ORDER.indexOf(ceilings.primaryTarget.tier);
+    for (let i = primaryIdx + 1; i < TIER_ORDER.length; i++) {
+      const tier = TIER_ORDER[i];
+      if (tier === "avoid") continue;
+      const price = ceilings[tier];
+      if (price !== undefined && ceilings.primaryTarget.price - price > 500) {
+        const discount = Math.max(0, (safe.purchasePrice - price) / safe.purchasePrice);
+        ceilings.stretchTarget = { price, tier, discountPercent: discount * 100 };
+        break;
+      }
+    }
+  }
+
+  // Rate buydown equivalent. Rule of thumb: 1pt of rate buydown costs ~1% of
+  // the loan amount, and saves roughly (loan × rate_delta × years_of_hold)
+  // over the hold — but what investors actually care about is "how much
+  // price negotiation does this equal?". We estimate it as the price cut
+  // that would produce the same annual-debt-service reduction at the
+  // original rate. This gives them an apples-to-apples lever.
+  const loanAmount = safe.purchasePrice * (1 - safe.downPaymentPercent / 100);
+  if (loanAmount > 0 && safe.loanInterestRate > 0.5) {
+    const originalPI = mortgagePayment(loanAmount, safe.loanInterestRate, safe.loanTermYears);
+    const reducedRate = Math.max(0.1, safe.loanInterestRate - 1);
+    const reducedPI = mortgagePayment(loanAmount, reducedRate, safe.loanTermYears);
+    const piSavingsPerMonth = originalPI - reducedPI;
+    // Price cut that produces the same P&I saving at the original rate +
+    // same down-payment percentage + same term. Closed-form: piSavings is
+    // proportional to loan amount, which is proportional to purchase price
+    // at fixed LTV → priceEquivalent = piSavings * 12 * (price / originalPI).
+    const priceEquivPer1pt =
+      originalPI > 0
+        ? (piSavingsPerMonth / originalPI) * safe.purchasePrice
+        : 0;
+    ceilings.rateBuydown = {
+      costPer1pt: Math.round((loanAmount * 0.01) / 100) * 100, // 1% of loan, rounded to $100
+      priceEquivPer1pt: Math.round(priceEquivPer1pt / 500) * 500,
+    };
+  }
+
+  return ceilings;
+}
+
+function solveMaxPriceForTier(
+  baseInputs: DealInputs,
+  targetTier: VerdictTier,
+  lower: number,
+  upper: number,
+): number | null {
+  // First sanity-check the bounds. If even the lower bound doesn't reach the
+  // tier, there's no solution. If even the upper bound is at-or-above, the
+  // ceiling is past our search range.
+  const tierAt = (price: number): VerdictTier =>
+    analyseDeal({ ...baseInputs, purchasePrice: price }).verdict.tier;
+
+  if (!tierAtLeast(tierAt(lower), targetTier)) return null;
+  if (tierAtLeast(tierAt(upper), targetTier)) return Math.round(upper);
+
+  // Binary search for the boundary.
+  let lo = lower;
+  let hi = upper;
+  // 25 iterations is more than enough — log2(5M) ≈ 23.
+  for (let i = 0; i < 25; i++) {
+    const mid = (lo + hi) / 2;
+    if (tierAtLeast(tierAt(mid), targetTier)) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  // Round to the nearest $500 — investors don't negotiate down to the dollar.
+  return Math.round(lo / 500) * 500;
 }
 
 // ---------------------------------------------------------------------------

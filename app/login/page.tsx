@@ -26,14 +26,20 @@ export default async function LoginPage({
     <div className="flex flex-1 flex-col bg-gradient-to-b from-zinc-50 via-white to-zinc-50 dark:from-zinc-950 dark:via-black dark:to-zinc-950">
       <header className="border-b border-zinc-200/70 bg-white/70 backdrop-blur-sm dark:border-zinc-800/70 dark:bg-black/40">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-xs font-bold text-white dark:bg-white dark:text-zinc-900">
-              RV
-            </span>
-            <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-              RealVerdict<span className="text-zinc-400">ROI</span>
-            </span>
+          <Link
+            href="/"
+            className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+          >
+            RealVerdict
           </Link>
+          <nav className="flex items-center gap-5 text-sm">
+            <Link
+              href="/pricing"
+              className="font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+            >
+              Pricing
+            </Link>
+          </nav>
         </div>
       </header>
 

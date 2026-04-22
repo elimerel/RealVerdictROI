@@ -50,25 +50,17 @@ export default function InitialVerdict({
   const hasFailed = !!error && !text && !isBusy;
 
   return (
-    <div
-      className="border-l-2 pl-4 sm:pl-5"
-      style={{
-        borderColor: "var(--accent)",
-        backgroundColor: "var(--accent-soft)",
-      }}
-    >
-      <div className="py-3 text-[15px] leading-relaxed text-zinc-200 sm:text-base">
-        {text ? (
-          <p className="whitespace-pre-wrap">
-            {renderAIProse(text)}
-            {isStreaming && <Caret />}
-          </p>
-        ) : hasFailed ? (
-          <p className="whitespace-pre-wrap">{renderAIProse(fallback)}</p>
-        ) : isWaiting ? (
-          <p className="animate-pulse text-zinc-500">Reading the numbers…</p>
-        ) : null}
-      </div>
+    <div className="py-2 text-sm leading-relaxed text-zinc-200">
+      {text ? (
+        <p className="whitespace-pre-wrap">
+          {renderAIProse(text)}
+          {isStreaming && <Caret />}
+        </p>
+      ) : hasFailed ? (
+        <p className="whitespace-pre-wrap">{renderAIProse(fallback)}</p>
+      ) : isWaiting ? (
+        <p className="animate-pulse text-zinc-500">Reading the numbers...</p>
+      ) : null}
     </div>
   );
 }
