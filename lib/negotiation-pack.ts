@@ -28,7 +28,11 @@
 // re-deriving anything.
 // ---------------------------------------------------------------------------
 
-import type { ComparablesAnalysis, ScoredComp } from "@/lib/comparables";
+import {
+  toAnalyseRentEvidence,
+  type ComparablesAnalysis,
+  type ScoredComp,
+} from "@/lib/comparables";
 import {
   analyseDeal,
   findOfferCeiling,
@@ -173,6 +177,7 @@ export function buildPack(args: BuildPackArgs): PackPayload {
   const ceiling = findOfferCeiling(inputs, {
     marketValueCap: marketValueAnchor,
     marketValueCapSource: comparables.marketValue?.value ? "comps" : "list",
+    analyseDealOptions: toAnalyseRentEvidence(comparables),
   });
   const headline = buildHeadline(inputs, analysis, ceiling);
   const weakAssumptions = pickWeakAssumptions({

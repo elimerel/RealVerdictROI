@@ -28,7 +28,7 @@ import {
   inputsToSearchParams,
 } from "@/lib/calculations";
 import { fetchComps, type CompsResult } from "@/lib/comps";
-import { analyzeComparables } from "@/lib/comparables";
+import { analyzeComparables, toAnalyseRentEvidence } from "@/lib/comparables";
 import { pickWeakAssumptions } from "@/lib/negotiation-pack";
 import type { ChatAnalysisContext } from "@/app/api/chat/route";
 import { fetchAcsZipProfile } from "@/lib/market-context-acs";
@@ -173,8 +173,6 @@ export default async function ResultsPage({
     }
   }
 
-  const analysis = analyseDeal(inputs);
-
   // Comp inputs (used only when liveComps === true). Beds/baths/sqft passed
   // when present so the comp filter is meaningful. Any 0-or-smaller value is
   // treated as "unknown" to avoid silently disabling filters (RentCast public
@@ -232,6 +230,11 @@ export default async function ResultsPage({
         )
       : null;
 
+  const analyseEvidence = comparables
+    ? toAnalyseRentEvidence(comparables)
+    : undefined;
+  const analysis = analyseDeal(inputs, analyseEvidence);
+
   // URL the "Run live comp analysis" button navigates to — same query
   // string with livecomps=1 added. Built once so the CTA can render in
   // multiple locations (top of page, inside Comps tab teaser).
@@ -271,6 +274,7 @@ export default async function ResultsPage({
   const ceilingForChat = findOfferCeiling(inputs, {
     marketValueCap: marketValueAnchor,
     marketValueCapSource: comparables?.marketValue?.value ? "comps" : "list",
+    analyseDealOptions: analyseEvidence,
   });
   const weakAssumptionsForChat = comparables
     ? pickWeakAssumptions({
@@ -377,6 +381,7 @@ export default async function ResultsPage({
             }}
             isListed={search.listed === "1"}
             analysisContext={analysisContext}
+            analyseDealOptions={analyseEvidence}
           />
 
           <div className="mt-10 sm:mt-14">

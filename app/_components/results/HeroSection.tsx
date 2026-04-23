@@ -7,6 +7,7 @@ import AddToComparisonButton from "../AddToComparisonButton";
 import type { ChatAnalysisContext } from "@/app/api/chat/route";
 import OfferCeilingCard from "../OfferCeilingCard";
 import {
+  type AnalyseDealOptions,
   type DealAnalysis,
   formatCurrency,
   formatPercent,
@@ -52,6 +53,7 @@ export default function HeroSection({
   subjectFacts,
   isListed,
   analysisContext,
+  analyseDealOptions,
 }: {
   tier: VerdictTier;
   analysis: DealAnalysis;
@@ -68,6 +70,7 @@ export default function HeroSection({
   subjectFacts: SubjectFacts;
   isListed: boolean;
   analysisContext?: ChatAnalysisContext;
+  analyseDealOptions?: AnalyseDealOptions;
 }) {
   const contextParts: string[] = [];
   contextParts.push(formatCurrency(inputs.purchasePrice, 0));
@@ -142,6 +145,7 @@ export default function HeroSection({
           inputs={inputs}
           marketValueCap={marketValueCap}
           marketValueCapSource={marketValueCapSource}
+          analyseDealOptions={analyseDealOptions}
         />
       </div>
     </section>

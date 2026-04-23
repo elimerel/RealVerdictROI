@@ -8,7 +8,7 @@ import {
   sanitiseInputs,
 } from "@/lib/calculations";
 import { fetchComps } from "@/lib/comps";
-import { analyzeComparables } from "@/lib/comparables";
+import { analyzeComparables, toAnalyseRentEvidence } from "@/lib/comparables";
 import { enforceRateLimit } from "@/lib/ratelimit";
 import {
   withErrorReporting,
@@ -125,7 +125,6 @@ export const POST = withErrorReporting(
     if (limited) return limited;
 
     const inputs = sanitiseInputs(body.inputs);
-    const analysis = analyseDeal(inputs);
 
     // Pull comps server-side so the Pack is grounded in the same engine
     // output as /results. fetchComps reads through the shared cache so a
@@ -183,6 +182,9 @@ export const POST = withErrorReporting(
       },
       comps,
     );
+
+    const analyseEvidence = toAnalyseRentEvidence(comparables);
+    const analysis = analyseDeal(inputs, analyseEvidence);
 
     const payload = buildPack({
       address,

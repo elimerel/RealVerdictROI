@@ -10,6 +10,18 @@
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Optional evidence passed into `analyseDeal` when live comps have already
+ * produced a comp-derived market rent. The engine still uses the user's
+ * `monthlyRent` for every displayed cash-flow number — this only feeds an
+ * extra rubric row so the verdict is not blind to "pro forma 40% above what
+ * nearby leases support" when the comp signal is credible.
+ */
+export type AnalyseDealOptions = {
+  marketRentMonthly?: number;
+  marketRentConfidence?: "high" | "medium" | "low";
+};
+
 export type DealInputs = {
   // Purchase
   purchasePrice: number;
@@ -289,7 +301,10 @@ export function irr(cashflows: number[]): number {
 // Full deal analysis
 // ---------------------------------------------------------------------------
 
-export function analyseDeal(raw: DealInputs): DealAnalysis {
+export function analyseDeal(
+  raw: DealInputs,
+  evidence?: AnalyseDealOptions,
+): DealAnalysis {
   const inputs = sanitiseInputs(raw);
 
   const downPayment = inputs.purchasePrice * (inputs.downPaymentPercent / 100);
@@ -451,17 +466,21 @@ export function analyseDeal(raw: DealInputs): DealAnalysis {
   });
   const computedIrr = irr(flows);
 
-  const verdict = renderVerdict({
-    cashOnCashReturn,
-    capRate,
-    dscr,
-    annualCashFlow,
-    totalROI,
-    irr: computedIrr,
-    grossRentMultiplier,
-    breakEvenOccupancy,
-    operatingExpenseRatio,
-  });
+  const verdict = renderVerdict(
+    {
+      cashOnCashReturn,
+      capRate,
+      dscr,
+      annualCashFlow,
+      totalROI,
+      irr: computedIrr,
+      grossRentMultiplier,
+      breakEvenOccupancy,
+      operatingExpenseRatio,
+    },
+    inputs.monthlyRent,
+    evidence,
+  );
 
   return {
     inputs,
@@ -529,7 +548,162 @@ type VerdictMetrics = {
   operatingExpenseRatio: number;
 };
 
-function renderVerdict(m: VerdictMetrics): Verdict {
+/**
+ * When live comps produced a market rent, compare the user's pro forma to
+ * that evidence. Does not change NOI / cash flow — only the verdict rubric.
+ */
+function scoreProFormaVsCompsRent(
+  userMonthly: number,
+  evidence: AnalyseDealOptions | undefined,
+): RubricItem | null {
+  const mr = evidence?.marketRentMonthly;
+  if (
+    evidence == null ||
+    mr == null ||
+    !isFinite(mr) ||
+    mr <= 0 ||
+    userMonthly <= 0
+  ) {
+    return null;
+  }
+
+  const ratio = userMonthly / mr;
+  const conf = evidence.marketRentConfidence ?? "medium";
+
+  const category = "Pro forma vs comps rent";
+  const maxPoints = 10;
+  const userStr = formatCurrency(userMonthly, 0);
+  const mrStr = formatCurrency(mr, 0);
+
+  if (ratio <= 0.93) {
+    return {
+      category,
+      metric: `${userStr}/mo vs ${mrStr}/mo market`,
+      maxPoints,
+      points: 5,
+      status: "win",
+      note: `Pro forma is at or below comp-derived market rent (${mrStr}/mo).`,
+    };
+  }
+
+  if (conf === "high") {
+    if (ratio <= 1.06) {
+      return {
+        category,
+        metric: `${(ratio * 100).toFixed(0)}% of market (${userStr} vs ${mrStr})`,
+        maxPoints,
+        points: 2,
+        status: "ok",
+        note: "Pro forma is close to high-confidence comp rent — plausible.",
+      };
+    }
+    if (ratio <= 1.18) {
+      return {
+        category,
+        metric: `${(ratio * 100).toFixed(0)}% of market (${userStr} vs ${mrStr})`,
+        maxPoints,
+        points: -4,
+        status: "warn",
+        note: `Pro forma runs ${((ratio - 1) * 100).toFixed(0)}% above comp-derived market rent (${mrStr}/mo) with high-confidence comps.`,
+      };
+    }
+    if (ratio <= 1.35) {
+      return {
+        category,
+        metric: `${(ratio * 100).toFixed(0)}% of market`,
+        maxPoints,
+        points: -8,
+        status: "warn",
+        note: `Large gap vs comp market rent (${mrStr}/mo) — underwriting leans on optimism unless you have lease evidence.`,
+      };
+    }
+    return {
+      category,
+      metric: `${(ratio * 100).toFixed(0)}% of market`,
+      maxPoints,
+      points: -10,
+      status: "fail",
+      note: `Pro forma is far above high-confidence comp rent (${mrStr}/mo).`,
+    };
+  }
+
+  if (conf === "medium") {
+    if (ratio <= 1.1) {
+      return {
+        category,
+        metric: `${(ratio * 100).toFixed(0)}% of market`,
+        maxPoints,
+        points: 1,
+        status: "ok",
+        note: "Pro forma is in line with medium-confidence comp rent.",
+      };
+    }
+    if (ratio <= 1.28) {
+      return {
+        category,
+        metric: `${(ratio * 100).toFixed(0)}% of market`,
+        maxPoints,
+        points: -4,
+        status: "warn",
+        note: `Pro forma is elevated vs comp-derived market rent (${mrStr}/mo).`,
+      };
+    }
+    if (ratio <= 1.45) {
+      return {
+        category,
+        metric: `${(ratio * 100).toFixed(0)}% of market`,
+        maxPoints,
+        points: -8,
+        status: "warn",
+        note: `Material gap vs comp market rent (${mrStr}/mo) — verify against signed leases.`,
+      };
+    }
+    return {
+      category,
+      metric: `${(ratio * 100).toFixed(0)}% of market`,
+      maxPoints,
+      points: -10,
+      status: "fail",
+      note: `Pro forma far exceeds comp-derived market rent (${mrStr}/mo).`,
+    };
+  }
+
+  // low confidence — only penalize extreme gaps
+  if (ratio <= 1.25) {
+    return {
+      category,
+      metric: `${(ratio * 100).toFixed(0)}% of market`,
+      maxPoints,
+      points: 0,
+      status: "ok",
+      note: "Comp rent signal is low-confidence — treat the spread as a flag, not proof.",
+    };
+  }
+  if (ratio <= 1.45) {
+    return {
+      category,
+      metric: `${(ratio * 100).toFixed(0)}% of market`,
+      maxPoints,
+      points: -5,
+      status: "warn",
+      note: `Even with low-confidence comps, pro forma is well above derived market rent (${mrStr}/mo).`,
+    };
+  }
+  return {
+    category,
+    metric: `${(ratio * 100).toFixed(0)}% of market`,
+    maxPoints,
+    points: -8,
+    status: "fail",
+    note: `Pro forma far above weak-signal comp rent (${mrStr}/mo) — needs independent rent proof.`,
+  };
+}
+
+function renderVerdict(
+  m: VerdictMetrics,
+  userMonthlyRent: number,
+  evidence?: AnalyseDealOptions,
+): Verdict {
   // A deal that's negative-year-1 can still be a good appreciation play —
   // classic example is a low-cap-rate NJ / Long Island / CA market where the
   // investor is underwriting for equity growth and rent catch-up rather than
@@ -542,6 +716,8 @@ function renderVerdict(m: VerdictMetrics): Verdict {
   const appreciationRescue =
     isFinite(m.irr) && m.irr >= 0.08 && m.totalROI >= 0.5;
 
+  const rentCross = scoreProFormaVsCompsRent(userMonthlyRent, evidence);
+
   const breakdown: RubricItem[] = [
     scoreCashOnCash(m.cashOnCashReturn, appreciationRescue),
     scoreCapRate(m.capRate),
@@ -549,6 +725,7 @@ function renderVerdict(m: VerdictMetrics): Verdict {
     scoreIRR(m.irr),
     scoreBreakEven(m.breakEvenOccupancy),
     scoreGRM(m.grossRentMultiplier),
+    ...(rentCross ? [rentCross] : []),
     scoreTotalROI(m.totalROI),
   ];
 
@@ -975,6 +1152,11 @@ export type FindOfferCeilingOptions = {
    * Above that you're just overpaying, no matter how well the income math works.
    */
   marketValueCapPremium?: number;
+  /**
+   * When live comps exist, pass the same `AnalyseDealOptions` used for
+   * `analyseDeal` so tier ceilings invert the same verdict the user sees.
+   */
+  analyseDealOptions?: AnalyseDealOptions;
 };
 
 export function findOfferCeiling(
@@ -982,7 +1164,8 @@ export function findOfferCeiling(
   options: FindOfferCeilingOptions = {},
 ): OfferCeiling {
   const safe = sanitiseInputs(inputs);
-  const baseAnalysis = analyseDeal(safe);
+  const evidence = options.analyseDealOptions;
+  const baseAnalysis = analyseDeal(safe, evidence);
 
   // Compute the effective market-value ceiling. We cap the binary-search
   // upper bound AND post-clamp any returned tier price. This prevents the
@@ -1016,7 +1199,7 @@ export function findOfferCeiling(
   // analyseDeal({ price }).verdict.tier >= target, clamped by the cap.
   let anyBinding = false;
   for (const target of ["excellent", "good", "fair", "poor"] as const) {
-    const max = solveMaxPriceForTier(safe, target, lower, upper);
+    const max = solveMaxPriceForTier(safe, target, lower, upper, evidence);
     if (max !== null) {
       // If the solver pinned the ceiling at the search upper bound AND the
       // cap actually tightened the range, the cap is binding for this tier.
@@ -1125,12 +1308,13 @@ function solveMaxPriceForTier(
   targetTier: VerdictTier,
   lower: number,
   upper: number,
+  evidence?: AnalyseDealOptions,
 ): number | null {
   // First sanity-check the bounds. If even the lower bound doesn't reach the
   // tier, there's no solution. If even the upper bound is at-or-above, the
   // ceiling is past our search range.
   const tierAt = (price: number): VerdictTier =>
-    analyseDeal({ ...baseInputs, purchasePrice: price }).verdict.tier;
+    analyseDeal({ ...baseInputs, purchasePrice: price }, evidence).verdict.tier;
 
   if (!tierAtLeast(tierAt(lower), targetTier)) return null;
   if (tierAtLeast(tierAt(upper), targetTier)) return Math.round(upper);

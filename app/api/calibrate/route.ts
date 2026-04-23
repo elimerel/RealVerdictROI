@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { analyseDeal, DEFAULT_INPUTS, type DealInputs } from "@/lib/calculations";
 import { fetchComps } from "@/lib/comps";
-import { analyzeComparables } from "@/lib/comparables";
+import { analyzeComparables, toAnalyseRentEvidence } from "@/lib/comparables";
 import { buildPack } from "@/lib/negotiation-pack";
 import { withErrorReporting, captureError } from "@/lib/observability";
 import type { ResolveResult } from "@/app/api/property-resolve/route";
@@ -176,7 +176,10 @@ export const GET = withErrorReporting(
       ...resolved.inputs,
     };
     const comparables = analyzeComparables(subjectFacts, compsResult);
-    const analysis = analyseDeal(fullInputs);
+    const analysis = analyseDeal(
+      fullInputs,
+      toAnalyseRentEvidence(comparables),
+    );
     const pack = buildPack({
       address: resolved.address ?? "",
       inputs: fullInputs,

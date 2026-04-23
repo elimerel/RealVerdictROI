@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import {
+  type AnalyseDealOptions,
   type DealInputs,
   findOfferCeiling,
   formatCurrency,
@@ -72,6 +73,7 @@ export default function OfferCeilingCard({
   inputs,
   marketValueCap,
   marketValueCapSource,
+  analyseDealOptions,
 }: {
   inputs: DealInputs;
   /**
@@ -84,10 +86,12 @@ export default function OfferCeilingCard({
    */
   marketValueCap?: number;
   marketValueCapSource?: "comps" | "list";
+  analyseDealOptions?: AnalyseDealOptions;
 }) {
   const ceiling = findOfferCeiling(inputs, {
     marketValueCap,
     marketValueCapSource,
+    analyseDealOptions,
   });
   const current = ceiling.currentPrice;
   const currentTier = ceiling.currentTier;

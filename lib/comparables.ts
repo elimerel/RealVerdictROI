@@ -1,4 +1,5 @@
 import type { Comp, CompsResult } from "@/lib/comps";
+import type { AnalyseDealOptions } from "@/lib/calculations";
 
 // ---------------------------------------------------------------------------
 // Comparables analysis — "show your work" derivation of fair value and market
@@ -837,4 +838,16 @@ export function analyzeComparables(
   }
 
   return { subject: cleanSubject, marketValue, marketRent };
+}
+
+/** Feed comp-derived market rent into `analyseDeal` / `findOfferCeiling` when live comps exist. */
+export function toAnalyseRentEvidence(
+  comps: ComparablesAnalysis,
+): AnalyseDealOptions | undefined {
+  const mr = comps.marketRent;
+  if (!mr?.value || !isFinite(mr.value) || mr.value <= 0) return undefined;
+  return {
+    marketRentMonthly: mr.value,
+    marketRentConfidence: mr.confidence,
+  };
 }

@@ -201,6 +201,49 @@ describe("analyseDeal — reference listings (calibration anti-regression)", () 
   });
 });
 
+describe("analyseDeal — comp rent evidence (rubric only, cash flow unchanged)", () => {
+  it("does not add a pro-forma-vs-comps row without evidence", () => {
+    const a = analyseDeal(make({ purchasePrice: 400_000, monthlyRent: 3_000 }));
+    expect(
+      a.verdict.breakdown.some((r) => r.category === "Pro forma vs comps rent"),
+    ).toBe(false);
+  });
+
+  it("penalizes pro forma materially above high-confidence comp market rent", () => {
+    const inputs = make({
+      purchasePrice: 400_000,
+      monthlyRent: 3_400,
+      annualPropertyTax: 7_000,
+      annualInsurance: 1_800,
+      downPaymentPercent: 25,
+      loanInterestRate: 7,
+    });
+    const base = analyseDeal(inputs);
+    const withEvidence = analyseDeal(inputs, {
+      marketRentMonthly: 2_200,
+      marketRentConfidence: "high",
+    });
+    const row = withEvidence.verdict.breakdown.find(
+      (r) => r.category === "Pro forma vs comps rent",
+    );
+    expect(row).toBeDefined();
+    expect(row!.points).toBeLessThan(0);
+    expect(withEvidence.verdict.score).toBeLessThanOrEqual(base.verdict.score);
+    expect(withEvidence.monthlyCashFlow).toBe(base.monthlyCashFlow);
+  });
+
+  it("threads evidence through findOfferCeiling so current tier matches analyseDeal", () => {
+    const inputs = make({ purchasePrice: 350_000, monthlyRent: 3_200 });
+    const evidence = {
+      marketRentMonthly: 3_200,
+      marketRentConfidence: "high" as const,
+    };
+    expect(
+      findOfferCeiling(inputs, { analyseDealOptions: evidence }).currentTier,
+    ).toBe(analyseDeal(inputs, evidence).verdict.tier);
+  });
+});
+
 describe("findOfferCeiling", () => {
   it("tier ceilings are monotonically non-decreasing from 'excellent' down to 'poor'", () => {
     // Each ceiling is "max price at which the deal scores AT LEAST this tier".

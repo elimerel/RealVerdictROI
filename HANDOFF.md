@@ -50,7 +50,7 @@
   Supabase `subscriptions`, per-user + per-IP free-tier limiters,
   Supabase `negotiation_packs`. Stripe is in test mode until we have at
   least one "I'd pay for that specifically" investor demo.
-- **Quality gates**: 182 vitest tests pass; `npx tsc --noEmit` clean;
+- **Quality gates**: 185 vitest tests pass; `npx tsc --noEmit` clean;
   `npx eslint` clean; `next build` clean.
 
 **Pending** (in priority order, from `HANDOFF_ARCHIVE.md §20.15`):
@@ -277,13 +277,14 @@ Exports to remember — almost every change touches one:
 
 ```ts
 DealInputs                   // Input schema
+AnalyseDealOptions           // Optional comp-derived market rent for verdict rubric
 DealAnalysis                 // Output: projection, KPIs, verdict
 VerdictTier                  // "excellent" | "good" | "fair" | "poor" | "avoid"
 RubricItem / Verdict         // Scored signals + rollup
 DEFAULT_INPUTS
-analyseDeal(inputs)          // Pure. No I/O.
+analyseDeal(inputs, evidence?) // Pure. No I/O. Second arg adds "Pro forma vs comps rent" rubric row only — KPIs still use the user's monthlyRent.
 sanitiseInputs(raw)          // Clamps every numeric field to a sane range.
-findOfferCeiling(inputs, { marketValueCap? }) // Walk-away solver — see §7.
+findOfferCeiling(inputs, { marketValueCap?, analyseDealOptions? }) // Walk-away — see §7.
 inputsToSearchParams / inputsFromSearchParams  // Deep linking
 formatCurrency / formatPercent / formatNumber
 ```
@@ -292,6 +293,12 @@ The file is ~1000 lines. It's large because it's the product: rubric,
 scoring, projection, DSCR, IRR, cap, cash-on-cash, break-even, GRM,
 `findOfferCeiling`, provenance helpers. Don't split it; the cohesion is
 what makes changes safe.
+
+**Comp rent vs pro forma:** `lib/comparables.ts::toAnalyseRentEvidence(comparables)`
+builds `AnalyseDealOptions` after live comps. `/results`, Pack generate, and
+calibration pass it into `analyseDeal` + `findOfferCeiling` so the verdict
+and walk-away ladder react when pro forma rent is far above comp-derived
+market rent — without silently rewriting the user's rent in the spreadsheet.
 
 ---
 
