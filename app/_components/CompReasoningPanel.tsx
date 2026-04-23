@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Comp Reasoning Explainer (HANDOFF §20.4).
+// Comp Reasoning Explainer (HANDOFF §11.2).
 //
 // Sits at the top of the Comps tab on /results when live comp data is
 // loaded. For each comp pool (sale + rent), surfaces:

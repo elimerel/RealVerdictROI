@@ -2,7 +2,7 @@
 
 // ---------------------------------------------------------------------------
 // Generate Negotiation Pack — primary CTA on the live-comp /results view
-// (HANDOFF §20.3).
+// (HANDOFF §11).
 //
 // Visible on the action row only when:
 //   - The user has run a live comp pull (otherwise the Pack would be built

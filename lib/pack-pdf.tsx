@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Negotiation Pack — PDF document (HANDOFF §20.3 export path).
+// Negotiation Pack — PDF document (HANDOFF §11 export path).
 //
 // Renders the same PackPayload that the web view at /pack/[shareToken] uses,
 // so the PDF cannot ever drift from what the investor previewed before

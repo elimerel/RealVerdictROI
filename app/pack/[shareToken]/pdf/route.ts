@@ -7,7 +7,7 @@ import type { PackPayload } from "@/lib/negotiation-pack";
 import { withErrorReporting, captureError } from "@/lib/observability";
 
 // ---------------------------------------------------------------------------
-// GET /pack/[shareToken]/pdf — server-rendered PDF download (HANDOFF §20.3).
+// GET /pack/[shareToken]/pdf — server-rendered PDF download (HANDOFF §11).
 //
 // Reads the same Supabase row as /pack/[shareToken]/page.tsx (RLS gates the
 // access — only public unrevoked rows or owner rows resolve), then streams

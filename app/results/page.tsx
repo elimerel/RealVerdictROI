@@ -1,69 +1,57 @@
-import Link from "next/link";
 import type { Metadata } from "next";
+import type { CSSProperties } from "react";
 import { headers } from "next/headers";
-import type { CSSProperties, ReactNode } from "react";
 import ResultsViewTracker from "../_components/ResultsViewTracker";
-import InitialVerdict from "../_components/InitialVerdict";
 import FollowUpChat from "../_components/FollowUpChat";
 import WhatIfPanel from "../_components/WhatIfPanel";
 import StressTestPanel from "../_components/StressTestPanel";
 import VerdictRubric from "../_components/VerdictRubric";
-import SaveDealButton from "../_components/SaveDealButton";
-import PackGenerateButton from "../_components/PackGenerateButton";
-import ShareButton from "../_components/ShareButton";
-import AddToComparisonButton from "../_components/AddToComparisonButton";
-import OfferCeilingCard from "../_components/OfferCeilingCard";
 import CompsSection from "../_components/CompsSection";
 import ResultsTabs from "../_components/ResultsTabs";
-import {
-  analyseDeal,
-  DealAnalysis,
-  formatCurrency,
-  formatNumber,
-  formatPercent,
-  inputsFromSearchParams,
-  inputsToSearchParams,
-  VerdictTier,
-  YearProjection,
-} from "@/lib/calculations";
-import { fetchComps, type CompsResult } from "@/lib/comps";
-import { analyzeComparables } from "@/lib/comparables";
 import HowWeGotThese from "../_components/HowWeGotThese";
 import ResultsWarningsBanner from "../_components/ResultsWarningsBanner";
 import AnalysisQuotaExceeded from "../_components/AnalysisQuotaExceeded";
 import ProCompsTeaser from "../_components/ProCompsTeaser";
+import ResultsHeader from "../_components/results/ResultsHeader";
+import HeroSection, {
+  RunLiveCompsCTA,
+} from "../_components/results/HeroSection";
+import EvidenceSection from "../_components/results/EvidenceSection";
+import BreakdownSection from "../_components/results/BreakdownSection";
+import { TIER_ACCENT, TIER_LABEL } from "../_components/results/tier-style";
+import {
+  analyseDeal,
+  formatCurrency,
+  formatPercent,
+  inputsFromSearchParams,
+  inputsToSearchParams,
+} from "@/lib/calculations";
+import { fetchComps, type CompsResult } from "@/lib/comps";
+import { analyzeComparables } from "@/lib/comparables";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { checkRateLimit, identifierFor } from "@/lib/ratelimit";
 import { isPro } from "@/lib/pro";
 
 // ---------------------------------------------------------------------------
-// DESIGN SYSTEM -- accent color drives entire page based on verdict tier
+// /results — verdict + walk-away price + deep analysis tabs.
+//
+// This file is the orchestrator: parse search params → auth + quota gates →
+// fetch comps (when live-comp opt-in) → analyze → render. Every visual
+// concern lives in a child component under _components/results/.
+//
+// File map:
+//   _components/results/ResultsHeader.tsx   — top nav
+//   _components/results/HeroSection.tsx     — verdict tier + walk-away + actions
+//   _components/results/EvidenceSection.tsx — metrics tab (Numbers, top half)
+//   _components/results/BreakdownSection.tsx — tables tab (Numbers, bottom half)
+//   _components/results/tier-style.ts       — shared tier palette + tone helpers
 // ---------------------------------------------------------------------------
 
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL", 
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
-
-const WARN_COLOR = "#eab308";
-const BAD_COLOR = "#ef4444";
-
-const TIER_ACCENT: Record<VerdictTier, string> = {
-  excellent: "#22c55e",    // green
-  good: "#22c55e",         // green
-  fair: "#eab308",         // yellow
-  poor: "#ef4444",         // red
-  avoid: "#ef4444",        // red
-};
-
 // ---------------------------------------------------------------------------
-// METADATA — builds per-deal title/description and points Open Graph + Twitter
-// cards at /api/og?<same params> so shared links render a branded verdict image
-// instead of a blank card.
+// METADATA — builds per-deal title/description and points Open Graph +
+// Twitter cards at /api/og?<same params> so shared links render a branded
+// verdict image instead of a blank card.
 // ---------------------------------------------------------------------------
 
 export async function generateMetadata({
@@ -115,8 +103,6 @@ export async function generateMetadata({
   };
 }
 
-// ---------------------------------------------------------------------------
-
 export default async function ResultsPage({
   searchParams,
 }: {
@@ -144,8 +130,8 @@ export default async function ResultsPage({
 
   // Live-comp opt-in (§20.8). Without this flag the page is a fast estimate:
   // no RentCast comp pull, no quota burn. The "Run live comp analysis" CTA
-  // toggles this on. Pro users can opt in unlimited; free users have 3/mo
-  // (the new $29/3-mo-free tier in §20.7).
+  // toggles this on. Pro users can opt in unlimited; free users have
+  // 3 / 7-day rolling window (analysis-free-user limiter).
   const liveComps = search.livecomps === "1";
 
   // Quota only fires on the live-comp path. Browse-and-bounce visits to
@@ -160,7 +146,7 @@ export default async function ResultsPage({
     if (!allowed) {
       return (
         <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
-          <Header
+          <ResultsHeader
             editHref={editHref}
             currentUrl={currentUrl}
             supabaseConfigured={supaConfig.configured}
@@ -181,10 +167,10 @@ export default async function ResultsPage({
 
   const analysis = analyseDeal(inputs);
 
-  // Comp inputs (used only when liveComps === true). Beds/baths/sqft
-  // passed when present so the comp filter is meaningful. Any 0-or-smaller
-  // value is treated as "unknown" to avoid silently disabling filters
-  // (RentCast public records sometimes report 0 beds).
+  // Comp inputs (used only when liveComps === true). Beds/baths/sqft passed
+  // when present so the comp filter is meaningful. Any 0-or-smaller value is
+  // treated as "unknown" to avoid silently disabling filters (RentCast public
+  // records sometimes report 0 beds).
   const rawBeds = numberOrUndef(search.beds);
   const rawBaths = numberOrUndef(search.baths);
   const compsBeds = rawBeds && rawBeds > 0 ? rawBeds : undefined;
@@ -194,12 +180,15 @@ export default async function ResultsPage({
     typeof search.propertyType === "string" && search.propertyType.trim()
       ? search.propertyType.trim()
       : undefined;
+  const lastSalePrice = numberOrUndef(search.lastSalePrice);
+  const lastSaleDate =
+    typeof search.lastSaleDate === "string" && search.lastSaleDate.trim()
+      ? search.lastSaleDate.trim()
+      : undefined;
 
   // Live comp pull — only when the user has explicitly clicked through. On
   // the fast estimate path comps and comparables stay null, and every UI
-  // surface that consumes them already has empty-state handling (the
-  // CompsSection EmptyState, HowWeGotThese.return null when comparables
-  // is null, EvidenceSection's `priceSub || rentSub` guard).
+  // surface that consumes them already has empty-state handling.
   const comps: CompsResult | null =
     liveComps && address
       ? await fetchComps({
@@ -210,16 +199,6 @@ export default async function ResultsPage({
         })
       : null;
 
-  // Derive fair value and market rent from comps with full "show your work"
-  // workLog so we can display exactly how every number was built. Pass HOA,
-  // last-sale, and the listed price so the derivation can HOA-override the
-  // category (avoids an SFR comp pool pricing a condo-style townhouse) and
-  // cross-check against what the market has actually paid for THIS unit.
-  const lastSalePrice = numberOrUndef(search.lastSalePrice);
-  const lastSaleDate =
-    typeof search.lastSaleDate === "string" && search.lastSaleDate.trim()
-      ? search.lastSaleDate.trim()
-      : undefined;
   const currentListPrice =
     search.listed === "1" ? inputs.purchasePrice : undefined;
   const comparables =
@@ -288,7 +267,7 @@ export default async function ResultsPage({
         priceBucket={priceBucketForAnalytics(inputs.purchasePrice)}
         source={address ? "address" : "manual"}
       />
-      <Header
+      <ResultsHeader
         editHref={editHref}
         currentUrl={currentUrl}
         supabaseConfigured={supaConfig.configured}
@@ -297,33 +276,18 @@ export default async function ResultsPage({
 
       <main className="flex-1">
         <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-14">
-          {/* Resolver warnings — "Zillow scraper offline", "FRED stale", etc.
-              Handed off from the homepage via sessionStorage so users don't
-              lose the context when they navigate here. */}
           <ResultsWarningsBanner address={address} />
 
-          {/* How we got these numbers — subject + comps + $/sqft-normalized
-              derivations. Shown at the top so the user trusts everything
-              below it. If a number here looks wrong, they know which comp
-              to challenge and can re-run with the right rent. Renders
-              nothing on the fast-estimate path (no comp pool yet); the
-              RunLiveCompsCTA below carries the user through the upgrade. */}
           <HowWeGotThese
             comparables={comparables}
             subjectPrice={inputs.purchasePrice}
             subjectRent={inputs.monthlyRent}
           />
 
-          {/* Live-comp CTA — visible on the fast-estimate path only. The
-              fast view runs every tab on Zestimate / state-average inputs;
-              this button triggers the actual RentCast comp pull and
-              unlocks the Negotiation Pack. Pro users skip the quota
-              gate; free users have 3 live analyses/month (§20.7). */}
           {!liveComps && address && (
             <RunLiveCompsCTA href={liveCompsHref} isPro={pro} />
           )}
 
-          {/* HERO — tier, ceiling, summary, actions. Always visible. */}
           <HeroSection
             tier={tier}
             analysis={analysis}
@@ -357,7 +321,6 @@ export default async function ResultsPage({
             }}
           />
 
-          {/* DEEP ANALYSIS — tabbed. */}
           <div className="mt-10 sm:mt-14">
             <ResultsTabs
               tabs={[
@@ -457,940 +420,4 @@ function priceBucketForAnalytics(price: number): string {
   if (price < 1_000_000) return "750k-1M";
   if (price < 2_000_000) return "1-2M";
   return "2M+";
-}
-
-// ===========================================================================
-// HEADER
-// ===========================================================================
-
-function Header({
-  editHref,
-  currentUrl,
-  supabaseConfigured,
-  signedIn,
-}: {
-  editHref: string;
-  currentUrl: string;
-  supabaseConfigured: boolean;
-  signedIn: boolean;
-}) {
-  return (
-    <header className="border-b border-zinc-900">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
-        <Link
-          href="/"
-          className="text-sm font-semibold tracking-tight text-zinc-100"
-        >
-          RealVerdict
-        </Link>
-        <nav className="flex items-center gap-3 sm:gap-5 text-sm">
-          <Link
-            href={editHref}
-            className="font-medium text-zinc-400 transition hover:text-zinc-100"
-          >
-            Edit
-          </Link>
-          <Link
-            href="/compare"
-            className="font-medium text-zinc-400 transition hover:text-zinc-100"
-          >
-            Compare
-          </Link>
-          <Link
-            href="/pricing"
-            className="hidden sm:inline font-medium text-zinc-400 transition hover:text-zinc-100"
-          >
-            Pricing
-          </Link>
-          {supabaseConfigured &&
-            (signedIn ? (
-              <Link
-                href="/dashboard"
-                className="font-medium text-zinc-400 transition hover:text-zinc-100"
-              >
-                Deals
-              </Link>
-            ) : (
-              <Link
-                href={`/login?redirect=${encodeURIComponent(currentUrl)}`}
-                className="font-medium text-zinc-400 transition hover:text-zinc-100"
-              >
-                Sign in
-              </Link>
-            ))}
-        </nav>
-      </div>
-    </header>
-  );
-}
-
-// ===========================================================================
-// HERO — verdict tier + walk-away price + AI summary + actions
-//
-// This is the only section that's always visible above the fold. Everything
-// else lives behind tabs so the page reads like an answer, not a dump.
-// ===========================================================================
-
-function HeroSection({
-  tier,
-  analysis,
-  address,
-  inputs,
-  editHref,
-  currentUrl,
-  signedIn,
-  isPro,
-  supabaseConfigured,
-  packEligible,
-  marketValueCap,
-  marketValueCapSource,
-  subjectFacts,
-}: {
-  tier: VerdictTier;
-  analysis: DealAnalysis;
-  address: string | undefined;
-  inputs: DealAnalysis["inputs"];
-  editHref: string;
-  currentUrl: string;
-  signedIn: boolean;
-  isPro: boolean;
-  supabaseConfigured: boolean;
-  packEligible: boolean;
-  marketValueCap?: number;
-  marketValueCapSource?: "comps" | "list";
-  subjectFacts: {
-    beds?: number;
-    baths?: number;
-    sqft?: number;
-    yearBuilt?: number;
-    propertyType?: string;
-    lastSalePrice?: number;
-    lastSaleDate?: string;
-  };
-}) {
-  const contextParts: string[] = [];
-  contextParts.push(formatCurrency(inputs.purchasePrice, 0));
-  contextParts.push(`${formatCurrency(analysis.monthlyCashFlow, 0)}/mo`);
-  contextParts.push(`Cap ${formatPercent(analysis.capRate, 1)}`);
-  contextParts.push(
-    `DSCR ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞"}`,
-  );
-
-  return (
-    <section className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-10">
-      <div className="lg:col-span-3 flex flex-col">
-        {address && (
-          <p className="mb-3 text-base font-semibold tracking-tight text-zinc-200 sm:text-lg break-words">
-            {address}
-          </p>
-        )}
-        <h1
-          className="text-4xl font-bold uppercase leading-none tracking-tight sm:text-5xl md:text-6xl"
-          style={{ color: "var(--accent)" }}
-        >
-          {TIER_LABEL[tier]}
-        </h1>
-        <p className="mt-3 text-xs sm:text-sm text-zinc-500 break-words">
-          {contextParts.join(" · ")}
-        </p>
-
-        <div
-          className="mt-6 border-l-4 pl-4 py-2"
-          style={{
-            borderColor: "var(--accent)",
-            backgroundColor: "var(--accent-soft)",
-          }}
-        >
-          <div className="text-sm">
-            <InitialVerdict inputs={inputs} fallback={analysis.verdict.summary} />
-          </div>
-        </div>
-
-        <HeroActions
-          editHref={editHref}
-          currentUrl={currentUrl}
-          inputs={inputs}
-          address={address}
-          signedIn={signedIn}
-          isPro={isPro}
-          supabaseConfigured={supabaseConfigured}
-          analysis={analysis}
-          packEligible={packEligible}
-          subjectFacts={subjectFacts}
-        />
-      </div>
-
-      <div className="lg:col-span-2">
-        <OfferCeilingCard
-          inputs={inputs}
-          marketValueCap={marketValueCap}
-          marketValueCapSource={marketValueCapSource}
-        />
-      </div>
-    </section>
-  );
-}
-
-function HeroActions({
-  editHref,
-  currentUrl,
-  inputs,
-  address,
-  signedIn,
-  isPro,
-  supabaseConfigured,
-  analysis,
-  packEligible,
-  subjectFacts,
-}: {
-  editHref: string;
-  currentUrl: string;
-  inputs: DealAnalysis["inputs"];
-  address: string | undefined;
-  signedIn: boolean;
-  isPro: boolean;
-  supabaseConfigured: boolean;
-  analysis: DealAnalysis;
-  packEligible: boolean;
-  subjectFacts: {
-    beds?: number;
-    baths?: number;
-    sqft?: number;
-    yearBuilt?: number;
-    propertyType?: string;
-    lastSalePrice?: number;
-    lastSaleDate?: string;
-  };
-}) {
-  return (
-    <div className="mt-6 flex flex-wrap items-center gap-2">
-      {packEligible && address && (
-        <PackGenerateButton
-          inputs={inputs}
-          address={address}
-          subjectFacts={subjectFacts}
-          currentUrl={currentUrl}
-          signedIn={signedIn}
-          supabaseConfigured={supabaseConfigured}
-        />
-      )}
-      <Link
-        href={editHref}
-        className="inline-flex h-11 min-h-[44px] items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/60 px-3.5 text-sm font-medium text-zinc-200 transition hover:border-zinc-700 hover:bg-zinc-900"
-      >
-        <EditIcon />
-        Adjust
-      </Link>
-      <SaveDealButton
-        inputs={inputs}
-        address={address}
-        currentUrl={currentUrl}
-        signedIn={signedIn}
-        isPro={isPro}
-        supabaseConfigured={supabaseConfigured}
-      />
-      <ShareButton path={currentUrl} />
-      <AddToComparisonButton
-        inputs={inputs}
-        address={address}
-        analysis={analysis}
-        signedIn={signedIn}
-        remoteSyncEnabled={signedIn && isPro}
-      />
-    </div>
-  );
-}
-
-// ===========================================================================
-// RUN LIVE COMP ANALYSIS CTA — visible on the fast-estimate path only
-//
-// Sits above the Hero on /results when the user landed via autofill (no
-// RentCast comp pull yet). Clicking navigates to ?livecomps=1 which
-// triggers the actual comp fetch, runs analyzeComparables, and populates
-// the "How we got these numbers" derivation, the Comps tab, and the
-// inputs for the Negotiation Pack. This is the §20.8 architecture pivot:
-// browse-and-bounce traffic costs us nothing, real intent gets the full
-// engine.
-// ===========================================================================
-
-function RunLiveCompsCTA({
-  href,
-  isPro,
-}: {
-  href: string;
-  isPro: boolean;
-}) {
-  return (
-    <div
-      className="mb-8 rounded-lg border p-5 sm:p-6"
-      style={{
-        borderColor: "var(--accent)",
-        backgroundColor: "var(--accent-soft)",
-      }}
-    >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="max-w-2xl">
-          <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-400">
-            Fast estimate
-          </div>
-          <h2 className="mt-1 text-base font-semibold text-zinc-100 sm:text-lg">
-            This verdict is running on the fast estimate.
-          </h2>
-          <p className="mt-1.5 text-sm text-zinc-300">
-            Numbers above use Zillow&apos;s Zestimate, the live FRED 30-yr
-            rate, and state-average insurance + tax (homestead-corrected).
-            Run the live comp analysis to pull the actual sale and rent
-            comps for this address — and unlock the Negotiation Pack.
-            {!isPro && " Counts as one of your 3 free analyses this month."}
-          </p>
-        </div>
-        <Link
-          href={href}
-          className="inline-flex h-11 items-center justify-center whitespace-nowrap rounded-md bg-zinc-100 px-5 text-sm font-semibold text-zinc-900 transition hover:bg-white"
-        >
-          Run live comp analysis
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-// ===========================================================================
-// SECTION 2 — EVIDENCE
-// ===========================================================================
-
-function EvidenceSection({
-  analysis,
-  comps,
-}: {
-  analysis: DealAnalysis;
-  comps: CompsResult | null;
-}) {
-  const ltv =
-    analysis.inputs.purchasePrice > 0
-      ? analysis.loanAmount / analysis.inputs.purchasePrice
-      : 0;
-
-  // Market-context anchors. Each block compares a deal-side number against
-  // the equivalent comp median and produces a short "vs market" sub-line.
-  const subjectPrice = analysis.inputs.purchasePrice;
-  const subjectRent = analysis.inputs.monthlyRent;
-  const saleMedian = comps?.saleComps.stats.median;
-  const rentMedian = comps?.rentComps.stats.median;
-
-  const cashFlowSub = formatCurrency(analysis.annualCashFlow, 0) + " / year";
-  const capRateSub = (() => {
-    if (!saleMedian || !rentMedian) return undefined;
-    // Market cap-rate proxy: comp median NOI / comp median price. We can't
-    // measure NOI from RentCast, so approximate using subject's expense ratio
-    // applied to median rent — gives a same-market apples-to-apples baseline.
-    const subjectExpenseRatio = analysis.operatingExpenseRatio || 0.4;
-    const marketAnnualNOI = rentMedian * 12 * (1 - subjectExpenseRatio);
-    const marketCap = saleMedian > 0 ? marketAnnualNOI / saleMedian : 0;
-    if (!marketCap) return undefined;
-    return `Market cap ~${formatPercent(marketCap, 1)}`;
-  })();
-  const priceSub = saleMedian
-    ? `Median sale ${formatCurrency(saleMedian, 0)}`
-    : undefined;
-  const rentSub = rentMedian
-    ? `Median rent ${formatCurrency(rentMedian, 0)}/mo`
-    : undefined;
-
-  // Equity multiple = (total cash returned) / cash invested.
-  // totalProfit already nets out the cash invested, so adding it back gives
-  // total returned-on-cash, which divided by cash invested is the multiple.
-  const equityMultiple =
-    analysis.totalCashInvested > 0
-      ? (analysis.totalProfit + analysis.totalCashInvested) /
-        analysis.totalCashInvested
-      : 0;
-
-  // Total return = everything the deal produced: operating cash + principal
-  // paydown + appreciation (before subtracting the cash invested).
-  const totalReturn =
-    analysis.totalCashFlow +
-    analysis.totalPrincipalPaydown +
-    analysis.totalAppreciation;
-
-  return (
-    <section>
-      {/* Subject vs market — only visible when we have comps data. */}
-      {(priceSub || rentSub) && (
-        <>
-          <MetricGroup label="Subject vs market">
-            <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3 sm:gap-y-6">
-              <MetricValue
-                label="Purchase price"
-                value={formatCurrency(subjectPrice, 0)}
-                tone="neutral"
-                sub={priceSub}
-              />
-              <MetricValue
-                label="Monthly rent"
-                value={formatCurrency(subjectRent, 0)}
-                tone="neutral"
-                sub={rentSub}
-              />
-              <MetricValue
-                label="Price / annual rent (GRM)"
-                value={`${analysis.grossRentMultiplier.toFixed(1)}×`}
-                tone={toneGRM(analysis.grossRentMultiplier)}
-                sub={
-                  saleMedian && rentMedian
-                    ? `Market ~${(saleMedian / (rentMedian * 12)).toFixed(1)}×`
-                    : undefined
-                }
-              />
-            </div>
-          </MetricGroup>
-          <GroupDivider />
-        </>
-      )}
-
-      {/* Returns */}
-      <MetricGroup label="Returns">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3 sm:gap-y-6">
-          <MetricValue
-            label="Cash flow / mo"
-            value={formatCurrency(analysis.monthlyCashFlow, 0)}
-            tone={analysis.monthlyCashFlow >= 0 ? "good" : "bad"}
-            sub={cashFlowSub}
-          />
-          <MetricValue
-            label="Cash-on-cash"
-            value={formatPercent(analysis.cashOnCashReturn, 1)}
-            tone={toneCoC(analysis.cashOnCashReturn)}
-          />
-          <MetricValue
-            label="Cap rate"
-            value={formatPercent(analysis.capRate, 2)}
-            tone={toneCap(analysis.capRate)}
-            sub={capRateSub}
-          />
-        </div>
-      </MetricGroup>
-
-      <GroupDivider />
-
-      {/* Risk: three equal columns */}
-      <MetricGroup label="Risk">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3 sm:gap-y-6">
-          <MetricValue
-            label="DSCR"
-            value={
-              isFinite(analysis.dscr)
-                ? formatNumber(analysis.dscr, 2)
-                : "∞"
-            }
-            tone={toneDSCR(analysis.dscr)}
-          />
-          <MetricValue
-            label="Break-even occupancy"
-            value={formatPercent(analysis.breakEvenOccupancy, 0)}
-            tone={toneBreakEven(analysis.breakEvenOccupancy)}
-          />
-          <MetricValue
-            label="LTV"
-            value={formatPercent(ltv, 0)}
-            tone="neutral"
-          />
-        </div>
-      </MetricGroup>
-
-      <GroupDivider />
-
-      {/* Long term */}
-      <MetricGroup label="Long term">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3 sm:gap-y-6">
-          <MetricValue
-            label={`${analysis.inputs.holdPeriodYears}-yr IRR`}
-            value={formatPercent(analysis.irr, 1)}
-            tone={
-              analysis.irr >= 0.1
-                ? "good"
-                : analysis.irr < 0
-                  ? "bad"
-                  : "neutral"
-            }
-          />
-          <MetricValue
-            label="Equity multiple"
-            value={`${formatNumber(equityMultiple, 2)}x`}
-            tone={
-              equityMultiple >= 2
-                ? "good"
-                : equityMultiple < 1
-                  ? "bad"
-                  : "neutral"
-            }
-          />
-          <MetricValue
-            label="Total return"
-            value={formatCurrency(totalReturn, 0)}
-            sub="cash flow + equity + appreciation"
-            tone={
-              totalReturn > 0
-                ? "good"
-                : totalReturn < 0
-                  ? "bad"
-                  : "neutral"
-            }
-          />
-        </div>
-      </MetricGroup>
-    </section>
-  );
-}
-
-type Tone = "good" | "warn" | "bad" | "neutral";
-
-function toneToStyle(tone: Tone): CSSProperties {
-  switch (tone) {
-    case "good":
-      return { color: "var(--accent)" };
-    case "warn":
-      return { color: WARN_COLOR };
-    case "bad":
-      return { color: BAD_COLOR };
-    default:
-      return {};
-  }
-}
-
-function toneCoC(v: number): Tone {
-  if (v >= 0.08) return "good";
-  if (v >= 0.04) return "warn";
-  if (v < 0) return "bad";
-  return "neutral";
-}
-function toneCap(v: number): Tone {
-  if (v >= 0.06) return "good";
-  if (v >= 0.04) return "warn";
-  if (v < 0.03) return "bad";
-  return "neutral";
-}
-function toneDSCR(v: number): Tone {
-  if (!isFinite(v)) return "good";
-  if (v >= 1.25) return "good";
-  if (v >= 1.0) return "warn";
-  return "bad";
-}
-function toneBreakEven(v: number): Tone {
-  if (v <= 0.75) return "good";
-  if (v <= 0.9) return "warn";
-  return "bad";
-}
-function toneGRM(v: number): Tone {
-  if (v <= 0) return "neutral";
-  if (v <= 12) return "good";
-  if (v <= 18) return "warn";
-  return "bad";
-}
-
-function MetricGroup({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div>
-      <div className="mb-6 text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
-        {label}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function MetricValue({
-  label,
-  value,
-  sub,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: Tone;
-}) {
-  return (
-    <div>
-      <div className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-        {label}
-      </div>
-      <div
-        className="mt-1.5 font-mono text-3xl font-semibold tabular-nums"
-        style={toneToStyle(tone)}
-      >
-        {value}
-      </div>
-      {sub && <div className="mt-1 text-xs text-zinc-600">{sub}</div>}
-    </div>
-  );
-}
-
-// ===========================================================================
-// SECTION 3 — BREAKDOWN
-// ===========================================================================
-
-function BreakdownSection({ analysis }: { analysis: DealAnalysis }) {
-  return (
-    <section className="flex flex-col gap-10">
-      <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
-        Breakdown
-      </div>
-      <MonthlyWaterfall analysis={analysis} />
-      <CashToClose analysis={analysis} />
-      <ProjectionTable projection={analysis.projection} />
-      <SaleProceeds analysis={analysis} />
-    </section>
-  );
-}
-
-function MonthlyWaterfall({ analysis }: { analysis: DealAnalysis }) {
-  const { inputs } = analysis;
-
-  const grossRent = inputs.monthlyRent;
-  const otherIncome = inputs.otherMonthlyIncome;
-  const grossInflow = grossRent + otherIncome;
-
-  // Approximate monthly opex by averaging year 1.
-  const monthlyPropertyTax = inputs.annualPropertyTax / 12;
-  const monthlyInsurance = inputs.annualInsurance / 12;
-  const monthlyMaintenance =
-    (analysis.annualGrossIncome * (inputs.maintenancePercent / 100)) / 12;
-  const monthlyPM =
-    (analysis.annualGrossIncome * (inputs.propertyManagementPercent / 100)) /
-    12;
-  const monthlyCapEx =
-    (analysis.annualGrossIncome * (inputs.capexReservePercent / 100)) / 12;
-  const monthlyVacancy = grossRent * (inputs.vacancyRatePercent / 100);
-
-  const rows: Row[] = [
-    { label: "Monthly rent", value: grossRent, positive: true },
-    otherIncome > 0
-      ? { label: "Other income", value: otherIncome, positive: true }
-      : null,
-    { label: "— Vacancy", value: -monthlyVacancy },
-    inputs.annualPropertyTax > 0
-      ? { label: "— Property tax", value: -monthlyPropertyTax }
-      : null,
-    inputs.annualInsurance > 0
-      ? { label: "— Insurance", value: -monthlyInsurance }
-      : null,
-    inputs.monthlyHOA > 0
-      ? { label: "— HOA", value: -inputs.monthlyHOA }
-      : null,
-    inputs.monthlyUtilities > 0
-      ? { label: "— Utilities", value: -inputs.monthlyUtilities }
-      : null,
-    {
-      label: `— Maintenance (${inputs.maintenancePercent}%)`,
-      value: -monthlyMaintenance,
-    },
-    inputs.propertyManagementPercent > 0
-      ? {
-          label: `— Property mgmt (${inputs.propertyManagementPercent}%)`,
-          value: -monthlyPM,
-        }
-      : null,
-    inputs.capexReservePercent > 0
-      ? {
-          label: `— CapEx reserve (${inputs.capexReservePercent}%)`,
-          value: -monthlyCapEx,
-        }
-      : null,
-    analysis.monthlyMortgagePayment > 0
-      ? {
-          label: "— Mortgage (P&I)",
-          value: -analysis.monthlyMortgagePayment,
-        }
-      : null,
-  ].filter((r): r is Row => r !== null);
-
-  return (
-    <Panel title="Monthly cash flow" subtitle={formatCurrency(grossInflow, 0) + " in · " + formatCurrency(grossInflow - analysis.monthlyCashFlow, 0) + " out"}>
-      <Table>
-        {rows.map((r, i) => (
-          <TableRow key={r.label} alt={i % 2 === 1}>
-            <td className="py-2.5 text-left text-sm text-zinc-300">
-              {r.label}
-            </td>
-            <td
-              className={`py-2.5 text-right font-mono text-sm tabular-nums ${r.value < 0 ? "text-zinc-400" : "text-zinc-100"}`}
-            >
-              {signedCurrency(r.value)}
-            </td>
-          </TableRow>
-        ))}
-        <TableRow bold>
-          <td className="pt-3 text-left text-sm font-semibold text-zinc-100">
-            Net cash flow
-          </td>
-          <td
-            className="pt-3 text-right font-mono text-base font-semibold tabular-nums"
-            style={toneToStyle(
-              analysis.monthlyCashFlow >= 0 ? "good" : "bad",
-            )}
-          >
-            {signedCurrency(analysis.monthlyCashFlow)}
-          </td>
-        </TableRow>
-      </Table>
-    </Panel>
-  );
-}
-
-function CashToClose({ analysis }: { analysis: DealAnalysis }) {
-  const { inputs } = analysis;
-  const rows: Row[] = [
-    {
-      label: `Down payment (${inputs.downPaymentPercent}%)`,
-      value: analysis.downPayment,
-    },
-    {
-      label: `Closing costs (${inputs.closingCostsPercent}%)`,
-      value: analysis.closingCosts,
-    },
-    inputs.rehabCosts > 0
-      ? { label: "Rehab", value: inputs.rehabCosts }
-      : null,
-  ].filter((r): r is Row => r !== null);
-
-  return (
-    <Panel
-      title="Cash to close"
-      subtitle={`Loan: ${formatCurrency(analysis.loanAmount, 0)} at ${inputs.loanInterestRate}% for ${inputs.loanTermYears} years`}
-    >
-      <Table>
-        {rows.map((r, i) => (
-          <TableRow key={r.label} alt={i % 2 === 1}>
-            <td className="py-2.5 text-left text-sm text-zinc-300">
-              {r.label}
-            </td>
-            <td className="py-2.5 text-right font-mono text-sm tabular-nums text-zinc-100">
-              {formatCurrency(r.value, 0)}
-            </td>
-          </TableRow>
-        ))}
-        <TableRow bold>
-          <td className="pt-3 text-left text-sm font-semibold text-zinc-100">
-            Total cash needed
-          </td>
-          <td
-            className="pt-3 text-right font-mono text-base font-semibold tabular-nums"
-            style={{ color: "var(--accent)" }}
-          >
-            {formatCurrency(analysis.totalCashInvested, 0)}
-          </td>
-        </TableRow>
-      </Table>
-    </Panel>
-  );
-}
-
-function ProjectionTable({ projection }: { projection: YearProjection[] }) {
-  if (projection.length === 0) return null;
-  return (
-    <Panel title={`Year-by-year · ${projection.length}-yr projection`}>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-zinc-800 text-xs uppercase tracking-wider text-zinc-500">
-              <th className="px-3 py-2.5 text-left font-medium">Year</th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                Gross rent
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">NOI</th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                Debt service
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                Cash flow
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                Cumulative
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                Loan balance
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                Property value
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">Equity</th>
-            </tr>
-          </thead>
-          <tbody>
-            {projection.map((row, i) => (
-              <tr
-                key={row.year}
-                className={i % 2 === 1 ? "bg-zinc-900/40" : ""}
-              >
-                <td className="px-3 py-2.5 text-left font-medium text-zinc-100">
-                  Y{row.year}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-zinc-300 tabular-nums">
-                  {formatCurrency(row.grossRent, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-zinc-300 tabular-nums">
-                  {formatCurrency(row.noi, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-zinc-500 tabular-nums">
-                  {row.debtService > 0
-                    ? formatCurrency(row.debtService, 0)
-                    : "—"}
-                </td>
-                <td
-                  className="px-3 py-2.5 text-right font-mono tabular-nums"
-                  style={toneToStyle(row.cashFlow >= 0 ? "good" : "bad")}
-                >
-                  {formatCurrency(row.cashFlow, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-zinc-300 tabular-nums">
-                  {formatCurrency(row.cumulativeCashFlow, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-zinc-500 tabular-nums">
-                  {formatCurrency(row.loanBalanceEnd, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-zinc-300 tabular-nums">
-                  {formatCurrency(row.propertyValueEnd, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono font-semibold text-zinc-100 tabular-nums">
-                  {formatCurrency(row.equityEnd, 0)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Panel>
-  );
-}
-
-function SaleProceeds({ analysis }: { analysis: DealAnalysis }) {
-  const { inputs } = analysis;
-  return (
-    <Panel
-      title={`Sale proceeds · exit year ${analysis.saleYear}`}
-      subtitle={`Assumes ${inputs.annualAppreciationPercent}%/yr appreciation, ${inputs.sellingCostsPercent}% selling costs`}
-    >
-      <Table>
-        <TableRow>
-          <td className="py-2.5 text-left text-sm text-zinc-300">
-            Projected sale price
-          </td>
-          <td className="py-2.5 text-right font-mono text-sm tabular-nums text-zinc-100">
-            {formatCurrency(analysis.salePrice, 0)}
-          </td>
-        </TableRow>
-        <TableRow alt>
-          <td className="py-2.5 text-left text-sm text-zinc-300">
-            — Selling costs ({inputs.sellingCostsPercent}%)
-          </td>
-          <td className="py-2.5 text-right font-mono text-sm tabular-nums text-zinc-400">
-            {signedCurrency(-analysis.sellingCosts)}
-          </td>
-        </TableRow>
-        <TableRow>
-          <td className="py-2.5 text-left text-sm text-zinc-300">
-            — Loan payoff
-          </td>
-          <td className="py-2.5 text-right font-mono text-sm tabular-nums text-zinc-400">
-            {signedCurrency(-analysis.loanBalanceAtExit)}
-          </td>
-        </TableRow>
-        <TableRow bold>
-          <td className="pt-3 text-left text-sm font-semibold text-zinc-100">
-            Net sale proceeds
-          </td>
-          <td
-            className="pt-3 text-right font-mono text-base font-semibold tabular-nums"
-            style={{ color: "var(--accent)" }}
-          >
-            {formatCurrency(analysis.netSaleProceeds, 0)}
-          </td>
-        </TableRow>
-      </Table>
-    </Panel>
-  );
-}
-
-type Row = { label: string; value: number; positive?: boolean };
-
-function signedCurrency(n: number): string {
-  const formatted = formatCurrency(Math.abs(n), 0);
-  if (n < 0) return `−${formatted}`;
-  return formatted;
-}
-
-function Panel({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 className="text-base font-semibold text-zinc-100">{title}</h3>
-        {subtitle && (
-          <span className="text-xs text-zinc-500">{subtitle}</span>
-        )}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Table({ children }: { children: ReactNode }) {
-  return (
-    <table className="w-full border-collapse">
-      <tbody>{children}</tbody>
-    </table>
-  );
-}
-
-function TableRow({
-  children,
-  alt = false,
-  bold = false,
-}: {
-  children: ReactNode;
-  alt?: boolean;
-  bold?: boolean;
-}) {
-  const cls = [
-    alt ? "bg-zinc-900/40" : "",
-    bold ? "border-t border-zinc-800" : "",
-  ]
-    .join(" ")
-    .trim();
-  return <tr className={cls}>{children}</tr>;
-}
-
-function EditIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      className="h-4 w-4 text-zinc-400"
-      aria-hidden="true"
-    >
-      <path d="M13.6 2.6a2 2 0 012.8 0l1 1a2 2 0 010 2.8l-9.5 9.5L3.5 17l1.1-4.4 9-10zM12 5.4L5.8 11.6l-.6 2.3 2.3-.6L13.7 7 12 5.4z" />
-    </svg>
-  );
-}
-
-// ===========================================================================
-// Small shared primitives
-// ===========================================================================
-
-function GroupDivider() {
-  return <div className="my-8 h-px bg-zinc-900" />;
 }

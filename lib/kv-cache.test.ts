@@ -6,7 +6,7 @@ import {
 } from "./kv-cache";
 
 // All tests here exercise the in-memory fallback path. The Upstash-attached
-// path is exercised in the e2e smoke test (see §16.P in HANDOFF) since
+// path is exercised in the e2e smoke test (see §16.P in HANDOFF_ARCHIVE) since
 // hitting real Redis in unit tests is both slow and flaky.
 
 beforeEach(() => {

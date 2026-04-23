@@ -166,7 +166,7 @@ describe("analyseDeal — reference listings (calibration anti-regression)", () 
   // pin exact scores (that'd fight the rubric every time we tune it), but it
   // DOES pin tier ordering so a subsequent refactor can't silently invert them.
   //
-  // Source: HANDOFF.md §18. Numbers are the rent/price pairs a user would
+  // Source: HANDOFF.md §12 (reference test listings). The rent/price pairs a user would
   // actually see after autofill.
   const bocaRaton = make({
     purchasePrice: 665_000, monthlyRent: 3_100, monthlyHOA: 450,

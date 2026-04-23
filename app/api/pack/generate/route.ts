@@ -18,7 +18,7 @@ import {
 import { buildPack } from "@/lib/negotiation-pack";
 
 // ---------------------------------------------------------------------------
-// POST /api/pack/generate (HANDOFF §20.3)
+// POST /api/pack/generate (HANDOFF §11)
 //
 // Auth-gated (must be signed in — Pack is the primary Pro funnel and we
 // want a user record to attribute the share to). Re-pulls comps server-side

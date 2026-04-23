@@ -10,7 +10,7 @@ import {
 import type { PackPayload } from "@/lib/negotiation-pack";
 
 // ---------------------------------------------------------------------------
-// Public Negotiation Pack viewer (HANDOFF §20.3).
+// Public Negotiation Pack viewer (HANDOFF §11).
 //
 // Renders a frozen Pack snapshot at /pack/<shareToken>. Loads via Supabase
 // RLS — the anon client succeeds when `is_public = true AND revoked_at IS NULL`

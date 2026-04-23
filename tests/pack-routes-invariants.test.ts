@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
-// Structural invariants for the Negotiation Pack feature (HANDOFF §20.3).
+// Structural invariants for the Negotiation Pack feature (HANDOFF §11).
 //
 // Mirrors the property-resolve invariant test pattern — these don't run the
 // route handlers (which require a Next runtime, Supabase env, and request
@@ -61,9 +61,15 @@ describe("Negotiation Pack — file + wiring invariants", () => {
   it("PackGenerateButton exists and is wired into the results action row", () => {
     const btn = readSource("app/_components/PackGenerateButton.tsx");
     expect(btn).toMatch(/fetch\s*\(\s*["']\/api\/pack\/generate["']/);
+    // The results page orchestrator decides packEligible and threads it
+    // into HeroSection; HeroSection actually renders PackGenerateButton.
+    // Both halves of the wiring are invariants we want to lock in.
     const results = readSource("app/results/page.tsx");
-    expect(results).toMatch(/PackGenerateButton/);
     expect(results).toMatch(/packEligible/);
+    expect(results).toMatch(/HeroSection/);
+    const hero = readSource("app/_components/results/HeroSection.tsx");
+    expect(hero).toMatch(/PackGenerateButton/);
+    expect(hero).toMatch(/packEligible/);
   });
 
   it("CompReasoningPanel is rendered inside CompsSection when comparables exist", () => {

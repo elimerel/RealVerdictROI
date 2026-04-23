@@ -8,7 +8,7 @@
 // every Pack number is reproducible from the same source of truth as the
 // /results page.
 //
-// What the Pack contains (per HANDOFF §20.3):
+// What the Pack contains (per HANDOFF §11; original spec in HANDOFF_ARCHIVE §20.3):
 //   1. Headline — walk-away price, list price, delta, one-sentence framing.
 //   2. Three weakest assumptions in the seller's pro forma — sourced from
 //      the resolver warnings (homestead-trap, low-confidence insurance) +

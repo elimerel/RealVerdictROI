@@ -7,7 +7,7 @@
 //   - When UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are missing
 //     (dev without the env, or a future self-hosted deploy) we fall back
 //     to a per-process in-memory sliding window. Works in dev, degrades
-//     gracefully in single-lambda production, documented in HANDOFF §16.M.
+//     gracefully in single-lambda production, documented in HANDOFF_ARCHIVE §16.M.
 //   - Buckets are keyed per endpoint × per identifier (IP or user-id).
 //     Each endpoint has a different cost profile so the limits differ.
 //
