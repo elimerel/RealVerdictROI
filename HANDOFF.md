@@ -1640,6 +1640,84 @@ on next deploy.
 - §20.9 #11–#12 — cross-tab numeric reconciliation + garbled negative-CF copy. P2 polish, do these in the Pack-build wave.
 - §19.5 demo signal — "I'd pay for that specifically" before Stripe live-mode flip.
 
+### 20.18 Pack-first repositioning — SHIPPED 2026-04-22
+
+**Why:** Homepage sold the walk-away price (correct) but never mentioned
+the Negotiation Pack (the primary product bet). Pricing page buried the
+Pack as a single bullet in the Pro column. Prospects had no way to know
+the Pack existed, let alone that it was free for their first 3 listings
+a week. The product had shipped and was invisible.
+
+**What changed (copy-only — no functional gate changes):**
+
+`app/page.tsx` — homepage
+- Hero eyebrow: **"For your next offer"** (beachhead customer callout —
+  investors with a specific listing in hand, not passive browsers).
+- Hero headline: **"Walk in with a number. Not a feeling."** (the
+  emotional pitch that generalizes across experience levels).
+- Hero subhead: names the Pack explicitly, lists the four deliverables
+  the Pack contains (walk-away price, weakest assumptions, comp evidence,
+  counteroffer script).
+- Free-quota callout: **"Free for your first 3 listings a week. $29/mo
+  for unlimited."** — accurate to `analysis-free-user` limiter
+  (3 tokens / 7-day rolling window in `lib/ratelimit.ts`).
+- Value-prop section title changed from generic "three cards" to **"What's
+  in the Pack"**. Cards now name: walk-away price, three weakest
+  assumptions, counteroffer script. Replaces reality-checked-rents and
+  stress-tested-verdict (which were true but redundant against the Pack
+  framing — stress tests ARE part of the Pack).
+- How-it-works step 2 rewritten to "Run a live comp analysis" (with the
+  explicit mention of p25/median/p75 and comp reasoning). Step 3
+  rewritten to "Generate the Pack" — product-forward CTA naming.
+- Bottom CTA rewritten to lead with the 3-free-per-week quota and the
+  $29 unlimited upgrade path. Primary button text changed from
+  "Analyze a deal" → **"Try it on your next listing"**.
+
+`app/pricing/page.tsx`
+- Page headline changed from "Simple, honest pricing" → **"The Pack is
+  free for your first 3 listings a week."** — the pricing page is now
+  selling the product, not describing tiers.
+- New `<PackAnatomy />` section above the tier cards: six cards, one
+  per Pack pillar (walk-away price, weakest assumptions, comp evidence,
+  stress scenarios, counteroffer script, agent-ready PDF + share link).
+  This is the "what you actually get" visual that was missing.
+- Free tier card rewritten to lead with **"3 full Negotiation Packs per
+  week"** as the highlighted feature. Pro tier card rewritten to lead
+  with **"Unlimited Negotiation Packs"**. Both tier CTAs updated
+  ("Try a Pack free" / unchanged Pro button).
+- FAQ expanded and rewritten — first question is now "The Pack is
+  really free? What's the catch?" and the answer explicitly explains
+  the 3/week quota + when upgrading makes sense. Added a "Who is this
+  for?" question naming the beachhead (investors making their next
+  offer).
+
+`tests/pack-routes-invariants.test.ts`
+- Updated the pricing-page invariant to assert "3 full Negotiation
+  Packs per week" (matching the new copy).
+- Added a homepage invariant: asserts the Pack is named, "For your
+  next offer" appears (beachhead), and "3 listings a week" is visible
+  (free-tier quota communicated).
+
+**What did NOT change (and why):**
+- Rate limiter budgets (`analysis-free-user` = 3/week, `analysis-free-anon`
+  = 5/week). The 3/week cap on live-comp analyses already translates to
+  3 free Packs/week — generous enough that word-of-mouth beats
+  extraction. Tightening would create the wrong "greedy product"
+  signal.
+- Pack generation API still auth-required but not Pro-gated. Any
+  signed-in user can generate Packs up to the underlying live-comp
+  quota. No schema changes needed.
+- Stripe $29/mo price ID is unchanged. No one-time Pack purchase path
+  yet — deferred until repositioning has been live long enough to see
+  whether there's demand for that specific wedge (see §20.19 plan
+  below).
+
+**Result:** 169/169 tests pass (+1 homepage invariant). tsc + next build
+clean. Homepage and /pricing now name the Pack as the primary product;
+the 3-free-Packs-per-week quota is the front-door hook that replaces
+the previous "3 analyses per month" framing (which was inaccurate to the
+actual rate limiter anyway).
+
 ### 20.17 Walk-away price market-value cap — SHIPPED 2026-04-22
 
 **Bug (user-reported):** On a listing at $539,800 asking with comp-derived
@@ -1703,12 +1781,13 @@ any tier ceiling on that listing is mathematically bounded at
 ### 20.15 Next chat starting prompt — USE THIS ONE
 
 ```
-Read §20.17 first (walk-away market-value cap — shipped 2026-04-22,
-fixes user-reported $3.4M-walk-away-on-$540k-listing bug), then §20.16
-(Negotiation Pack + Comp Reasoning Explainer + $29 reprice — same day),
-then §20.14 (§20.8 architecture), then §20.13 (§20.9 items 1–9).
-The whole roadmap from §20.3, §20.4, §20.7, §20.8, §20.9, §20.10,
-§20.17 is in. 168 tests pass. tsc + eslint + next build all clean.
+Read §20.18 first (Pack-first repositioning — shipped 2026-04-22),
+then §20.17 (walk-away market-value cap — shipped same day, fixes
+user-reported $3.4M-walk-away-on-$540k-listing bug), then §20.16
+(Negotiation Pack + Comp Reasoning Explainer + $29 reprice), then
+§20.14 (§20.8 architecture), then §20.13 (§20.9 items 1–9). The whole
+roadmap from §20.3, §20.4, §20.7, §20.8, §20.9, §20.10, §20.17, §20.18
+is in. 169 tests pass. tsc + eslint + next build all clean.
 
 Next strategic focus (user-approved "move forward" direction):
   - Reposition funnel copy + free tier — target newer investors making

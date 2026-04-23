@@ -118,20 +118,26 @@ export default async function Home({
       <main id="analyze" className="flex-1">
         <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 pt-10 pb-12 sm:pt-16">
           <div className="mb-10 text-center">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600 dark:text-emerald-400">
+              For your next offer
+            </p>
             <h1 className="text-4xl font-bold tracking-tight text-zinc-900 sm:text-6xl dark:text-zinc-50 mb-4">
-              Know the max price{" "}
+              Walk in with a number.{" "}
               <span className="bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 bg-clip-text text-transparent">
-                this deal still works at.
+                Not a feeling.
               </span>
             </h1>
             <p className="text-lg leading-relaxed text-zinc-600 sm:text-xl dark:text-zinc-300 max-w-2xl mx-auto">
-              Paste any address or Zillow URL. In 30 seconds: real cash flow,
-              cap rate, DSCR, IRR — and the{" "}
+              Paste any listing. 30 seconds later you have a{" "}
               <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                exact walk-away price
-              </span>{" "}
-              before this stops being a good deal. So you walk into negotiations
-              with a number, not a feeling.
+                Negotiation Pack
+              </span>
+              : walk-away price, the three weakest assumptions in the seller&apos;s
+              pro forma, the comps that prove it, and a counteroffer script your
+              agent can send as-is.
+            </p>
+            <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+              Free for your first 3 listings a week. $29/mo for unlimited.
             </p>
           </div>
 
@@ -174,22 +180,31 @@ export default async function Home({
           </div>
         </div>
 
-        {/* VALUE PROPS */}
+        {/* VALUE PROPS — the three pillars of the Negotiation Pack. */}
         <section className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
+          <div className="mx-auto mb-10 max-w-2xl text-center">
+            <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
+              What&apos;s in the Pack
+            </h2>
+            <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300 sm:text-base">
+              Agent-ready PDF + share link. Everything the seller can&apos;t
+              argue with.
+            </p>
+          </div>
           <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
             <ValueCard
               title="Walk-away price"
-              body="Every analysis tells you the highest price this deal can carry while still hitting STRONG BUY, GOOD, or BORDERLINE. Take the number into your offer."
+              body="The highest offer this deal can carry while still hitting STRONG BUY, GOOD, or BORDERLINE — capped by comp-derived fair value. Take the number into your offer."
               accent="emerald"
             />
             <ValueCard
-              title="Reality-checked rents"
-              body="Your projected rent is compared against live nearby rentals. We flag optimistic assumptions before you bet on them."
+              title="Three weakest assumptions"
+              body="Every listing has 2-3 numbers the seller inflated. We rank them by dollar impact and show you the comp evidence that breaks each one."
               accent="sky"
             />
             <ValueCard
-              title="Stress-tested verdict"
-              body="Rate up 1pt, rents drop 10%, vacancy doubles — see how the deal holds up across 5 scenarios that actually happen."
+              title="Counteroffer script"
+              body="The exact words to send your agent. Grounded in the walk-away price, the seller's weakest assumption, and five stress scenarios that actually happen."
               accent="indigo"
             />
           </div>
@@ -199,7 +214,7 @@ export default async function Home({
         <section className="border-y border-zinc-200/70 bg-white/40 dark:border-zinc-800/70 dark:bg-black/20">
           <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
             <h2 className="mb-10 text-center text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-              From listing to verdict in three steps
+              From listing to Pack in three steps
             </h2>
             <ol className="grid grid-cols-1 gap-8 md:grid-cols-3">
               <Step
@@ -209,13 +224,13 @@ export default async function Home({
               />
               <Step
                 n={2}
-                title="Get the verdict"
-                body="STRONG BUY through AVOID. Backed by an itemized rubric across cash flow, cap rate, DSCR, IRR, GRM and break-even occupancy."
+                title="Run a live comp analysis"
+                body="We pull the nearest sold + rented comparables, filter the outliers, and compute comp-derived fair value. You see every comp we used (and excluded) with a one-line why."
               />
               <Step
                 n={3}
-                title="Negotiate or move on"
-                body="The walk-away ceiling tells you what to offer. The what-if sliders show what changes if you push the price down or up."
+                title="Generate the Pack"
+                body="Agent-ready PDF + share link. Walk-away price, three weakest seller assumptions with comp evidence, stress scenarios, and a counteroffer script. Send it to your agent and negotiate."
               />
             </ol>
           </div>
@@ -228,16 +243,16 @@ export default async function Home({
               Stop talking yourself into bad deals.
             </h2>
             <p className="mt-3 text-base text-zinc-600 dark:text-zinc-300">
-              Free for casual analysis. Pro is for investors actively underwriting
-              multiple deals a week — unlimited verdicts, live comparables, saved
-              portfolio, and cross-device sync.
+              Free for your first 3 listings a week — including the full
+              Negotiation Pack. $29/mo for unlimited Packs, saved portfolio, and
+              Pro-only Comp Reasoning Explainer. No contract, 7-day refund.
             </p>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
               <Link
                 href="#analyze"
                 className="inline-flex h-11 items-center rounded-md bg-zinc-900 px-5 text-sm font-semibold text-white transition hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                Analyze a deal
+                Try it on your next listing
               </Link>
               <Link
                 href="/pricing"

@@ -60,13 +60,20 @@ export default async function PricingPage() {
       <main className="flex-1">
         <div className="mx-auto w-full max-w-5xl px-6 py-16 sm:py-24">
           <div className="mx-auto mb-14 flex max-w-2xl flex-col items-center gap-3 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600 dark:text-emerald-400">
+              For your next offer
+            </p>
             <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-5xl dark:text-zinc-50">
-              Simple, honest pricing
+              The Pack is free for your first 3 listings a week.
             </h1>
             <p className="text-base leading-relaxed text-zinc-600 sm:text-lg dark:text-zinc-300">
-              Start free. Upgrade when it&apos;s worth it.
+              $29/mo when you&apos;re ready for unlimited. No contract,
+              cancel anytime, 7-day refund if the Pack didn&apos;t pay for
+              itself.
             </p>
           </div>
+
+          <PackAnatomy />
 
           <div className="grid gap-6 md:grid-cols-2">
             <FreeTierCard />
@@ -88,6 +95,62 @@ export default async function PricingPage() {
   );
 }
 
+function PackAnatomy() {
+  const pillars: Array<{ title: string; body: string }> = [
+    {
+      title: "Walk-away price",
+      body: "The highest offer the deal can carry while still clearing the rubric, capped by comp-derived fair value. Never inflated by an overgenerous rent assumption.",
+    },
+    {
+      title: "Three weakest assumptions",
+      body: "The 2-3 numbers the seller inflated, ranked by dollar impact. Each one backed by the specific comps that break it.",
+    },
+    {
+      title: "Comp evidence",
+      body: "Every comp the engine used, with a one-line \"why it fits.\" Every comp it excluded, with a one-line \"why it didn't.\" Nothing the listing agent can hand-wave away.",
+    },
+    {
+      title: "Stress scenarios",
+      body: "Rate up 1pt, vacancy doubles, rents drop 10%, insurance climbs, 5-year hold — verdict changes flagged inline so you know which risk breaks the deal.",
+    },
+    {
+      title: "Counteroffer script",
+      body: "The exact words your agent sends the listing agent. Grounded in walk-away price + the weakest seller assumption + a concrete stress outcome.",
+    },
+    {
+      title: "Agent-ready PDF + share link",
+      body: "Branded PDF at one URL. Send it to your agent, your spouse, your lender — everyone opens the same page and sees the same number.",
+    },
+  ];
+  return (
+    <section className="mb-14">
+      <div className="mx-auto max-w-3xl text-center">
+        <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
+          What a Pack actually contains
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 sm:text-base">
+          Six sections, one deliverable. Free for your first 3 listings a week.
+        </p>
+      </div>
+      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {pillars.map((p) => (
+          <div
+            key={p.title}
+            className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
+          >
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              {p.title}
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+              {p.body}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function FreeTierCard() {
   return (
     <div className="flex flex-col rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -104,18 +167,26 @@ function FreeTierCard() {
           </span>
         </div>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Everything you need to size up a deal.
+          Enough to test the engine on your next offer.
         </p>
       </div>
 
       <ul className="mt-6 flex flex-1 flex-col gap-3 text-sm text-zinc-700 dark:text-zinc-300">
+        <Feature highlighted>
+          <span className="font-semibold text-zinc-900 dark:text-zinc-50">
+            3 full Negotiation Packs per week
+          </span>{" "}
+          — walk-away price, weakest assumptions, comp evidence, stress
+          scenarios, counteroffer script, agent-ready PDF + share link
+        </Feature>
         <Feature>
           Unlimited fast estimates (Zestimate + FRED rates + state-average
           tax &amp; insurance)
         </Feature>
-        <Feature>3 live comp pulls per month — real RentCast sale &amp; rent comparables</Feature>
+        <Feature>
+          Walk-away price capped by comp-derived fair value on every analysis
+        </Feature>
         <Feature>All metrics — cash flow, cap rate, DSCR, IRR, 5-year projections</Feature>
-        <Feature>Walk-away price ceiling on every deal</Feature>
         <Feature>Stress test (5 scenarios) and what-if sliders</Feature>
         <Feature>Auto-fill from any address or Zillow URL</Feature>
         <Feature>AI advisor — ask follow-up questions about the deal</Feature>
@@ -125,7 +196,7 @@ function FreeTierCard() {
         href="/"
         className="mt-8 inline-flex h-11 items-center justify-center rounded-full border border-zinc-300 bg-white px-6 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
       >
-        Start free
+        Try a Pack free
       </Link>
     </div>
   );
@@ -150,22 +221,23 @@ function ProTierCard({ signedIn }: { signedIn: boolean }) {
           </span>
         </div>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          For investors actively underwriting and offering on deals.
+          For investors making multiple offers a month.
         </p>
       </div>
 
       <ul className="mt-6 flex flex-1 flex-col gap-3 text-sm text-zinc-700 dark:text-zinc-300">
         <Feature highlighted>
-          Unlimited live comp analyses (no monthly cap)
+          <span className="font-semibold text-zinc-900 dark:text-zinc-50">
+            Unlimited Negotiation Packs
+          </span>{" "}
+          — no weekly cap, full PDF + share link on every deal
         </Feature>
         <Feature highlighted>
-          Negotiation Pack — agent-ready PDF + share link with walk-away
-          price, three weakest seller assumptions, comp evidence, stress
-          scenarios, and a counteroffer script
+          Unlimited live comp analyses (Pro skips the 3/week quota)
         </Feature>
         <Feature highlighted>
           Comp Reasoning Explainer — every comp the engine used (and excluded)
-          with a one-line why
+          with a one-line why, plus the p25/median/p75 band
         </Feature>
         <Feature highlighted>Save deals to your portfolio dashboard</Feature>
         <Feature highlighted>Cross-device deal comparison sync</Feature>
@@ -220,16 +292,24 @@ function CheckIcon({ highlighted }: { highlighted: boolean }) {
 function FAQ() {
   const items: Array<{ q: string; a: string }> = [
     {
-      q: "Can I really use it free forever?",
-      a: "Yes. Fast estimates (Zillow Zestimate + state-average tax & insurance + live FRED rate) are unlimited on the free tier. You get 3 live RentCast comp pulls per month before needing Pro.",
+      q: "The Pack is really free? What's the catch?",
+      a: "No catch. You get 3 full Negotiation Packs per week on the free tier — same PDF, same share link, same content as Pro. The economics work because we cache aggressively and the expensive part (live comps) reuses the same cached pull across the analysis and the Pack. If you generate more than 3 Packs a week, you're underwriting enough deals that $29/mo is trivial compared to what a single bad offer costs you.",
+    },
+    {
+      q: "What's a \"Pack\" and why do I care?",
+      a: "The Negotiation Pack is the deliverable. It's a branded PDF (plus a share link you can send your agent) that contains: (1) walk-away price capped by comp-derived fair value, (2) the three weakest assumptions in the seller's pro forma ranked by dollar impact, (3) comp evidence — every comp used and every comp excluded with a reason, (4) five stress scenarios with verdict flips flagged inline, and (5) a counteroffer script your agent can send as-is. It's the thing you walk into negotiations with.",
     },
     {
       q: "What's the difference between a fast estimate and a live comp pull?",
-      a: "The fast estimate gives you the verdict, walk-away price, stress tests, and what-if sliders using best-available defaults — no live MLS comps. A live comp pull queries the actual sale and rent comparables for that exact address; this is what unlocks the Negotiation Pack and the Comp Reasoning Explainer.",
+      a: "The fast estimate gives you the verdict, walk-away price, stress tests, and what-if sliders using best-available defaults — no live MLS comps, unlimited on free tier. A live comp pull queries actual sale and rent comparables for that exact address; this is what unlocks the Negotiation Pack and the Comp Reasoning Explainer. Free tier: 3 live pulls/week. Pro: unlimited.",
     },
     {
       q: "What's actually different in Pro?",
-      a: "Two things: (1) unlimited live comp analyses (no monthly cap), and (2) the Negotiation Pack — the agent-ready PDF + share link with walk-away price, the three weakest assumptions in the seller's pro forma, comp evidence, stress scenarios, and a counteroffer script. The verdict math, walk-away ceiling, stress tests, and AI advisor stay free.",
+      a: "Three things: (1) unlimited live comp analyses and Packs — no weekly cap, (2) Comp Reasoning Explainer — every comp the engine used (and excluded) with a one-line why, plus the p25/median/p75 band, and (3) saved portfolio dashboard + cross-device comparison sync. The verdict math, walk-away ceiling, stress tests, AI advisor, and the Pack itself are all free up to the weekly quota.",
+    },
+    {
+      q: "Who is this for?",
+      a: "Investors making their next offer. Whether it's your first or your fiftieth — if you're about to send an agent a number on a specific listing, the Pack is the artifact that replaces \"trust me, it's a good deal\" with six pages of comp-backed evidence. It's most valuable for buyers who've underwritten 1-10 deals and want to stop using their gut on the next one.",
     },
     {
       q: "Where does the data come from?",

@@ -71,11 +71,26 @@ describe("Negotiation Pack — file + wiring invariants", () => {
     expect(section).toMatch(/CompReasoningPanel/);
   });
 
-  it("pricing page reflects the $29 single-tier model", () => {
+  it("pricing page reflects the $29 single-tier model with Pack-first framing", () => {
     const src = readSource("app/pricing/page.tsx");
     expect(src).toMatch(/\$29/);
     expect(src).not.toMatch(/\$19[^0-9]/);
     expect(src).toMatch(/Negotiation Pack/);
-    expect(src).toMatch(/3 live comp pulls per month/);
+    // Free tier quota has to be explicit on the page so prospects know
+    // exactly what they're getting. The rate limiter enforces 3 per 7-day
+    // rolling window (see lib/ratelimit.ts `analysis-free-user`); the copy
+    // must match that or we're lying to free-tier users.
+    expect(src).toMatch(/3 full Negotiation Packs per week/i);
+  });
+
+  it("homepage surfaces the Negotiation Pack as the headline deliverable", () => {
+    const src = readSource("app/page.tsx");
+    expect(src).toMatch(/Negotiation Pack/);
+    // Beachhead framing — the hero should call out "next offer" to anchor
+    // the target customer (investors about to submit an offer).
+    expect(src).toMatch(/For your next offer/i);
+    // Free-quota callout has to match the pricing page (and the rate
+    // limiter) so the homepage-to-pricing transition isn't dissonant.
+    expect(src).toMatch(/3 listings a week/i);
   });
 });
