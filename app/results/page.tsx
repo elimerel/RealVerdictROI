@@ -84,8 +84,8 @@ export async function generateMetadata({
     : `${tierLabel} · ${price}`;
 
   const description = address
-    ? `${tierLabel} verdict for ${address}. ${formatCurrency(analysis.monthlyCashFlow, 0)}/mo cash flow, ${formatPercent(analysis.capRate, 1)} cap, ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) + " DSCR" : "no debt"}. See the walk-away price before you make an offer.`
-    : `${tierLabel}: ${formatCurrency(analysis.monthlyCashFlow, 0)}/mo cash flow, ${formatPercent(analysis.capRate, 1)} cap rate. With the walk-away price built in.`;
+    ? `${tierLabel} rental underwriting for ${address}. ${formatCurrency(analysis.monthlyCashFlow, 0)}/mo cash flow, ${formatPercent(analysis.capRate, 1)} cap, ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) + " DSCR" : "no debt"}. Walk-away price before you wire earnest money.`
+    : `${tierLabel} rental verdict: ${formatCurrency(analysis.monthlyCashFlow, 0)}/mo cash flow, ${formatPercent(analysis.capRate, 1)} cap rate. Walk-away price built in.`;
 
   // Reuse the same query string we received so /api/og produces an image that
   // matches the page the user is actually linking to.

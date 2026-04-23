@@ -425,7 +425,7 @@ export default function HomeAnalyzeForm({
       <div className="rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
         <div className="border-b border-zinc-200 p-6 dark:border-zinc-800">
           <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">
-            Address or Zillow URL
+            Rental listing — address or Zillow URL
           </label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
@@ -444,6 +444,10 @@ export default function HomeAnalyzeForm({
               {lookup.state === "loading" ? "Fetching…" : "Auto-fill"}
             </button>
           </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-zinc-400 dark:text-zinc-500">
+            Built for rentals you would lease long-term — not primary-home
+            shopping lists.
+          </p>
           <LookupStatusLine status={lookup} />
           <PropertyFactsStrip
             facts={lookup.state === "ok" ? lookup.facts : undefined}
@@ -676,7 +680,7 @@ export default function HomeAnalyzeForm({
           type="submit"
           className="block w-full rounded-b-2xl bg-gradient-to-r from-emerald-600 via-sky-600 to-indigo-600 px-6 py-4 text-base font-semibold text-white transition hover:brightness-110"
         >
-          Run the verdict →
+          Run rental verdict →
         </button>
       </div>
     </form>

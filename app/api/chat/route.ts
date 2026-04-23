@@ -113,7 +113,7 @@ function buildSystemPrompt(
   const { inputs, verdict } = a;
   const stress = computeStressScenarios(a);
 
-  const preamble = `You are a blunt, numbers-first real estate investment advisor. You speak in specific figures from this deal only — never generalities. You are direct and occasionally contrarian. You never pad your answers.
+  const preamble = `You are a blunt, numbers-first advisor to buy-and-hold residential rental investors (not flippers, not retail buyer-broker coaching). You speak in specific figures from this deal only — never generalities. You are direct and occasionally contrarian. You never pad your answers.
 
 Banned phrases — never use these under any circumstances:
 "it is worth noting"

@@ -7,7 +7,7 @@ import GetProButton from "./GetProButton";
 export const metadata: Metadata = {
   title: "Pricing — RealVerdict",
   description:
-    "Simple, honest pricing. Start free and upgrade when it's worth it.",
+    "Pricing for buy-and-hold rental investors: free tier with Negotiation Pack, Pro for unlimited live comp runs and saved deals.",
 };
 
 export default async function PricingPage() {
@@ -61,15 +61,15 @@ export default async function PricingPage() {
         <div className="mx-auto w-full max-w-5xl px-6 py-16 sm:py-24">
           <div className="mx-auto mb-14 flex max-w-2xl flex-col items-center gap-3 text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600 dark:text-emerald-400">
-              For your next offer
+              Buy-and-hold investors
             </p>
             <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-5xl dark:text-zinc-50">
-              The Pack is free for your first 3 listings a week.
+              The Pack is free for your first 3 live analyses a week.
             </h1>
             <p className="text-base leading-relaxed text-zinc-600 sm:text-lg dark:text-zinc-300">
-              $29/mo when you&apos;re ready for unlimited. No contract,
-              cancel anytime, 7-day refund if the Pack didn&apos;t pay for
-              itself.
+              $29/mo when you&apos;re ready for unlimited underwriting runs. No
+              contract, cancel anytime, 7-day refund if the Pack didn&apos;t pay
+              for itself.
             </p>
           </div>
 
@@ -129,7 +129,8 @@ function PackAnatomy() {
           What a Pack actually contains
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 sm:text-base">
-          Six sections, one deliverable. Free for your first 3 listings a week.
+          Six sections, one deliverable. Free for your first 3 live analyses a
+          week.
         </p>
       </div>
       <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

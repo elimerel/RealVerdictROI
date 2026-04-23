@@ -119,25 +119,30 @@ export default async function Home({
         <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 pt-10 pb-12 sm:pt-16">
           <div className="mb-10 text-center">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600 dark:text-emerald-400">
-              For your next offer
+              Buy-and-hold rental investors
             </p>
             <h1 className="text-4xl font-bold tracking-tight text-zinc-900 sm:text-6xl dark:text-zinc-50 mb-4">
-              Walk in with a number.{" "}
+              Know your walk-away{" "}
               <span className="bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 bg-clip-text text-transparent">
-                Not a feeling.
+                before the spreadsheet lies to you.
               </span>
             </h1>
             <p className="text-lg leading-relaxed text-zinc-600 sm:text-xl dark:text-zinc-300 max-w-2xl mx-auto">
-              Paste any listing. 30 seconds later you have a{" "}
+              Underwrite the residential rental you would actually hold: verdict,
+              cash flow, cap rate, DSCR, IRR — and the{" "}
+              <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                highest price that still clears your bar
+              </span>
+              , bounded by comps when you run live analysis. When you are ready to
+              negotiate, generate a{" "}
               <span className="font-semibold text-zinc-900 dark:text-zinc-100">
                 Negotiation Pack
-              </span>
-              : walk-away price, the three weakest assumptions in the seller&apos;s
-              pro forma, the comps that prove it, and a counteroffer script your
-              agent can send as-is.
+              </span>{" "}
+              (weak seller assumptions, evidence, and offer language you or your
+              agent can send as-is).
             </p>
             <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-              Free for your first 3 listings a week. $29/mo for unlimited.
+              Free for your first 3 live analyses a week. $29/mo for unlimited.
             </p>
           </div>
 
@@ -148,7 +153,7 @@ export default async function Home({
           />
 
           <div className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            Don&apos;t have an address handy?{" "}
+            No listing handy?{" "}
             <Link
               href={sampleHref}
               className="font-medium text-zinc-900 underline underline-offset-2 transition hover:text-emerald-600 dark:text-zinc-100 dark:hover:text-emerald-400"
@@ -187,8 +192,8 @@ export default async function Home({
               What&apos;s in the Pack
             </h2>
             <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300 sm:text-base">
-              Agent-ready PDF + share link. Everything the seller can&apos;t
-              argue with.
+              PDF + share link built from the same numbers as your verdict — so
+              you are not arguing from a different spreadsheet than your agent.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
@@ -204,7 +209,7 @@ export default async function Home({
             />
             <ValueCard
               title="Counteroffer script"
-              body="The exact words to send your agent. Grounded in the walk-away price, the seller's weakest assumption, and five stress scenarios that actually happen."
+              body="Offer language grounded in your walk-away, the seller's weakest assumption, and stress scenarios — ready to paste into an LOI or hand to your agent."
               accent="indigo"
             />
           </div>
@@ -229,8 +234,8 @@ export default async function Home({
               />
               <Step
                 n={3}
-                title="Generate the Pack"
-                body="Agent-ready PDF + share link. Walk-away price, three weakest seller assumptions with comp evidence, stress scenarios, and a counteroffer script. Send it to your agent and negotiate."
+                title="Generate the Pack (when you are going to bat)"
+                body="PDF + share link: walk-away, three weakest seller assumptions with comp evidence, stress tests, and counteroffer language. Same engine as the verdict — use it yourself or hand it to your agent."
               />
             </ol>
           </div>
@@ -240,11 +245,11 @@ export default async function Home({
         <section className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-              Stop talking yourself into bad deals.
+              Stop underwriting with optimism as the default input.
             </h2>
             <p className="mt-3 text-base text-zinc-600 dark:text-zinc-300">
-              Free for your first 3 listings a week — including the full
-              Negotiation Pack. $29/mo for unlimited Packs, saved portfolio, and
+              Free for your first 3 live analyses a week — including the full
+              Negotiation Pack. $29/mo for unlimited runs, saved portfolio, and
               Pro-only Comp Reasoning Explainer. No contract, 7-day refund.
             </p>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
@@ -252,7 +257,7 @@ export default async function Home({
                 href="#analyze"
                 className="inline-flex h-11 items-center rounded-md bg-zinc-900 px-5 text-sm font-semibold text-white transition hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                Try it on your next listing
+                Underwrite your next rental
               </Link>
               <Link
                 href="/pricing"

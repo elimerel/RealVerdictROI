@@ -21,24 +21,27 @@ const SITE_URL =
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "RealVerdict — Know the max to offer before a deal goes bad",
+    default:
+      "RealVerdict — Walk-away price for buy-and-hold rental investors",
     template: "%s · RealVerdict",
   },
   description:
-    "Paste any Zillow URL and get the verdict — cash flow, cap rate, DSCR, IRR — plus the exact maximum offer price before the deal stops being a good one.",
+    "Underwrite a rental listing in one pass: verdict, cash flow, cap rate, DSCR, IRR — and the maximum offer where the deal still clears your bar. Optional Negotiation Pack when you are ready to go to contract.",
   openGraph: {
     type: "website",
     siteName: "RealVerdict",
-    title: "RealVerdict — Know the max to offer before a deal goes bad",
+    title:
+      "RealVerdict — Walk-away price for buy-and-hold rental investors",
     description:
-      "An honest, AI-powered verdict on any rental property. With the one number no other analyzer gives you: the walk-away price.",
+      "Numbers-first underwriting for residential rentals you would hold and lease. Verdict plus walk-away price; live comps when you opt in.",
     images: ["/api/og"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "RealVerdict — Know the max to offer before a deal goes bad",
+    title:
+      "RealVerdict — Walk-away price for buy-and-hold rental investors",
     description:
-      "An honest, AI-powered verdict on any rental property. With the walk-away price built in.",
+      "Underwrite the rental before you fall in love with the listing. Walk-away price built in.",
     images: ["/api/og"],
   },
 };

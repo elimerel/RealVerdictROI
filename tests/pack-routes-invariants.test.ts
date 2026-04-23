@@ -92,11 +92,10 @@ describe("Negotiation Pack — file + wiring invariants", () => {
   it("homepage surfaces the Negotiation Pack as the headline deliverable", () => {
     const src = readSource("app/page.tsx");
     expect(src).toMatch(/Negotiation Pack/);
-    // Beachhead framing — the hero should call out "next offer" to anchor
-    // the target customer (investors about to submit an offer).
-    expect(src).toMatch(/For your next offer/i);
+    // ICP anchor — buy-and-hold rental investors (not generic "real estate").
+    expect(src).toMatch(/Buy-and-hold rental investors/i);
     // Free-quota callout has to match the pricing page (and the rate
     // limiter) so the homepage-to-pricing transition isn't dissonant.
-    expect(src).toMatch(/3 listings a week/i);
+    expect(src).toMatch(/3 live analyses a week/i);
   });
 });
