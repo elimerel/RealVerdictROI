@@ -61,6 +61,12 @@ type PackGenerateBody = {
    *  insurance) — we forward these so the Pack's "three weakest
    *  assumptions" picker can see them. */
   warnings?: string[];
+  /** True when the /results page was looking at a live list price
+   *  (`?listed=1` in the URL) — drives the `currentListPrice` argument
+   *  into `analyzeComparables` below. If we don't mirror this flag from
+   *  the /results page the Pack's fair value and walk-away silently
+   *  drift from what the user just saw on screen. */
+  isListed?: boolean;
 };
 
 function generateShareToken(): string {
@@ -167,7 +173,10 @@ export const POST = withErrorReporting(
         monthlyHOA: inputs.monthlyHOA,
         lastSalePrice: subject.lastSalePrice,
         lastSaleDate: subject.lastSaleDate,
-        currentListPrice: inputs.purchasePrice,
+        // Only treat purchasePrice as a live listing anchor when the
+        // caller says it is. Keeps Pack output in lockstep with what
+        // /results just rendered — see PackGenerateBody.isListed.
+        currentListPrice: body.isListed ? inputs.purchasePrice : undefined,
         expectedAppreciation: inputs.annualAppreciationPercent
           ? inputs.annualAppreciationPercent / 100
           : undefined,

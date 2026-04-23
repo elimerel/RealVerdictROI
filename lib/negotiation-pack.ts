@@ -284,7 +284,7 @@ function buildHeadline(
 // because it's a recurring expense that compounds across the hold period.
 // ---------------------------------------------------------------------------
 
-function pickWeakAssumptions(args: {
+export function pickWeakAssumptions(args: {
   inputs: DealInputs;
   analysis: DealAnalysis;
   comparables: ComparablesAnalysis;

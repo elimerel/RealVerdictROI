@@ -4,6 +4,7 @@ import SaveDealButton from "../SaveDealButton";
 import PackGenerateButton from "../PackGenerateButton";
 import ShareButton from "../ShareButton";
 import AddToComparisonButton from "../AddToComparisonButton";
+import type { ChatAnalysisContext } from "@/app/api/chat/route";
 import OfferCeilingCard from "../OfferCeilingCard";
 import {
   type DealAnalysis,
@@ -48,6 +49,8 @@ export default function HeroSection({
   marketValueCap,
   marketValueCapSource,
   subjectFacts,
+  isListed,
+  analysisContext,
 }: {
   tier: VerdictTier;
   analysis: DealAnalysis;
@@ -62,11 +65,15 @@ export default function HeroSection({
   marketValueCap?: number;
   marketValueCapSource?: "comps" | "list";
   subjectFacts: SubjectFacts;
+  isListed: boolean;
+  analysisContext?: ChatAnalysisContext;
 }) {
   const contextParts: string[] = [];
   contextParts.push(formatCurrency(inputs.purchasePrice, 0));
   contextParts.push(`${formatCurrency(analysis.monthlyCashFlow, 0)}/mo`);
-  contextParts.push(`Cap ${formatPercent(analysis.capRate, 1)}`);
+  // Cap rate rounded to 2 decimals everywhere — Evidence section and Pack
+  // already use 2, hero previously used 1, which caused cross-tab drift.
+  contextParts.push(`Cap ${formatPercent(analysis.capRate, 2)}`);
   contextParts.push(
     `DSCR ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞"}`,
   );
@@ -97,7 +104,11 @@ export default function HeroSection({
           }}
         >
           <div className="text-sm">
-            <InitialVerdict inputs={inputs} fallback={analysis.verdict.summary} />
+            <InitialVerdict
+              inputs={inputs}
+              fallback={analysis.verdict.summary}
+              analysisContext={analysisContext}
+            />
           </div>
         </div>
 
@@ -112,6 +123,7 @@ export default function HeroSection({
           analysis={analysis}
           packEligible={packEligible}
           subjectFacts={subjectFacts}
+          isListed={isListed}
         />
       </div>
 
@@ -137,6 +149,7 @@ function HeroActions({
   analysis,
   packEligible,
   subjectFacts,
+  isListed,
 }: {
   editHref: string;
   currentUrl: string;
@@ -148,6 +161,7 @@ function HeroActions({
   analysis: DealAnalysis;
   packEligible: boolean;
   subjectFacts: SubjectFacts;
+  isListed: boolean;
 }) {
   return (
     <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -159,6 +173,7 @@ function HeroActions({
           currentUrl={currentUrl}
           signedIn={signedIn}
           supabaseConfigured={supabaseConfigured}
+          isListed={isListed}
         />
       )}
       <Link

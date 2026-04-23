@@ -4,6 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useEffect, useMemo, useRef } from "react";
 import type { DealInputs } from "@/lib/calculations";
+import type { ChatAnalysisContext } from "@/app/api/chat/route";
 import { renderAIProse } from "./aiProse";
 
 /**
@@ -13,23 +14,30 @@ import { renderAIProse } from "./aiProse";
  * triggers the structured verdict format). If the API errors or is
  * unconfigured, falls back to the deterministic summary computed by the
  * calculation engine.
+ *
+ * `analysisContext` is optional; when the parent page has comp data, it
+ * passes walk-away price, fair value, and top-3 weak assumptions down so
+ * the AI's verdict is in lockstep with the rest of the page instead of
+ * re-deriving a "fair offer" that disagrees with the OfferCeilingCard.
  */
 export default function InitialVerdict({
   inputs,
   fallback,
+  analysisContext,
 }: {
   inputs: DealInputs;
   fallback: string;
+  analysisContext?: ChatAnalysisContext;
 }) {
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
         prepareSendMessagesRequest: ({ messages }) => ({
-          body: { messages, inputs, mode: "verdict" },
+          body: { messages, inputs, mode: "verdict", analysisContext },
         }),
       }),
-    [inputs],
+    [inputs, analysisContext],
   );
 
   const { messages, sendMessage, status, error } = useChat({ transport });

@@ -72,9 +72,14 @@ export default function EvidenceSection({
         analysis.totalCashInvested
       : 0;
 
-  // Total return = everything the deal produced: operating cash + principal
-  // paydown + appreciation (before subtracting the cash invested).
-  const totalReturn =
+  // Total profit ($) = everything the deal produced over the hold:
+  // operating cash + principal paydown + appreciation (before subtracting
+  // cash invested). This is DISTINCT from "Total ROI" which is a
+  // percentage (profit / cash invested) shown on the Stress tab and in
+  // What-if. The labels used to both say "Total return" which made them
+  // look like the same metric — fixed to "Total profit" for the $ field
+  // to remove ambiguity.
+  const totalProfit =
     analysis.totalCashFlow +
     analysis.totalPrincipalPaydown +
     analysis.totalAppreciation;
@@ -188,13 +193,13 @@ export default function EvidenceSection({
             }
           />
           <MetricValue
-            label="Total return"
-            value={formatCurrency(totalReturn, 0)}
+            label="Total profit"
+            value={formatCurrency(totalProfit, 0)}
             sub="cash flow + equity + appreciation"
             tone={
-              totalReturn > 0
+              totalProfit > 0
                 ? "good"
-                : totalReturn < 0
+                : totalProfit < 0
                   ? "bad"
                   : "neutral"
             }

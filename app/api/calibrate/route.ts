@@ -33,6 +33,13 @@ import type { ResolveResult } from "@/app/api/property-resolve/route";
 // analyses of arbitrary addresses.
 // ---------------------------------------------------------------------------
 
+type SanityCheck = {
+  id: string;
+  label: string;
+  pass: boolean;
+  detail: string;
+};
+
 type CalibrateResponse = {
   address: string | null;
   state: string | null;
@@ -44,6 +51,7 @@ type CalibrateResponse = {
   fairValue: number | null;
   fairValueConfidence: string | null;
   marketRent: number | null;
+  monthlyRent: number;
   monthlyCashFlow: number;
   capRate: number;
   dscr: number;
@@ -53,6 +61,9 @@ type CalibrateResponse = {
   redFlags: string[];
   saleCompsCount: number;
   rentCompsCount: number;
+  sanityChecks: SanityCheck[];
+  sanityPassed: number;
+  sanityFailed: number;
 };
 
 function isAuthorized(req: NextRequest): boolean {
@@ -175,6 +186,23 @@ export const GET = withErrorReporting(
       provenance: resolved.provenance ?? {},
     });
 
+    const sanityChecks = runSanityChecks({
+      listPrice: fullInputs.purchasePrice,
+      monthlyRent: fullInputs.monthlyRent,
+      walkAwayPrice: pack.headline.walkAwayPrice,
+      fairValue: comparables.marketValue?.value ?? null,
+      marketRent: comparables.marketRent?.value ?? null,
+      capRate: analysis.capRate,
+      dscr: analysis.dscr,
+      monthlyCashFlow: analysis.monthlyCashFlow,
+      annualNOI: analysis.annualNOI,
+      annualCashFlow: analysis.annualCashFlow,
+      annualDebtService: analysis.annualDebtService,
+      saleCompsCount: compsResult?.saleComps.items.length ?? 0,
+      rentCompsCount: compsResult?.rentComps.items.length ?? 0,
+      verdict: analysis.verdict.tier,
+    });
+
     const response: CalibrateResponse = {
       address: resolved.address ?? null,
       state: resolved.state ?? null,
@@ -186,6 +214,7 @@ export const GET = withErrorReporting(
       fairValue: comparables.marketValue?.value ?? null,
       fairValueConfidence: comparables.marketValue?.confidence ?? null,
       marketRent: comparables.marketRent?.value ?? null,
+      monthlyRent: fullInputs.monthlyRent,
       monthlyCashFlow: analysis.monthlyCashFlow,
       capRate: analysis.capRate,
       dscr: analysis.dscr,
@@ -200,8 +229,158 @@ export const GET = withErrorReporting(
       redFlags: resolved.warnings ?? [],
       saleCompsCount: compsResult?.saleComps.items.length ?? 0,
       rentCompsCount: compsResult?.rentComps.items.length ?? 0,
+      sanityChecks,
+      sanityPassed: sanityChecks.filter((c) => c.pass).length,
+      sanityFailed: sanityChecks.filter((c) => !c.pass).length,
     };
 
     return NextResponse.json(response);
   },
 );
+
+// ---------------------------------------------------------------------------
+// Sanity checks — objective, automatable checks against industry anchors
+// and the engine's own math. These do NOT require human expert judgment
+// (the earlier "compare vs user's gut" model assumed the operator was an
+// experienced investor with local-market knowledge, which they aren't).
+// A failed check means EITHER the engine produced a nonsensical number
+// OR the listing genuinely has extreme economics — either way it's a row
+// that deserves a second look.
+// ---------------------------------------------------------------------------
+
+function runSanityChecks(a: {
+  listPrice: number;
+  monthlyRent: number;
+  walkAwayPrice: number | null;
+  fairValue: number | null;
+  marketRent: number | null;
+  capRate: number;
+  dscr: number;
+  monthlyCashFlow: number;
+  annualNOI: number;
+  annualCashFlow: number;
+  annualDebtService: number;
+  saleCompsCount: number;
+  rentCompsCount: number;
+  verdict: string;
+}): SanityCheck[] {
+  const out: SanityCheck[] = [];
+
+  // 1. Walk-away must be in a sane band relative to list. The original
+  //    bug that kicked off the market-value cap fix was a $3.4M walk-away
+  //    on a $540k listing. Any walk-away outside [30%, 110%] of list is
+  //    almost always a math error, not a real offer.
+  if (a.walkAwayPrice !== null && a.listPrice > 0) {
+    const ratio = a.walkAwayPrice / a.listPrice;
+    out.push({
+      id: "walkaway-band",
+      label: "Walk-away within 30%-110% of list",
+      pass: ratio >= 0.3 && ratio <= 1.1,
+      detail: `Walk-away ${fmtMoney(a.walkAwayPrice)} / list ${fmtMoney(a.listPrice)} = ${(ratio * 100).toFixed(1)}%`,
+    });
+  }
+
+  // 2. Cap rate must be plausible. Outside 1%-20% means either the rent
+  //    pull failed, the tax line is wrong, or the list price is
+  //    structurally broken. Surfaces homestead-trap and rent-bot
+  //    failures.
+  out.push({
+    id: "caprate-band",
+    label: "Cap rate within 1%-20%",
+    pass: isFinite(a.capRate) && a.capRate >= 0.01 && a.capRate <= 0.2,
+    detail: `Cap rate = ${(a.capRate * 100).toFixed(2)}%`,
+  });
+
+  // 3. DSCR must be finite and plausible. Infinite DSCR is fine (no
+  //    debt), but negative or absurdly high is a math error.
+  out.push({
+    id: "dscr-band",
+    label: "DSCR finite or >= 0",
+    pass: !isFinite(a.dscr) || a.dscr >= 0,
+    detail: `DSCR = ${isFinite(a.dscr) ? a.dscr.toFixed(2) : "∞"}`,
+  });
+
+  // 4. Cash flow identity: annualCashFlow should ≈ annualNOI -
+  //    annualDebtService within ±$5 rounding. If this fails the engine
+  //    is doing different math in different places — exactly the
+  //    "disconnected" feeling the user reported.
+  const cfIdentity = a.annualNOI - a.annualDebtService;
+  out.push({
+    id: "cashflow-identity",
+    label: "annualCashFlow ≈ annualNOI − annualDebtService (±$5)",
+    pass: Math.abs(cfIdentity - a.annualCashFlow) <= 5,
+    detail: `Got ${fmtMoney(a.annualCashFlow)}, expected ${fmtMoney(cfIdentity)} (Δ = ${fmtMoney(Math.abs(cfIdentity - a.annualCashFlow))})`,
+  });
+
+  // 5. Monthly-annual consistency: monthlyCashFlow * 12 should ≈
+  //    annualCashFlow within ±$12 (one dollar per month rounding).
+  out.push({
+    id: "monthly-annual-cf",
+    label: "monthlyCashFlow × 12 ≈ annualCashFlow (±$12)",
+    pass: Math.abs(a.monthlyCashFlow * 12 - a.annualCashFlow) <= 12,
+    detail: `Got ${fmtMoney(a.monthlyCashFlow * 12)}, annual ${fmtMoney(a.annualCashFlow)}`,
+  });
+
+  // 6. If we have comp-derived fair value, assumed list should be
+  //    within ±50% of it. Outside this band means comps are from a
+  //    different market (fail) OR the listing is truly an outlier (a
+  //    real signal to investigate).
+  if (a.fairValue !== null && a.listPrice > 0) {
+    const ratio = a.listPrice / a.fairValue;
+    out.push({
+      id: "fairvalue-sanity",
+      label: "List price within 50%-200% of comp fair value",
+      pass: ratio >= 0.5 && ratio <= 2.0,
+      detail: `List ${fmtMoney(a.listPrice)} / fair value ${fmtMoney(a.fairValue)} = ${(ratio * 100).toFixed(1)}%`,
+    });
+  }
+
+  // 7. Assumed rent vs comp-derived market rent. If the engine is
+  //    feeding a rent that's ±40% off the market median, cashflow
+  //    downstream is structurally wrong.
+  if (a.marketRent !== null && a.monthlyRent > 0) {
+    const ratio = a.monthlyRent / a.marketRent;
+    out.push({
+      id: "rent-sanity",
+      label: "Assumed rent within 60%-140% of comp market rent",
+      pass: ratio >= 0.6 && ratio <= 1.4,
+      detail: `Assumed ${fmtMoney(a.monthlyRent)}/mo vs comp median ${fmtMoney(a.marketRent)}/mo`,
+    });
+  }
+
+  // 8. Comp pool integrity. Under 3 sale or 3 rent comps → thin market
+  //    and confidence is degraded. Doesn't fail the verdict but flags
+  //    the row for operator attention.
+  out.push({
+    id: "comp-pool-sale",
+    label: "≥ 3 sale comps available",
+    pass: a.saleCompsCount >= 3,
+    detail: `${a.saleCompsCount} sale comps`,
+  });
+  out.push({
+    id: "comp-pool-rent",
+    label: "≥ 3 rent comps available",
+    pass: a.rentCompsCount >= 3,
+    detail: `${a.rentCompsCount} rent comps`,
+  });
+
+  // 9. Verdict tier is a known value. Catches any upstream enum drift.
+  const knownTiers = ["excellent", "good", "fair", "poor", "avoid"];
+  out.push({
+    id: "verdict-tier",
+    label: "Verdict tier is a known value",
+    pass: knownTiers.includes(a.verdict),
+    detail: `tier = ${a.verdict}`,
+  });
+
+  return out;
+}
+
+function fmtMoney(n: number): string {
+  if (!isFinite(n)) return "—";
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}

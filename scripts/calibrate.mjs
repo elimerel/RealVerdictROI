@@ -10,14 +10,30 @@
 //   BASE_URL=https://realverdict.app \
 //   CALIBRATION_SECRET=xxx npm run calibrate  # against prod
 //
-// The report has one row per listing with columns:
-//   Address · List · Walk-away · Fair value · Verdict · Your gut · Match?
-// Plus per-row "Top 3 weakest assumptions" and "Red flags" blocks so we
-// can scan for anything the engine got wrong.
+// SCORING MODEL (2026-04-22 rewrite):
+//   The previous version asked the operator for a "gut" verdict per
+//   listing and compared engine output against it. That was a flawed
+//   oracle — the operator is the builder, not an experienced investor,
+//   and using their gut as ground truth made the harness a mirror.
 //
-// Designed to be diff-able run-over-run. When we change the engine we can
-// re-run this and see which verdicts moved. No CI hookup — this is an
-// operator tool, not a test.
+//   The current model scores the engine against OBJECTIVE, AUTOMATABLE
+//   anchors (the /api/calibrate response's `sanityChecks` array):
+//     - Walk-away ∈ [30%, 110%] of list
+//     - Cap rate ∈ [1%, 20%]
+//     - Cash-flow identity (annualCF ≈ NOI − debt service)
+//     - Monthly × 12 ≈ annual
+//     - List vs comp fair value within 2x
+//     - Assumed rent vs comp rent within 40%
+//     - ≥3 sale comps, ≥3 rent comps
+//     - Verdict tier is a known value
+//
+//   A failed check means EITHER the engine produced nonsense OR the
+//   listing has genuinely extreme economics. Either way it deserves a
+//   manual look. The harness exits non-zero if ANY check fails,
+//   suitable for CI wiring later.
+//
+// Your only job is to paste URLs into calibration/listings.json. Nothing
+// else.
 // ---------------------------------------------------------------------------
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -46,33 +62,12 @@ function fmtUSD(n) {
 
 function fmtPct(n, decimals = 2) {
   if (n === null || n === undefined || !isFinite(n)) return "—";
-  return `${n.toFixed(decimals)}%`;
+  return `${(n * 100).toFixed(decimals)}%`;
 }
 
 function escapeMd(s) {
   if (!s) return "";
-  // Pipe characters inside a Markdown table cell break the column layout.
   return String(s).replace(/\|/g, "\\|");
-}
-
-function matchIcon(engineTier, gut) {
-  if (!gut) return "—";
-  const label = VERDICT_LABEL[engineTier] ?? engineTier;
-  if (!label) return "?";
-  const normalizedEngine = label.toLowerCase().replace(/\s+/g, "");
-  const normalizedGut = gut.toLowerCase().replace(/\s+/g, "");
-  if (normalizedEngine === normalizedGut) return "✓ match";
-  // Tier-directionally close: STRONG BUY vs GOOD DEAL, or PASS vs AVOID, are
-  // "close enough" for calibration purposes — flag for review but don't
-  // count as a hard miss.
-  const tiers = ["excellent", "good", "fair", "poor", "avoid"];
-  const gutTier = Object.entries(VERDICT_LABEL).find(
-    ([, lbl]) => lbl.toLowerCase().replace(/\s+/g, "") === normalizedGut,
-  )?.[0];
-  if (!gutTier) return "?";
-  const diff = Math.abs(tiers.indexOf(engineTier) - tiers.indexOf(gutTier));
-  if (diff === 1) return "~ close";
-  return "✗ MISS";
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +81,7 @@ async function main() {
   } catch (err) {
     console.error(`Could not read ${LISTINGS_PATH}: ${err.message}`);
     console.error(
-      `Create it with:\n{ "listings": [{ "url": "https://www.zillow.com/homedetails/...", "gut": "STRONG BUY", "notes": "..." }] }`,
+      `Create it with:\n{ "listings": [{ "url": "https://www.zillow.com/homedetails/..." }] }`,
     );
     process.exit(1);
   }
@@ -130,7 +125,11 @@ async function main() {
         continue;
       }
       const json = await res.json();
-      console.log(`${VERDICT_LABEL[json.verdict] ?? json.verdict} (${elapsed}ms)`);
+      const failedChecks = json.sanityFailed ?? 0;
+      const suffix = failedChecks > 0 ? ` · ${failedChecks} CHECK${failedChecks === 1 ? "" : "S"} FAILED` : "";
+      console.log(
+        `${VERDICT_LABEL[json.verdict] ?? json.verdict} (${elapsed}ms)${suffix}`,
+      );
       results.push({ listing, data: json });
     } catch (err) {
       console.log(`ERROR: ${err.message}`);
@@ -156,23 +155,25 @@ async function main() {
   lines.push("## Summary");
   lines.push("");
   lines.push(
-    "| # | Address | List | Walk-away | Fair value | Verdict | Your gut | Match? | Cap | DSCR | Mo. CF |",
+    "| # | Address | List | Walk-away | Fair value | Verdict | Sanity | Cap | DSCR | Mo. CF |",
   );
-  lines.push(
-    "|---|---|---:|---:|---:|---|---|---|---:|---:|---:|",
-  );
+  lines.push("|---|---|---:|---:|---:|---|---|---:|---:|---:|");
 
   results.forEach((r, idx) => {
     if (!r.data) {
       lines.push(
-        `| ${idx + 1} | ${escapeMd(r.listing.label ?? r.listing.url ?? r.listing.address ?? "?")} | — | — | — | ERROR | ${escapeMd(r.listing.gut ?? "")} | — | — | — | — |`,
+        `| ${idx + 1} | ${escapeMd(r.listing.label ?? r.listing.url ?? r.listing.address ?? "?")} | — | — | — | ERROR | — | — | — | — |`,
       );
       return;
     }
     const d = r.data;
     const addr = d.address ?? r.listing.label ?? r.listing.url ?? "?";
+    const sanityCell =
+      d.sanityFailed === 0
+        ? `✓ ${d.sanityPassed}/${d.sanityPassed}`
+        : `✗ ${d.sanityFailed}/${d.sanityPassed + d.sanityFailed} FAIL`;
     lines.push(
-      `| ${idx + 1} | ${escapeMd(addr)} | ${fmtUSD(d.listPrice)} | ${fmtUSD(d.walkAwayPrice)} | ${fmtUSD(d.fairValue)} | ${VERDICT_LABEL[d.verdict] ?? d.verdict} | ${escapeMd(r.listing.gut ?? "")} | ${matchIcon(d.verdict, r.listing.gut)} | ${fmtPct(d.capRate)} | ${isFinite(d.dscr) ? d.dscr.toFixed(2) : "∞"} | ${fmtUSD(d.monthlyCashFlow)} |`,
+      `| ${idx + 1} | ${escapeMd(addr)} | ${fmtUSD(d.listPrice)} | ${fmtUSD(d.walkAwayPrice)} | ${fmtUSD(d.fairValue)} | ${VERDICT_LABEL[d.verdict] ?? d.verdict} | ${sanityCell} | ${fmtPct(d.capRate)} | ${isFinite(d.dscr) ? d.dscr.toFixed(2) : "∞"} | ${fmtUSD(d.monthlyCashFlow)} |`,
     );
   });
   lines.push("");
@@ -181,7 +182,9 @@ async function main() {
   lines.push("## Per-listing detail");
   results.forEach((r, idx) => {
     lines.push("");
-    lines.push(`### ${idx + 1}. ${r.listing.label ?? r.data?.address ?? r.listing.url ?? r.listing.address ?? "?"}`);
+    lines.push(
+      `### ${idx + 1}. ${r.listing.label ?? r.data?.address ?? r.listing.url ?? r.listing.address ?? "?"}`,
+    );
     if (r.listing.url) lines.push(`- Source: <${r.listing.url}>`);
     if (r.listing.notes) lines.push(`- Notes: ${r.listing.notes}`);
 
@@ -193,17 +196,41 @@ async function main() {
 
     const d = r.data;
     lines.push("");
-    lines.push(`- **Verdict:** ${VERDICT_LABEL[d.verdict] ?? d.verdict}${r.listing.gut ? ` · your gut: ${r.listing.gut} · ${matchIcon(d.verdict, r.listing.gut)}` : ""}`);
-    lines.push(`- **List:** ${fmtUSD(d.listPrice)} · **Walk-away:** ${fmtUSD(d.walkAwayPrice)} (${d.walkAwayTier ? VERDICT_LABEL[d.walkAwayTier] : "—"}${d.walkAwayDiscountPercent !== null ? `, ${d.walkAwayDiscountPercent.toFixed(1)}% off list` : ""})`);
-    lines.push(`- **Fair value:** ${fmtUSD(d.fairValue)}${d.fairValueConfidence ? ` (${d.fairValueConfidence} confidence)` : ""} · **Market rent:** ${fmtUSD(d.marketRent)}`);
+    lines.push(
+      `- **Verdict:** ${VERDICT_LABEL[d.verdict] ?? d.verdict}`,
+    );
+    lines.push(
+      `- **List:** ${fmtUSD(d.listPrice)} · **Walk-away:** ${fmtUSD(d.walkAwayPrice)} (${d.walkAwayTier ? VERDICT_LABEL[d.walkAwayTier] : "—"}${d.walkAwayDiscountPercent !== null ? `, ${d.walkAwayDiscountPercent.toFixed(1)}% off list` : ""})`,
+    );
+    lines.push(
+      `- **Fair value:** ${fmtUSD(d.fairValue)}${d.fairValueConfidence ? ` (${d.fairValueConfidence} confidence)` : ""} · **Market rent:** ${fmtUSD(d.marketRent)} · **Assumed rent:** ${fmtUSD(d.monthlyRent)}`,
+    );
     lines.push(`- **Comp pool:** ${d.saleCompsCount} sale / ${d.rentCompsCount} rent`);
-    lines.push(`- **Cap rate:** ${fmtPct(d.capRate)} · **DSCR:** ${isFinite(d.dscr) ? d.dscr.toFixed(2) : "∞"} · **CoC:** ${fmtPct(d.cashOnCashReturn)} · **IRR:** ${fmtPct(d.irr)} · **Monthly CF:** ${fmtUSD(d.monthlyCashFlow)}`);
+    lines.push(
+      `- **Cap rate:** ${fmtPct(d.capRate)} · **DSCR:** ${isFinite(d.dscr) ? d.dscr.toFixed(2) : "∞"} · **CoC:** ${fmtPct(d.cashOnCashReturn)} · **IRR:** ${fmtPct(d.irr)} · **Monthly CF:** ${fmtUSD(d.monthlyCashFlow)}`,
+    );
+
+    // Sanity checks block
+    if (d.sanityChecks?.length) {
+      lines.push("");
+      lines.push(
+        `**Sanity checks:** ${d.sanityPassed} passed · ${d.sanityFailed} failed`,
+      );
+      d.sanityChecks.forEach((c) => {
+        const icon = c.pass ? "✓" : "✗ FAIL";
+        lines.push(
+          `- ${icon} ${escapeMd(c.label)} — ${escapeMd(c.detail)}`,
+        );
+      });
+    }
 
     if (d.weakAssumptions?.length) {
       lines.push("");
       lines.push("**Top 3 weakest assumptions:**");
       d.weakAssumptions.forEach((w, i) => {
-        lines.push(`${i + 1}. **${escapeMd(w.field)}** — current: ${escapeMd(w.current)} · realistic: ${escapeMd(w.realistic)} · gap: ${escapeMd(w.gap)}`);
+        lines.push(
+          `${i + 1}. **${escapeMd(w.field)}** — current: ${escapeMd(w.current)} · realistic: ${escapeMd(w.realistic)} · gap: ${escapeMd(w.gap)}`,
+        );
       });
     }
 
@@ -214,30 +241,45 @@ async function main() {
     }
   });
 
-  // Failure summary ----------------------------------------------------
+  // Failure / risk summary --------------------------------------------
   const errs = results.filter((r) => !r.data);
+  const sanityFailures = results.filter(
+    (r) => r.data && (r.data.sanityFailed ?? 0) > 0,
+  );
+
   if (errs.length) {
     lines.push("");
     lines.push("## Failures");
     errs.forEach((r, i) => {
-      lines.push(`- [${i + 1}] ${escapeMd(r.listing.label ?? r.listing.url ?? r.listing.address ?? "?")}: ${escapeMd(r.error)}`);
+      lines.push(
+        `- [${i + 1}] ${escapeMd(r.listing.label ?? r.listing.url ?? r.listing.address ?? "?")}: ${escapeMd(r.error)}`,
+      );
+    });
+  }
+
+  if (sanityFailures.length) {
+    lines.push("");
+    lines.push("## Sanity-check failures (needs operator review)");
+    sanityFailures.forEach((r) => {
+      const addr = r.data.address ?? r.listing.label ?? r.listing.url ?? "?";
+      const failed = r.data.sanityChecks.filter((c) => !c.pass);
+      lines.push("");
+      lines.push(`**${escapeMd(addr)}**`);
+      failed.forEach((c) =>
+        lines.push(`- ${escapeMd(c.label)}: ${escapeMd(c.detail)}`),
+      );
     });
   }
 
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, lines.join("\n"), "utf8");
 
-  const misses = results.filter(
-    (r) => r.data && r.listing.gut && matchIcon(r.data.verdict, r.listing.gut) === "✗ MISS",
-  );
-  const closes = results.filter(
-    (r) => r.data && r.listing.gut && matchIcon(r.data.verdict, r.listing.gut) === "~ close",
-  );
-
   console.log("");
   console.log(`Report written to: ${outPath}`);
-  console.log(`Summary: ${results.length - errs.length} ok · ${errs.length} errors · ${misses.length} hard misses · ${closes.length} close calls`);
-  if (misses.length) process.exitCode = 1;
+  console.log(
+    `Summary: ${results.length - errs.length} ok · ${errs.length} errors · ${sanityFailures.length} with sanity-check failures`,
+  );
+  if (errs.length > 0 || sanityFailures.length > 0) process.exitCode = 1;
 }
 
 main().catch((err) => {

@@ -1,17 +1,15 @@
 {
-  "_README": "Edit this file to add listings. Each entry needs either `url` (Zillow homedetails link) or `address`. `gut` is your expected verdict — STRONG BUY / GOOD DEAL / BORDERLINE / PASS / AVOID — so the harness can score matches. `label` and `notes` are free-form strings for readability.",
+  "_README": "Paste Zillow listing URLs into the array below. Each entry only needs `url` (or `address` for direct addresses without a listing). `label` and `notes` are optional free-form strings for readability. You do NOT need to provide a 'gut' verdict — the harness scores against objective sanity checks, not your guess. Run with `npm run calibrate`.",
   "listings": [
     {
-      "label": "Hoagland, IN — known-good SFR",
+      "label": "Hoagland, IN — known-good SFR (regression anchor)",
       "address": "14215 Hawk Stream Cv, Hoagland, IN 46745",
-      "gut": "STRONG BUY",
-      "notes": "Previously validated in §16.U — engine should agree."
+      "notes": "Regression anchor from §16.U — engine should produce a positive-CF SFR with sane numbers."
     },
     {
-      "label": "Polson, MT — thin rental market SFR",
+      "label": "Polson, MT — thin rental market SFR (regression anchor)",
       "address": "35 Delphine Dr, Polson, MT 59860",
-      "gut": "PASS",
-      "notes": "Previously validated in §16.U — verdict was correctly PASS."
+      "notes": "Regression anchor from §16.U — thin-market test, expect degraded comp confidence."
     }
   ]
 }

@@ -14,10 +14,30 @@ export const maxDuration = 60;
 
 type Mode = "verdict" | "chat";
 
+// The analysis context is optional extra info the client has already
+// computed (walk-away, fair value, market rent, top-3 weak assumptions).
+// We trust it because the server re-runs analyseDeal(inputs) anyway —
+// these fields only appear in the system prompt as display text, so a
+// tampered value can at worst produce a confusing AI answer, not
+// compromise anything else. Piping this in closes the gap the audit
+// flagged where chat used to reason about the deal without knowing the
+// walk-away price or fair value the rest of the page was showing.
+export type ChatAnalysisContext = {
+  walkAwayPrice?: number;
+  walkAwayTier?: "excellent" | "good" | "fair" | "poor";
+  marketValueCapSource?: "comps" | "list";
+  fairValue?: number;
+  fairValueConfidence?: "high" | "medium" | "low";
+  marketRent?: number;
+  marketRentConfidence?: "high" | "medium" | "low";
+  weakAssumptions?: Array<{ field: string; current: string; realistic: string; gap: string }>;
+};
+
 type ChatRequestBody = {
   messages: UIMessage[];
   inputs: DealInputs;
   mode?: Mode;
+  analysisContext?: ChatAnalysisContext;
 };
 
 export const POST = withErrorReporting("api.chat", async (req: Request) => {
@@ -60,7 +80,7 @@ export const POST = withErrorReporting("api.chat", async (req: Request) => {
 
   const result = streamText({
     model: openai(model),
-    system: buildSystemPrompt(analysis, mode),
+    system: buildSystemPrompt(analysis, mode, body.analysisContext),
     messages: await convertToModelMessages(body.messages),
     temperature: mode === "verdict" ? 0.2 : 0.3,
   });
@@ -73,7 +93,11 @@ export const POST = withErrorReporting("api.chat", async (req: Request) => {
 // then a mode-specific format contract appended at the end.
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(a: DealAnalysis, mode: Mode): string {
+function buildSystemPrompt(
+  a: DealAnalysis,
+  mode: Mode,
+  ctx?: ChatAnalysisContext,
+): string {
   const f = (n: number) =>
     isFinite(n)
       ? n.toLocaleString("en-US", {
@@ -221,7 +245,38 @@ ${a.projection
 A "good" long-term rental deal typically has:
 Cash-on-cash 8%+ · Cap rate 6%+ (market-dependent) · DSCR 1.25+ · Break-even occupancy below 85% · Positive monthly cash flow from day one · IRR 10%+ over hold.`;
 
-  return preamble + formatContract + context;
+  // Pack / walk-away context — only included when /results already
+  // computed these, so chat reasoning is in lockstep with what the page
+  // is showing and the Pack would produce. Without this block the model
+  // historically had to re-infer a "fair offer price" from scratch,
+  // which often produced a number that disagreed with the walk-away
+  // displayed 200px above the chat input. That was the #1 reason chat
+  // felt "disconnected" from the rest of the tool.
+  const packContext = ctx
+    ? `
+
+=== WALK-AWAY & COMP CONTEXT (authoritative — do not re-derive) ===
+${ctx.walkAwayPrice !== undefined ? `Walk-away price (the page already shows this): ${f(ctx.walkAwayPrice)}${ctx.walkAwayTier ? ` — at ${ctx.walkAwayTier.toUpperCase()} verdict tier` : ""}. If the user asks "what should I offer," the answer anchors here, not on a number you invent.` : "Walk-away price: not computed (no live comps)."}
+${ctx.fairValue !== undefined ? `Comp-derived fair value: ${f(ctx.fairValue)}${ctx.fairValueConfidence ? ` (${ctx.fairValueConfidence} confidence)` : ""}. Ask is ${f(inputs.purchasePrice)}. ${inputs.purchasePrice > ctx.fairValue ? "Seller is above the comp midline." : inputs.purchasePrice < ctx.fairValue ? "Seller is below the comp midline." : "Seller is at the comp midline."}` : ""}
+${ctx.marketRent !== undefined ? `Comp-derived market rent: ${f(ctx.marketRent)}${ctx.marketRentConfidence ? ` (${ctx.marketRentConfidence} confidence)` : ""}. Assumed rent in this model: ${f(inputs.monthlyRent)}. ${inputs.monthlyRent > ctx.marketRent ? "Pro-forma is above the market rent midline." : inputs.monthlyRent < ctx.marketRent ? "Pro-forma is below the market rent midline." : "Pro-forma matches market."}` : ""}
+${ctx.marketValueCapSource ? `Walk-away ceiling is bound by ${ctx.marketValueCapSource === "comps" ? "comp-derived fair value" : "list price"} — not by pure income math.` : ""}
+${
+  ctx.weakAssumptions && ctx.weakAssumptions.length > 0
+    ? `
+Top 3 weakest assumptions in the seller's pro forma (already surfaced on the Pack):
+${ctx.weakAssumptions
+  .slice(0, 3)
+  .map(
+    (w, i) =>
+      `${i + 1}. ${w.field}: current "${w.current}" → realistic "${w.realistic}" (gap: ${w.gap})`,
+  )
+  .join("\n")}
+When user asks about risk, cite one of these. Don't invent new ones.`
+    : ""
+}`
+    : "";
+
+  return preamble + formatContract + context + packContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,17 +288,14 @@ Cash-on-cash 8%+ · Cap rate 6%+ (market-dependent) · DSCR 1.25+ · Break-even 
 function computeStressScenarios(a: DealAnalysis) {
   const { inputs } = a;
 
-  // Cost of one extra vacant month = one month of rent lost, everything else held.
+  // Cost of one extra vacant month = one month of rent lost.
   const oneMonthVacancyCost = inputs.monthlyRent;
 
   // vacancyCushion: a short sentence the AI can quote directly. Three regimes:
   //   (a) positive cash flow   → "wipes out N months of cash flow"
   //   (b) break-even           → "any vacancy puts you in the red"
-  //   (c) already negative     → "cash flow is already negative, so any vacancy
-  //                              deepens the monthly loss"
-  // Prior version always emitted the (a) template, which produced garbled
-  // copy like "wipes out 0 months of current cash flow" for cases (b) and (c).
-  // Fix per HANDOFF_ARCHIVE §20.9 #12.
+  //   (c) already negative     → "cash flow is already negative, so any
+  //                              vacancy deepens the monthly loss"
   const vacancyCushion =
     a.monthlyCashFlow > 0
       ? `wipes out ${Math.max(
@@ -254,28 +306,25 @@ function computeStressScenarios(a: DealAnalysis) {
         ? "the deal is already break-even, so any vacancy puts you in the red"
         : "cash flow is already negative, so any vacancy deepens the monthly loss";
 
-  // Rent falls 10%: re-derive monthly cashflow without re-running the full
-  // engine. NOI loses 10% of gross rent × (1 − vacancy) × (1 − var opex %).
-  const varOpexRate =
-    (inputs.maintenancePercent +
-      inputs.propertyManagementPercent +
-      inputs.capexReservePercent) /
-    100;
-  const rentDrop = inputs.monthlyRent * 0.1;
-  const egiDrop = rentDrop * (1 - inputs.vacancyRatePercent / 100);
-  const opexDrop = rentDrop * varOpexRate; // var opex is % of gross rent
-  const monthlyNoiDrop = egiDrop - opexDrop;
-  const rentDownCashFlow = a.monthlyCashFlow - monthlyNoiDrop;
+  // Rent −10% and rate +1pt: run the FULL engine with mutated inputs, not
+  // a simplified delta approximation. The Stress test tab already does this
+  // (app/_components/StressTestPanel.tsx), and chat's prior simplified
+  // formulas produced numbers that didn't exactly match the Stress tab for
+  // the same deal. That's the "different parts of the tool disagreeing
+  // with each other" issue the audit flagged. Re-running analyseDeal here
+  // is cheap (pure, ~0.5ms) and keeps the tool speaking with one voice.
+  const rentDownAnalysis = analyseDeal({
+    ...inputs,
+    monthlyRent: Math.max(0, inputs.monthlyRent * 0.9),
+  });
+  const rentDownCashFlow = rentDownAnalysis.monthlyCashFlow;
   const rentDownDelta = rentDownCashFlow - a.monthlyCashFlow;
 
-  // Rate +1pt: approximate the new P&I using standard amortisation.
-  const newRate = inputs.loanInterestRate + 1;
-  const newMonthly =
-    a.loanAmount > 0
-      ? mortgagePayment(a.loanAmount, newRate, inputs.loanTermYears)
-      : 0;
-  const monthlyDebtDelta = newMonthly - a.monthlyMortgagePayment;
-  const rateUpCashFlow = a.monthlyCashFlow - monthlyDebtDelta;
+  const rateUpAnalysis = analyseDeal({
+    ...inputs,
+    loanInterestRate: inputs.loanInterestRate + 1,
+  });
+  const rateUpCashFlow = rateUpAnalysis.monthlyCashFlow;
   const rateUpDelta = rateUpCashFlow - a.monthlyCashFlow;
 
   return {
@@ -288,14 +337,3 @@ function computeStressScenarios(a: DealAnalysis) {
   };
 }
 
-function mortgagePayment(
-  principal: number,
-  annualRatePct: number,
-  years: number,
-): number {
-  if (principal <= 0 || years <= 0) return 0;
-  const r = annualRatePct / 100 / 12;
-  const n = years * 12;
-  if (r === 0) return principal / n;
-  return (principal * r) / (1 - Math.pow(1 + r, -n));
-}

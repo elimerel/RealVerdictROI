@@ -4,6 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useMemo, useState } from "react";
 import type { DealInputs } from "@/lib/calculations";
+import type { ChatAnalysisContext } from "@/app/api/chat/route";
 import { renderAIProse } from "./aiProse";
 
 const SUGGESTIONS = [
@@ -17,17 +18,27 @@ const SUGGESTIONS = [
  * message triggers the first round. Uses mode="chat" which selects gpt-4o
  * server-side. Responses are rendered in the exact same visual language as
  * the opening verdict (accent left border, faint accent tint).
+ *
+ * `analysisContext` (optional) feeds the AI the authoritative walk-away,
+ * fair value, and weak assumptions so it doesn't invent competing
+ * numbers when the user asks "what should I offer?"
  */
-export default function FollowUpChat({ inputs }: { inputs: DealInputs }) {
+export default function FollowUpChat({
+  inputs,
+  analysisContext,
+}: {
+  inputs: DealInputs;
+  analysisContext?: ChatAnalysisContext;
+}) {
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
         prepareSendMessagesRequest: ({ messages }) => ({
-          body: { messages, inputs, mode: "chat" },
+          body: { messages, inputs, mode: "chat", analysisContext },
         }),
       }),
-    [inputs],
+    [inputs, analysisContext],
   );
 
   const { messages, sendMessage, status, error, stop } = useChat({ transport });

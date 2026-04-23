@@ -54,6 +54,7 @@ export default function PackGenerateButton({
   currentUrl,
   signedIn,
   supabaseConfigured,
+  isListed,
 }: {
   inputs: DealInputs;
   address: string;
@@ -61,6 +62,12 @@ export default function PackGenerateButton({
   currentUrl: string;
   signedIn: boolean;
   supabaseConfigured: boolean;
+  /** True when the `/results` query string has `listed=1` — i.e. the
+   *  purchasePrice the user is looking at is the live Zillow list price,
+   *  not a manual override. Passed through to the Pack API so the Pack's
+   *  `analyzeComparables` call uses the same `currentListPrice` rule as
+   *  `/results` and the fair-value / walk-away numbers cannot diverge. */
+  isListed: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<GenStatus>({ state: "idle" });
@@ -97,6 +104,7 @@ export default function PackGenerateButton({
           address,
           subjectFacts,
           warnings,
+          isListed,
         }),
       });
       if (res.status === 401) {

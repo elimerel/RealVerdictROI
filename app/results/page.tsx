@@ -21,6 +21,7 @@ import BreakdownSection from "../_components/results/BreakdownSection";
 import { TIER_ACCENT, TIER_LABEL } from "../_components/results/tier-style";
 import {
   analyseDeal,
+  findOfferCeiling,
   formatCurrency,
   formatPercent,
   inputsFromSearchParams,
@@ -28,6 +29,8 @@ import {
 } from "@/lib/calculations";
 import { fetchComps, type CompsResult } from "@/lib/comps";
 import { analyzeComparables } from "@/lib/comparables";
+import { pickWeakAssumptions } from "@/lib/negotiation-pack";
+import type { ChatAnalysisContext } from "@/app/api/chat/route";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { checkRateLimit, identifierFor } from "@/lib/ratelimit";
@@ -250,6 +253,48 @@ export default async function ResultsPage({
   const accent = TIER_ACCENT[tier];
   const accentSoft = accent + "14"; // ~8% alpha (hex suffix)
 
+  // ---------------------------------------------------------------------
+  // AI chat context. Compute walk-away + weak assumptions once here and
+  // pass them into both InitialVerdict and FollowUpChat so the AI layer
+  // speaks with the same numbers as the Hero card, the Pack, and the
+  // Comps tab. Without this the AI used to invent its own "fair offer"
+  // that contradicted OfferCeilingCard sitting 200px above it.
+  // ---------------------------------------------------------------------
+  const marketValueAnchor =
+    comparables?.marketValue?.value ??
+    (inputs.purchasePrice > 0 ? inputs.purchasePrice : undefined);
+  const ceilingForChat = findOfferCeiling(inputs, {
+    marketValueCap: marketValueAnchor,
+    marketValueCapSource: comparables?.marketValue?.value ? "comps" : "list",
+  });
+  const weakAssumptionsForChat = comparables
+    ? pickWeakAssumptions({
+        inputs,
+        analysis,
+        comparables,
+        warnings: [],
+        provenance: {},
+      }).slice(0, 3)
+    : [];
+  const analysisContext: ChatAnalysisContext = {
+    walkAwayPrice: ceilingForChat.primaryTarget?.price,
+    walkAwayTier:
+      ceilingForChat.primaryTarget?.tier === "avoid"
+        ? undefined
+        : ceilingForChat.primaryTarget?.tier,
+    marketValueCapSource: comparables?.marketValue?.value ? "comps" : "list",
+    fairValue: comparables?.marketValue?.value ?? undefined,
+    fairValueConfidence: comparables?.marketValue?.confidence ?? undefined,
+    marketRent: comparables?.marketRent?.value ?? undefined,
+    marketRentConfidence: comparables?.marketRent?.confidence ?? undefined,
+    weakAssumptions: weakAssumptionsForChat.map((w) => ({
+      field: w.field,
+      current: w.current,
+      realistic: w.realistic,
+      gap: w.gap,
+    })),
+  };
+
   // CSS variables flow down to every child via inheritance. Client components
   // (InitialVerdict, FollowUpChat) read `var(--accent)` directly.
   const rootStyle: CSSProperties & Record<string, string> = {
@@ -319,6 +364,8 @@ export default async function ResultsPage({
               lastSalePrice,
               lastSaleDate,
             }}
+            isListed={search.listed === "1"}
+            analysisContext={analysisContext}
           />
 
           <div className="mt-10 sm:mt-14">
@@ -385,7 +432,12 @@ export default async function ResultsPage({
                 {
                   id: "chat",
                   label: "Ask AI",
-                  content: <FollowUpChat inputs={inputs} />,
+                  content: (
+                    <FollowUpChat
+                      inputs={inputs}
+                      analysisContext={analysisContext}
+                    />
+                  ),
                 },
               ]}
             />

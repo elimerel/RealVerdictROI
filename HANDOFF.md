@@ -53,33 +53,47 @@
 
 **Pending** (in priority order, from `HANDOFF_ARCHIVE.md §20.15`):
 
-1. **Calibration gauntlet** — user sources 10 more listings across
-   diverse markets + property types; audit output for any BUY-labeled-
-   AVOID regressions.
+1. **Calibration gauntlet** — user pastes 10 listing URLs into
+   `calibration/listings.json` and runs `npm run calibrate`. Report
+   flags anything failing objective sanity checks (walk-away band, cap
+   rate band, cash-flow identity, list-vs-comp sanity, rent sanity,
+   comp-pool depth). **Scoring no longer asks for user gut verdicts**
+   (see 2026-04-22 ship note below).
    - **Tooling**: `calibration/listings.json` + `npm run calibrate` +
      `app/api/calibrate/route.ts`. Writes a timestamped Markdown report
-     to `calibration/results-<stamp>.md` with summary table +
-     per-listing detail. Process exits non-zero on any hard miss
-     (engine ≥2 tiers off from your gut). See `calibration/README.md`
-     for usage. Production calls require `CALIBRATION_SECRET` env.
+     to `calibration/results-<stamp>.md`. Process exits non-zero on any
+     sanity-check failure. See `calibration/README.md`. Production
+     calls require `CALIBRATION_SECRET` env.
 2. **Investor demo signal** — at least one person who says "I'd pay for
    the Pack specifically." Only after that do we flip Stripe to live.
 3. **One-time Pack purchase path** — $19–29 Stripe Checkout with no
    signup until after payment. Deferred; only build if demand signals.
-4. ~~**Dashboard polish** — no UI lists a user's past Packs yet.~~ Shipped
-   2026-04-22: `app/dashboard/page.tsx` renders a "Your Negotiation Packs"
-   section above Deals, with Open + PDF actions per row. Hidden entirely
-   when the user has no Packs.
-5. ~~**Garbled negative-CF copy**~~ Shipped 2026-04-22: the stress-scenario
-   system prompt in `app/api/chat/route.ts` now emits three different
-   sentences depending on whether cash flow is positive / break-even /
-   negative. No more "wipes out 0 months."
-6. ~~**Error boundary on `/results`**~~ Shipped 2026-04-22:
-   `app/results/error.tsx` reports the error to Sentry and gives the user
-   a retry + "start a new analysis" path instead of the default 500.
-7. **P2 remaining from `HANDOFF_ARCHIVE.md §20.9 #11`** — cross-tab
-   numeric reconciliation (one number per metric across Numbers / Comps /
-   Stress / What-if tabs).
+4. ~~**Dashboard polish**~~ Shipped 2026-04-22.
+5. ~~**Garbled negative-CF copy**~~ Shipped 2026-04-22.
+6. ~~**Error boundary on `/results`**~~ Shipped 2026-04-22.
+7. ~~**Cross-tab numeric reconciliation (§20.9 #11)**~~ Shipped
+   2026-04-22. Cross-tab audit found and fixed: Pack route was passing
+   `currentListPrice` unconditionally while `/results` gated it on
+   `?listed=1`, so Pack fair value + walk-away could drift from what
+   the page showed. Fixed by threading `isListed` through
+   `PackGenerateButton` → `/api/pack/generate`. Cap rate standardized
+   to 2 decimals everywhere (was 1 in hero, 2 in Evidence). "Total
+   return" ($) in Evidence renamed to "Total profit" to disambiguate
+   from "Total ROI" (%) on Stress / What-if.
+8. ~~**AI chat underutilization**~~ Shipped 2026-04-22. `/api/chat`
+   now accepts an optional `analysisContext` (walk-away price, fair
+   value, market rent, top-3 weak assumptions) computed once in
+   `app/results/page.tsx` and piped into both `InitialVerdict` and
+   `FollowUpChat`. System prompt cites the walk-away explicitly when
+   the user asks "what should I offer?" — no more AI-invented numbers
+   contradicting OfferCeilingCard. Chat's rent-10% and rate+1pt stress
+   scenarios now run the full `analyseDeal` instead of a simplified
+   delta, matching the Stress tab.
+9. ~~**Calibration oracle model**~~ Shipped 2026-04-22. Previous
+   "score vs operator gut" model was flawed (operator isn't an
+   investor). Replaced with 9 objective sanity checks baked into
+   `/api/calibrate` response. Operator only needs to paste URLs —
+   zero gut input required.
 
 **Manual operator tasks (required before launch):**
 
