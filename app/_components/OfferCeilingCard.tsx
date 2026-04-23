@@ -215,6 +215,14 @@ export default function OfferCeilingCard({
         })}
       </div>
 
+      {!primary && ceiling.poor !== undefined && (
+        <p className="mt-3 text-[11px] leading-snug text-zinc-500">
+          The PASS row is the list-capped ceiling of the PASS band (still not
+          AVOID in the model) — not a price to offer. BORDERLINE or better is
+          where a buy could start on these inputs.
+        </p>
+      )}
+
       <div className="mt-4 border-t border-zinc-800 pt-3 text-xs text-zinc-500">
         Currently:{" "}
         <span className="font-mono tabular-nums text-zinc-300">
