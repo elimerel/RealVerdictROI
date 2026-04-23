@@ -23,6 +23,36 @@ const TIER_DOT: Record<VerdictTier, string> = {
   avoid: "#ef4444",
 };
 
+const LADDER_ORDER = ["excellent", "good", "fair", "poor"] as const;
+type LadderTier = (typeof LADDER_ORDER)[number];
+
+function ceilingForTier(
+  c: ReturnType<typeof findOfferCeiling>,
+  tier: LadderTier,
+): number | undefined {
+  switch (tier) {
+    case "excellent":
+      return c.excellent;
+    case "good":
+      return c.good;
+    case "fair":
+      return c.fair;
+    case "poor":
+      return c.poor;
+    default: {
+      const _x: never = tier;
+      return _x;
+    }
+  }
+}
+
+/** Tiers more optimistic than `first` — those ceilings read as absurd on a high ask. */
+function optimisticTiersAbove(first: "excellent" | "good" | "fair"): Set<VerdictTier> {
+  if (first === "fair") return new Set(["excellent", "good"]);
+  if (first === "good") return new Set(["excellent"]);
+  return new Set();
+}
+
 // ---------------------------------------------------------------------------
 // Negotiation-anchor card. Shows the highest price the deal can carry while
 // still earning each verdict tier. This is the single most actionable artifact
@@ -31,9 +61,11 @@ const TIER_DOT: Record<VerdictTier, string> = {
 //
 // Key UX decision: the *headline* shows the best tier reachable within a
 // realistic negotiation band (≤15% under list), not the absolute best tier.
-// Showing "Max offer $367k for STRONG BUY" on a $510k listing reads as a
-// nonsensical lowball; showing "Max offer $466k for BORDERLINE" reflects an
-// offer an investor would actually make.
+//
+// When there is NO primary target (deal fails inside that band), showing
+// STRONG BUY at $174k on a $540k ask reads like parody — those rows are still
+// true rubric crossings but we collapse them behind <details> and foreground
+// only the nearest crossing (e.g. BORDERLINE) + PASS.
 // ---------------------------------------------------------------------------
 
 export default function OfferCeilingCard({
@@ -60,27 +92,21 @@ export default function OfferCeilingCard({
   const current = ceiling.currentPrice;
   const currentTier = ceiling.currentTier;
 
-  // Order tiers worst-to-best so the card reads like a price ladder going up.
-  const ladder: { tier: VerdictTier; price: number | undefined }[] = [
-    { tier: "excellent", price: ceiling.excellent },
-    { tier: "good", price: ceiling.good },
-    { tier: "fair", price: ceiling.fair },
-    { tier: "poor", price: ceiling.poor },
-  ];
+  const ladder: { tier: LadderTier; price: number | undefined }[] =
+    LADDER_ORDER.map((tier) => ({
+      tier,
+      price: ceilingForTier(ceiling, tier),
+    }));
 
   const primary = ceiling.primaryTarget;
   const stretch = ceiling.stretchTarget;
   const buydown = ceiling.rateBuydown;
 
-  // Price that would clear the BORDERLINE threshold — shown in the
-  // no-walk-away case so the user sees the magnitude of the discount the
-  // deal would need to work. If even 'fair' is unreachable, fall back to
-  // 'good' or 'excellent'.
   const fairPrice = ceiling.fair;
   const goodPrice = ceiling.good;
   const excellentPrice = ceiling.excellent;
   const firstReachable = fairPrice ?? goodPrice ?? excellentPrice;
-  const firstReachableTier: VerdictTier | null = fairPrice
+  const firstReachableTier: "excellent" | "good" | "fair" | null = fairPrice
     ? "fair"
     : goodPrice
       ? "good"
@@ -88,11 +114,22 @@ export default function OfferCeilingCard({
         ? "excellent"
         : null;
 
+  const hiddenOptimistic =
+    !primary && firstReachableTier
+      ? optimisticTiersAbove(firstReachableTier)
+      : new Set<VerdictTier>();
+
+  const visibleLadder = ladder.filter((row) => !hiddenOptimistic.has(row.tier));
+
+  const hiddenWithPrices = LADDER_ORDER.filter(
+    (t) => hiddenOptimistic.has(t) && ceilingForTier(ceiling, t) !== undefined,
+  ).map((t) => ({
+    tier: t,
+    price: ceilingForTier(ceiling, t) as number,
+  }));
+
   const headlineCopy = (() => {
     if (!primary) {
-      // Best-case scenario for this deal is PASS or worse inside the
-      // realistic negotiation band. Tell the user plainly — don't hide
-      // the verdict behind a phantom walk-away number.
       if (firstReachable !== undefined && firstReachableTier) {
         const cut = current - firstReachable;
         const pct = ((cut / Math.max(1, current)) * 100).toFixed(1);
@@ -122,10 +159,6 @@ export default function OfferCeilingCard({
     return `Equivalent lever: buy the rate down 1 point for ~${formatCurrency(buydown.costPer1pt, 0)} upfront — same impact as ~${formatCurrency(buydown.priceEquivPer1pt, 0)} off the price.`;
   })();
 
-  // Market-value anchor note. Shown when a cap is supplied so the investor
-  // understands the walk-away number is disciplined by comp-derived fair
-  // value (or list price, as a weaker anchor). This is what stops the card
-  // from ever suggesting "pay $3.4M for a $540k listing" again.
   const capCopy = (() => {
     if (!ceiling.marketValueCap) return null;
     const { cap, source, binding } = ceiling.marketValueCap;
@@ -135,6 +168,21 @@ export default function OfferCeilingCard({
     }
     return `Market-value anchor: ${formatCurrency(cap, 0)} (5% premium over ${label}). The rubric ceilings above are all below this — the income math is the binding constraint here, not overpayment risk.`;
   })();
+
+  const collapsedRubricNote =
+    !primary && hiddenWithPrices.length > 0 ? (
+      <p className="mb-2 text-[11px] leading-snug text-zinc-500">
+        {hiddenWithPrices
+          .map(
+            ({ tier, price }) =>
+              `${TIER_LABEL[tier]} (≤${formatCurrency(price, 0)})`,
+          )
+          .join(" · ")}{" "}
+        — rubric math only at those prices, not asks anyone would make on a{" "}
+        {formatCurrency(current, 0)} listing. The rows below are the nearest
+        crossings that still relate to your ask.
+      </p>
+    ) : null;
 
   return (
     <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-5 sm:p-6">
@@ -172,62 +220,41 @@ export default function OfferCeilingCard({
       )}
 
       <div className="mt-5">
+        {collapsedRubricNote}
         <div className="mb-2 flex items-end justify-between gap-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
           <span>Tier</span>
           <span className="text-right">Max price in band</span>
         </div>
         <div className="flex flex-col gap-1.5">
-        {ladder.map(({ tier, price }) => {
-          const dot: CSSProperties = { backgroundColor: TIER_DOT[tier] };
-          const isCurrent = tier === currentTier;
-          const isPrimary = primary && tier === primary.tier;
-          const reachable = price !== undefined;
-          return (
-            <div
+          {visibleLadder.map(({ tier, price }) => (
+            <TierLadderRow
               key={tier}
-              className={`flex items-center justify-between gap-3 rounded-md px-3 py-2 ${isCurrent ? "bg-zinc-800/60" : isPrimary ? "bg-zinc-800/30" : ""}`}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span
-                  aria-hidden
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={dot}
-                />
-                <span className="text-sm font-semibold uppercase tracking-wider text-zinc-300 truncate">
-                  {TIER_LABEL[tier]}
-                </span>
-                {isCurrent && (
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                    you are here
-                  </span>
-                )}
-                {!isCurrent && isPrimary && (
-                  <span
-                    className="text-[10px] font-medium uppercase tracking-wider"
-                    style={{ color: "var(--accent)" }}
-                  >
-                    target offer
-                  </span>
-                )}
-              </div>
-              <div
-                className="font-mono text-sm tabular-nums text-zinc-100"
-                title={
-                  tier === "poor" && !primary && reachable
-                    ? "List-capped top of the PASS rubric band (still not AVOID). Not a price to offer — BORDERLINE or better is where a buy could start."
-                    : reachable
-                      ? "Largest purchase price at which the verdict is still at least this tier (rubric)."
-                      : undefined
-                }
-              >
-                {reachable
-                  ? `≤ ${formatCurrency(price, 0)}`
-                  : "— not reachable"}
-              </div>
-            </div>
-          );
-        })}
+              tier={tier}
+              price={price}
+              primary={primary}
+              currentTier={currentTier}
+            />
+          ))}
         </div>
+
+        {!primary && hiddenWithPrices.length > 0 && (
+          <details className="mt-3 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-3 py-2 text-[11px] text-zinc-500">
+            <summary className="cursor-pointer font-medium text-zinc-400 hover:text-zinc-300">
+              Full four-tier rubric (methodology / transparency)
+            </summary>
+            <div className="mt-2 flex flex-col gap-1.5 border-t border-zinc-800/60 pt-2">
+              {ladder.map(({ tier, price }) => (
+                <TierLadderRow
+                  key={tier}
+                  tier={tier}
+                  price={price}
+                  primary={primary}
+                  currentTier={currentTier}
+                />
+              ))}
+            </div>
+          </details>
+        )}
       </div>
 
       {!primary && ceiling.poor !== undefined && (
@@ -244,9 +271,70 @@ export default function OfferCeilingCard({
           {formatCurrency(current, 0)}
         </span>{" "}
         →{" "}
-        <span className="font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>
+        <span
+          className="font-semibold uppercase tracking-wider"
+          style={{ color: "var(--accent)" }}
+        >
           {TIER_LABEL[currentTier]}
         </span>
+      </div>
+    </div>
+  );
+}
+
+function TierLadderRow({
+  tier,
+  price,
+  primary,
+  currentTier,
+}: {
+  tier: VerdictTier;
+  price: number | undefined;
+  primary: { tier: VerdictTier } | undefined;
+  currentTier: VerdictTier;
+}) {
+  const dot: CSSProperties = { backgroundColor: TIER_DOT[tier] };
+  const isCurrent = tier === currentTier;
+  const isPrimary = primary && tier === primary.tier;
+  const reachable = price !== undefined;
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-md px-3 py-2 ${isCurrent ? "bg-zinc-800/60" : isPrimary ? "bg-zinc-800/30" : ""}`}
+    >
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span
+          aria-hidden
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={dot}
+        />
+        <span className="truncate text-sm font-semibold uppercase tracking-wider text-zinc-300">
+          {TIER_LABEL[tier]}
+        </span>
+        {isCurrent && (
+          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+            you are here
+          </span>
+        )}
+        {!isCurrent && isPrimary && (
+          <span
+            className="text-[10px] font-medium uppercase tracking-wider"
+            style={{ color: "var(--accent)" }}
+          >
+            target offer
+          </span>
+        )}
+      </div>
+      <div
+        className="font-mono text-sm tabular-nums text-zinc-100"
+        title={
+          tier === "poor" && !primary && reachable
+            ? "List-capped top of the PASS rubric band (still not AVOID). Not a price to offer — BORDERLINE or better is where a buy could start."
+            : reachable
+              ? "Largest purchase price at which the verdict is still at least this tier (rubric)."
+              : undefined
+        }
+      >
+        {reachable ? `≤ ${formatCurrency(price, 0)}` : "— not reachable"}
       </div>
     </div>
   );

@@ -337,7 +337,11 @@ How it works:
   **ceiling** = max purchase at which the rubric is still at least that
   tier; the bottom PASS row is therefore the list-capped top of the PASS
   band (not AVOID), **not** a bid target — `OfferCeilingCard` adds a
-  footnote + tooltip when `primaryTarget` is unset.
+  footnote + tooltip when `primaryTarget` is unset. On broken deals,
+  `OfferCeilingCard` **hides** STRONG BUY / GOOD rows from the default view
+  when the first reachable tier is BORDERLINE (or GOOD-only), with a plain
+  English line that those prices are rubric-only — full ladder lives in a
+  `<details>` for methodology.
 - Without `marketValueCap`, income-rubric alone can return absurd
   ceilings on rent-heavy listings (the $3.4M-on-a-$540k-listing bug).
   The cap is derived in `/results` from `comparables.marketValue.value`
