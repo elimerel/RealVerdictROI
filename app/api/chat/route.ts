@@ -188,7 +188,7 @@ Operating expense ratio: ${p(a.operatingExpenseRatio, 0)}
 Break-even occupancy: ${p(a.breakEvenOccupancy, 0)}
 
 === STRESS SCENARIOS (computed for you) ===
-One extra month of vacancy costs: ${f(stress.oneMonthVacancyCost)} (wipes out ${stress.vacancyMonthsToNegate} months of current cash flow)
+One extra month of vacancy costs: ${f(stress.oneMonthVacancyCost)} (${stress.vacancyCushion})
 Rent falls 10%: new monthly cash flow = ${f(stress.rentDownCashFlow)} (${stress.rentDownDelta >= 0 ? "+" : ""}${f(stress.rentDownDelta)} vs today)
 Interest rate +1pt to ${(inputs.loanInterestRate + 1).toFixed(2)}%: new monthly cash flow = ${f(stress.rateUpCashFlow)} (${stress.rateUpDelta >= 0 ? "+" : ""}${f(stress.rateUpDelta)} vs today)
 
@@ -235,10 +235,24 @@ function computeStressScenarios(a: DealAnalysis) {
 
   // Cost of one extra vacant month = one month of rent lost, everything else held.
   const oneMonthVacancyCost = inputs.monthlyRent;
-  const vacancyMonthsToNegate =
+
+  // vacancyCushion: a short sentence the AI can quote directly. Three regimes:
+  //   (a) positive cash flow   → "wipes out N months of cash flow"
+  //   (b) break-even           → "any vacancy puts you in the red"
+  //   (c) already negative     → "cash flow is already negative, so any vacancy
+  //                              deepens the monthly loss"
+  // Prior version always emitted the (a) template, which produced garbled
+  // copy like "wipes out 0 months of current cash flow" for cases (b) and (c).
+  // Fix per HANDOFF_ARCHIVE §20.9 #12.
+  const vacancyCushion =
     a.monthlyCashFlow > 0
-      ? Math.max(1, Math.round(inputs.monthlyRent / a.monthlyCashFlow))
-      : 0;
+      ? `wipes out ${Math.max(
+          1,
+          Math.round(inputs.monthlyRent / a.monthlyCashFlow),
+        )} months of current cash flow`
+      : a.monthlyCashFlow === 0
+        ? "the deal is already break-even, so any vacancy puts you in the red"
+        : "cash flow is already negative, so any vacancy deepens the monthly loss";
 
   // Rent falls 10%: re-derive monthly cashflow without re-running the full
   // engine. NOI loses 10% of gross rent × (1 − vacancy) × (1 − var opex %).
@@ -266,7 +280,7 @@ function computeStressScenarios(a: DealAnalysis) {
 
   return {
     oneMonthVacancyCost,
-    vacancyMonthsToNegate,
+    vacancyCushion,
     rentDownCashFlow,
     rentDownDelta,
     rateUpCashFlow,

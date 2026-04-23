@@ -60,9 +60,20 @@
    the Pack specifically." Only after that do we flip Stripe to live.
 3. **One-time Pack purchase path** — $19–29 Stripe Checkout with no
    signup until after payment. Deferred; only build if demand signals.
-4. **Dashboard polish** — no UI lists a user's past Packs yet.
-5. **P2 polish from `HANDOFF_ARCHIVE.md §20.9 #11/#12`** — cross-tab
-   numeric reconciliation, garbled negative-CF copy templates.
+4. ~~**Dashboard polish** — no UI lists a user's past Packs yet.~~ Shipped
+   2026-04-22: `app/dashboard/page.tsx` renders a "Your Negotiation Packs"
+   section above Deals, with Open + PDF actions per row. Hidden entirely
+   when the user has no Packs.
+5. ~~**Garbled negative-CF copy**~~ Shipped 2026-04-22: the stress-scenario
+   system prompt in `app/api/chat/route.ts` now emits three different
+   sentences depending on whether cash flow is positive / break-even /
+   negative. No more "wipes out 0 months."
+6. ~~**Error boundary on `/results`**~~ Shipped 2026-04-22:
+   `app/results/error.tsx` reports the error to Sentry and gives the user
+   a retry + "start a new analysis" path instead of the default 500.
+7. **P2 remaining from `HANDOFF_ARCHIVE.md §20.9 #11`** — cross-tab
+   numeric reconciliation (one number per metric across Numbers / Comps /
+   Stress / What-if tabs).
 
 **Manual operator tasks (required before launch):**
 

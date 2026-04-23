@@ -21,6 +21,17 @@ type DealRow = {
   verdict: string;
 };
 
+type PackRow = {
+  id: string;
+  share_token: string;
+  created_at: string;
+  address: string | null;
+  verdict: string | null;
+  walk_away_price: number | null;
+  list_price: number | null;
+  revoked_at: string | null;
+};
+
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage({
@@ -41,15 +52,26 @@ export default async function DashboardPage({
   const search = await searchParams;
   const justUpgraded = search.checkout === "success";
 
-  const [{ data: deals, error }, proStatus] = await Promise.all([
-    supabase
-      .from("deals")
-      .select("id, created_at, address, inputs, results, verdict")
-      .order("created_at", { ascending: false }),
-    getProStatus(userRes.user.id),
-  ]);
+  // Packs and Deals are parallel Supabase queries. Both have owner-scoped
+  // RLS so the anon/auth client here returns exactly the user's rows.
+  const [{ data: deals, error }, { data: packs, error: packsError }, proStatus] =
+    await Promise.all([
+      supabase
+        .from("deals")
+        .select("id, created_at, address, inputs, results, verdict")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("negotiation_packs")
+        .select(
+          "id, share_token, created_at, address, verdict, walk_away_price, list_price, revoked_at",
+        )
+        .order("created_at", { ascending: false })
+        .limit(50),
+      getProStatus(userRes.user.id),
+    ]);
 
   const rows = (deals ?? []) as DealRow[];
+  const packRows = (packs ?? []) as PackRow[];
 
   return (
     <div className="flex flex-1 flex-col bg-gradient-to-b from-zinc-50 via-white to-zinc-50 dark:from-zinc-950 dark:via-black dark:to-zinc-950">
@@ -134,6 +156,8 @@ export default async function DashboardPage({
               <code>supabase/migrations/001_deals.sql</code>.
             </div>
           )}
+
+          <PackSection rows={packRows} error={packsError?.message} />
 
           {rows.length === 0 ? (
             <EmptyDashboard />
@@ -260,6 +284,124 @@ function PlanBadge({
     >
       Free · upgrade
     </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pack history section. Hidden entirely when the user has never generated a
+// Pack — the main value of this area is "find the link to the Pack I made
+// last week," not evangelizing the feature (the /results page does that).
+// ---------------------------------------------------------------------------
+
+function PackSection({
+  rows,
+  error,
+}: {
+  rows: PackRow[];
+  error: string | undefined;
+}) {
+  // Missing table (migration not run) → soft error banner, no crash. The
+  // rest of the dashboard stays usable.
+  if (error) {
+    return (
+      <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+        Could not load your Negotiation Packs: {error}. If this is your first
+        time deploying, run{" "}
+        <code>supabase/migrations/004_negotiation_packs.sql</code> in the
+        Supabase SQL editor.
+      </div>
+    );
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="mb-10">
+      <div className="mb-4 flex items-baseline justify-between gap-3">
+        <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+          Your Negotiation Packs
+          <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+            {rows.length} generated
+          </span>
+        </h2>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {rows.map((row) => (
+          <PackCard key={row.id} row={row} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PackCard({ row }: { row: PackRow }) {
+  const created = new Date(row.created_at).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const title =
+    row.address ||
+    (row.list_price
+      ? `${formatCurrency(row.list_price, 0)} deal`
+      : "Untitled Pack");
+
+  const walkAwayDisplay = row.walk_away_price
+    ? formatCurrency(row.walk_away_price, 0)
+    : "—";
+  const tier = (row.verdict as VerdictTier) || "fair";
+  const revoked = !!row.revoked_at;
+
+  const viewHref = `/pack/${row.share_token}`;
+  const pdfHref = `/pack/${row.share_token}/pdf`;
+
+  return (
+    <div
+      className={`flex flex-col gap-3 rounded-xl border p-4 shadow-sm transition ${
+        revoked
+          ? "border-zinc-200 bg-zinc-50 opacity-70 dark:border-zinc-800 dark:bg-zinc-950"
+          : "border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            {title}
+          </div>
+          <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            {created}
+            {revoked && " · revoked"}
+          </div>
+        </div>
+        <VerdictBadge tier={tier} />
+      </div>
+
+      <div className="flex items-baseline gap-2">
+        <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Walk-away
+        </div>
+        <div className="font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+          {walkAwayDisplay}
+        </div>
+      </div>
+
+      {!revoked && (
+        <div className="flex gap-2 pt-1">
+          <Link
+            href={viewHref}
+            className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900"
+          >
+            Open
+          </Link>
+          <a
+            href={pdfHref}
+            className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-600 transition hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            PDF
+          </a>
+        </div>
+      )}
+    </div>
   );
 }
 
