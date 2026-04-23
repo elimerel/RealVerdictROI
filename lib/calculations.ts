@@ -1048,9 +1048,18 @@ export function findOfferCeiling(
   // band (≤15% under list, or free upside if asking is already below). We
   // want the headline to be an offer a buyer would actually make, not a
   // lowball that would insult the seller.
+  //
+  // We deliberately EXCLUDE "poor" (PASS) from target eligibility. PASS is a
+  // don't-buy verdict — telling the user "Max offer: $X for PASS" is
+  // nonsensical advice that looks like a green light. If the best-achievable
+  // tier inside the negotiation band is poor/avoid, primaryTarget stays
+  // undefined and the card renders a "skip this deal" headline instead
+  // of a phantom walk-away price. (Bug caught 2026-04-23 on a NJ commuter
+  // listing where the engine said "walk-away $566k for PASS. Good setup."
+  // on a deal losing $1,450/mo.)
   const NEGOTIATION_BAND = 0.15;
   const minRealistic = safe.purchasePrice * (1 - NEGOTIATION_BAND);
-  for (const target of ["excellent", "good", "fair", "poor"] as const) {
+  for (const target of ["excellent", "good", "fair"] as const) {
     const price = ceilings[target];
     if (price === undefined) continue;
     if (price >= minRealistic) {
@@ -1059,11 +1068,11 @@ export function findOfferCeiling(
       break;
     }
   }
-  // If nothing clears the negotiation band, we intentionally leave
-  // primaryTarget undefined. The card then renders "walk away" / "no
-  // realistic price clears the rubric" rather than recommending a lowball
-  // offer that no seller would ever accept. The absolute `recommendedCeiling`
-  // is still available for analytical use (stress test, rubric page, etc).
+  // If nothing clears the negotiation band, primaryTarget stays undefined.
+  // The card renders a "skip — doesn't work at realistic offers" headline
+  // rather than recommending a lowball or a PASS-tier ceiling. The
+  // absolute `recommendedCeiling` is still available for analytical use
+  // (stress test, rubric page, etc).
 
   // Stretch target: next tier up from primary (only if it exists AND it's
   // more than a rounding error away). Lets the UI offer "...or push for

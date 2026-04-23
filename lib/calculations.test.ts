@@ -241,6 +241,34 @@ describe("findOfferCeiling", () => {
     }
   });
 
+  it("primaryTarget is undefined when only 'poor' is reachable within 15% of list", () => {
+    // Regression for 2026-04-23 Edison NJ bug: the engine was recommending
+    // "Max offer $566,790 for PASS" on a $539,800 listing losing $1,450/mo.
+    // PASS is a don't-buy verdict — it must never become a primaryTarget.
+    // Shape of the bug: high-price commuter market where rents can't carry
+    // the property at any price within a realistic negotiation band.
+    const edisonLike = make({
+      purchasePrice: 539_800,
+      monthlyRent: 3_100,
+      annualPropertyTax: 11_500,
+      annualInsurance: 2_400,
+      downPaymentPercent: 25,
+      loanInterestRate: 7,
+    });
+    const c = findOfferCeiling(edisonLike, {
+      marketValueCap: 539_800,
+      marketValueCapSource: "list",
+    });
+    // The base deal really is a PASS at list.
+    expect(analyseDeal(edisonLike).verdict.tier).toMatch(/poor|avoid/);
+    // And critically: no "walk-away target" should come back in the PASS
+    // tier. Either primaryTarget is undefined (preferred — "skip this") OR
+    // it's a fair/good/excellent tier (the user negotiated hard enough).
+    if (c.primaryTarget) {
+      expect(["excellent", "good", "fair"]).toContain(c.primaryTarget.tier);
+    }
+  });
+
   it("paying $1k is always enough to hit the highest achievable tier", () => {
     // This pins the lower bound of the search — if someone breaks the clamp
     // the solver would omit ceilings even for trivially profitable prices.

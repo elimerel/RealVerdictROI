@@ -72,9 +72,34 @@ export default function OfferCeilingCard({
   const stretch = ceiling.stretchTarget;
   const buydown = ceiling.rateBuydown;
 
+  // Price that would clear the BORDERLINE threshold — shown in the
+  // no-walk-away case so the user sees the magnitude of the discount the
+  // deal would need to work. If even 'fair' is unreachable, fall back to
+  // 'good' or 'excellent'.
+  const fairPrice = ceiling.fair;
+  const goodPrice = ceiling.good;
+  const excellentPrice = ceiling.excellent;
+  const firstReachable = fairPrice ?? goodPrice ?? excellentPrice;
+  const firstReachableTier: VerdictTier | null = fairPrice
+    ? "fair"
+    : goodPrice
+      ? "good"
+      : excellentPrice
+        ? "excellent"
+        : null;
+
   const headlineCopy = (() => {
-    if (!primary)
-      return "No offer price clears the rubric at these assumptions. Usually the rent estimate or financing assumption is off — check the 'How we got these numbers' panel above.";
+    if (!primary) {
+      // Best-case scenario for this deal is PASS or worse inside the
+      // realistic negotiation band. Tell the user plainly — don't hide
+      // the verdict behind a phantom walk-away number.
+      if (firstReachable !== undefined && firstReachableTier) {
+        const cut = current - firstReachable;
+        const pct = ((cut / Math.max(1, current)) * 100).toFixed(1);
+        return `Skip — this deal can't clear ${TIER_LABEL[firstReachableTier]} without ${formatCurrency(cut, 0)} off list (${pct}% under asking). That's outside normal negotiation range. The rent the property produces doesn't cover the carry at realistic offers.`;
+      }
+      return "Skip — no price clears the rubric at these assumptions. Rent vs. carrying cost can't be reconciled by negotiation alone. If the rent estimate looks low to you, check the 'How we got these numbers' panel and rerun with a corrected number.";
+    }
     if (primary.price >= current) {
       const room = primary.price - current;
       return `You have ${formatCurrency(room, 0)} of room above asking before this slips below ${TIER_LABEL[primary.tier]}. Good setup.`;
@@ -118,8 +143,11 @@ export default function OfferCeilingCard({
       </div>
       <div className="text-base sm:text-lg font-semibold text-zinc-100">
         {!primary ? (
-          <span className="text-zinc-300">
-            No realistic price clears the rubric.
+          <span style={{ color: "var(--accent)" }}>
+            Walk away.{" "}
+            <span className="text-zinc-400 font-normal text-sm">
+              No realistic offer makes this a buy.
+            </span>
           </span>
         ) : (
           <>
