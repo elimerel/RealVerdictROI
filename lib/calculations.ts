@@ -911,6 +911,18 @@ export type OfferCeiling = {
   /** The verdict tier at the current price. */
   currentTier: VerdictTier;
   /**
+   * The market-value anchor that capped the ceilings, if any. Set when the
+   * caller passes `marketValueCap` AND that cap actively clipped at least
+   * one tier ceiling. The UI shows this to explain why the headline isn't
+   * an absurdly high rubric-only number (e.g. "bounded by fair value $472k").
+   */
+  marketValueCap?: {
+    cap: number;
+    source: "comps" | "list";
+    /** True if at least one tier ceiling was clipped to the cap. */
+    binding: boolean;
+  };
+  /**
    * The single price we recommend as the practical ceiling — defined as the
    * max price for the best tier that is achievable. Investors negotiate
    * against this number.
@@ -944,14 +956,56 @@ function tierAtLeast(tier: VerdictTier, target: VerdictTier): boolean {
   return TIER_ORDER.indexOf(tier) >= TIER_ORDER.indexOf(target);
 }
 
-export function findOfferCeiling(inputs: DealInputs): OfferCeiling {
+export type FindOfferCeilingOptions = {
+  /**
+   * Market-value anchor used to clamp every tier ceiling. The income rubric
+   * alone can return absurd numbers on rent-heavy listings (e.g. "even at
+   * $3.4M this still cash-flows to POOR tier"), so we bound the search by
+   * what the property is actually worth. Pass `comps.marketValue.value`
+   * when available, `listPrice` otherwise. The cap is applied multiplicatively
+   * via `marketValueCapPremium` (default 1.05 — a 5% "I want this specific
+   * property" premium over the anchor).
+   */
+  marketValueCap?: number;
+  /** Source of the cap, used purely for the UI explanation. Defaults to "list". */
+  marketValueCapSource?: "comps" | "list";
+  /**
+   * Multiplier applied to `marketValueCap` before clamping. Default 1.05 —
+   * you can pay up to 5% over the anchor for a property you particularly want.
+   * Above that you're just overpaying, no matter how well the income math works.
+   */
+  marketValueCapPremium?: number;
+};
+
+export function findOfferCeiling(
+  inputs: DealInputs,
+  options: FindOfferCeilingOptions = {},
+): OfferCeiling {
   const safe = sanitiseInputs(inputs);
   const baseAnalysis = analyseDeal(safe);
 
-  // We search across [1k, max(currentPrice * 5, 5M)] which covers virtually
-  // any single-family scenario. Binary-search 25 iterations gets ~1$ precision.
+  // Compute the effective market-value ceiling. We cap the binary-search
+  // upper bound AND post-clamp any returned tier price. This prevents the
+  // pure income rubric from returning walk-away prices 5-10× market value
+  // on listings where rent is generous relative to ask — which reads as
+  // nonsense to an investor and destroys product credibility in a demo.
+  const rawCap = options.marketValueCap;
+  const premium =
+    options.marketValueCapPremium === undefined ? 1.05 : options.marketValueCapPremium;
+  const effectiveCap =
+    typeof rawCap === "number" && isFinite(rawCap) && rawCap > 0
+      ? rawCap * premium
+      : undefined;
+  const capSource: "comps" | "list" =
+    options.marketValueCapSource ?? "list";
+
+  // We search across [1k, upper] where upper is the lesser of (rubric
+  // headroom) and (market-value cap). Binary-search 25 iterations gets
+  // ~1$ precision over a $5M range.
   const lower = 1_000;
-  const upper = Math.max(safe.purchasePrice * 5, 5_000_000);
+  const rubricUpper = Math.max(safe.purchasePrice * 5, 5_000_000);
+  const upper =
+    effectiveCap !== undefined ? Math.min(rubricUpper, effectiveCap) : rubricUpper;
 
   const ceilings: OfferCeiling = {
     currentPrice: safe.purchasePrice,
@@ -959,12 +1013,26 @@ export function findOfferCeiling(inputs: DealInputs): OfferCeiling {
   };
 
   // Solve each tier independently. Each is the largest price at which
-  // analyseDeal({ price }).verdict.tier >= target.
+  // analyseDeal({ price }).verdict.tier >= target, clamped by the cap.
+  let anyBinding = false;
   for (const target of ["excellent", "good", "fair", "poor"] as const) {
     const max = solveMaxPriceForTier(safe, target, lower, upper);
     if (max !== null) {
+      // If the solver pinned the ceiling at the search upper bound AND the
+      // cap actually tightened the range, the cap is binding for this tier.
+      if (effectiveCap !== undefined && max >= upper - 500) {
+        anyBinding = true;
+      }
       ceilings[target] = max;
     }
+  }
+
+  if (effectiveCap !== undefined) {
+    ceilings.marketValueCap = {
+      cap: Math.round(effectiveCap),
+      source: capSource,
+      binding: anyBinding,
+    };
   }
 
   // Recommendation = the highest tier that's achievable at any price.

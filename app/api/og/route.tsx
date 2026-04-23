@@ -49,7 +49,13 @@ export async function GET(request: Request) {
   const params = Object.fromEntries(url.searchParams.entries());
   const inputs = inputsFromSearchParams(params);
   const analysis = analyseDeal(inputs);
-  const ceiling = findOfferCeiling(inputs);
+  const ceiling = findOfferCeiling(inputs, {
+    // OG previews don't have comp access. Cap at list price so the shared
+    // image never shows an absurd walk-away number (the 5% premium in the
+    // solver gives this a reasonable headroom).
+    marketValueCap: inputs.purchasePrice > 0 ? inputs.purchasePrice : undefined,
+    marketValueCapSource: "list",
+  });
 
   const tier = analysis.verdict.tier;
   const accent = TIER_ACCENT[tier];

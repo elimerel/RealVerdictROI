@@ -36,8 +36,27 @@ const TIER_DOT: Record<VerdictTier, string> = {
 // offer an investor would actually make.
 // ---------------------------------------------------------------------------
 
-export default function OfferCeilingCard({ inputs }: { inputs: DealInputs }) {
-  const ceiling = findOfferCeiling(inputs);
+export default function OfferCeilingCard({
+  inputs,
+  marketValueCap,
+  marketValueCapSource,
+}: {
+  inputs: DealInputs;
+  /**
+   * Market-value anchor used to clamp tier ceilings. Pass
+   * `comps.marketValue.value` when comps are available (source="comps"),
+   * else the subject's list price (source="list"). Without this, the income
+   * rubric alone can return walk-away prices 5-10× fair value on rent-heavy
+   * listings — the exact bug the user caught ($3.4M walk-away on a $540k list
+   * with $472k fair value).
+   */
+  marketValueCap?: number;
+  marketValueCapSource?: "comps" | "list";
+}) {
+  const ceiling = findOfferCeiling(inputs, {
+    marketValueCap,
+    marketValueCapSource,
+  });
   const current = ceiling.currentPrice;
   const currentTier = ceiling.currentTier;
 
@@ -78,6 +97,20 @@ export default function OfferCeilingCard({ inputs }: { inputs: DealInputs }) {
     return `Equivalent lever: buy the rate down 1 point for ~${formatCurrency(buydown.costPer1pt, 0)} upfront — same impact as ~${formatCurrency(buydown.priceEquivPer1pt, 0)} off the price.`;
   })();
 
+  // Market-value anchor note. Shown when a cap is supplied so the investor
+  // understands the walk-away number is disciplined by comp-derived fair
+  // value (or list price, as a weaker anchor). This is what stops the card
+  // from ever suggesting "pay $3.4M for a $540k listing" again.
+  const capCopy = (() => {
+    if (!ceiling.marketValueCap) return null;
+    const { cap, source, binding } = ceiling.marketValueCap;
+    const label = source === "comps" ? "comp-derived fair value" : "list price";
+    if (binding) {
+      return `Bounded by ${label}: walk-away ceiling capped at ${formatCurrency(cap, 0)} (5% premium over anchor). The income rubric alone would accept a higher price, but paying above market value means buying negative equity on day one.`;
+    }
+    return `Market-value anchor: ${formatCurrency(cap, 0)} (5% premium over ${label}). The rubric ceilings above are all below this — the income math is the binding constraint here, not overpayment risk.`;
+  })();
+
   return (
     <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-5 sm:p-6">
       <div className="mb-1 text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
@@ -102,10 +135,11 @@ export default function OfferCeilingCard({ inputs }: { inputs: DealInputs }) {
       </div>
       <p className="mt-1 text-sm text-zinc-400">{headlineCopy}</p>
 
-      {(stretchCopy || buydownCopy) && (
+      {(stretchCopy || buydownCopy || capCopy) && (
         <div className="mt-3 space-y-1 text-xs text-zinc-500 leading-relaxed">
           {stretchCopy && <p>{stretchCopy}</p>}
           {buydownCopy && <p>{buydownCopy}</p>}
+          {capCopy && <p>{capCopy}</p>}
         </div>
       )}
 

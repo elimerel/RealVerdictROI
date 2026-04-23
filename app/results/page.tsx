@@ -335,6 +335,17 @@ export default async function ResultsPage({
             isPro={pro}
             supabaseConfigured={supaConfig.configured}
             packEligible={liveComps && !!comparables && !!address}
+            marketValueCap={
+              // Walk-away discipline: bound the ceiling by comp-derived fair
+              // value when we have it, list price otherwise. Without this the
+              // income rubric can return walk-away prices 5-10× market value
+              // on rent-heavy listings (the $3.4M-on-a-$540k-listing bug).
+              comparables?.marketValue?.value ??
+              (inputs.purchasePrice > 0 ? inputs.purchasePrice : undefined)
+            }
+            marketValueCapSource={
+              comparables?.marketValue?.value ? "comps" : "list"
+            }
             subjectFacts={{
               beds: compsBeds,
               baths: compsBaths,
@@ -531,6 +542,8 @@ function HeroSection({
   isPro,
   supabaseConfigured,
   packEligible,
+  marketValueCap,
+  marketValueCapSource,
   subjectFacts,
 }: {
   tier: VerdictTier;
@@ -543,6 +556,8 @@ function HeroSection({
   isPro: boolean;
   supabaseConfigured: boolean;
   packEligible: boolean;
+  marketValueCap?: number;
+  marketValueCapSource?: "comps" | "list";
   subjectFacts: {
     beds?: number;
     baths?: number;
@@ -606,7 +621,11 @@ function HeroSection({
       </div>
 
       <div className="lg:col-span-2">
-        <OfferCeilingCard inputs={inputs} />
+        <OfferCeilingCard
+          inputs={inputs}
+          marketValueCap={marketValueCap}
+          marketValueCapSource={marketValueCapSource}
+        />
       </div>
     </section>
   );

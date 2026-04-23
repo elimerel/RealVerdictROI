@@ -1640,14 +1640,85 @@ on next deploy.
 - §20.9 #11–#12 — cross-tab numeric reconciliation + garbled negative-CF copy. P2 polish, do these in the Pack-build wave.
 - §19.5 demo signal — "I'd pay for that specifically" before Stripe live-mode flip.
 
+### 20.17 Walk-away price market-value cap — SHIPPED 2026-04-22
+
+**Bug (user-reported):** On a listing at $539,800 asking with comp-derived
+fair value $472,000, the walk-away card was displaying **`POOR ≤ $3,459,000`**.
+A walk-away price 6.4× list and 7.3× fair value is not a negotiation
+number — it's product-ending nonsense in an investor demo.
+
+**Root cause:** `findOfferCeiling` (`lib/calculations.ts` L947) binary-searched
+the range `[$1k, max(listPrice × 5, $5M)]` for the max price at which the
+*income rubric* (DSCR, cap rate, cash flow, IRR) still cleared each tier.
+On rent-heavy listings — especially ones where `monthlyRent` from RentCast
+overstated what the property actually rents for — the solver happily
+returned $3.4M because "even at $3.4M the cash flow math clears POOR."
+Market value was never checked. The ceiling was pure income math with
+zero overpayment discipline.
+
+**Fix:** `findOfferCeiling` now accepts a `marketValueCap` option. The
+solver's upper bound is clamped to `min(rubricUpper, cap × premium)`, so
+every returned tier ceiling is simultaneously constrained by (a) the
+rubric and (b) "never pay more than N% over market value."
+
+| Caller | Anchor used | Rationale |
+| --- | --- | --- |
+| `/results` page (`OfferCeilingCard`) | `comps.marketValue.value` if available, else `inputs.purchasePrice` | Prefer comp-derived fair value; fall back to list price when comps haven't been pulled (fast-estimate mode per §20.8). |
+| `lib/negotiation-pack.ts` (`buildPack`) | `comps.marketValue.value`, else `listPrice` | Same discipline flows into the Pack payload + PDF so the counteroffer script never suggests paying 6× market value. |
+| `app/api/og/route.tsx` | `inputs.purchasePrice` | OG previews have no comp access. List-price cap prevents a shared social-card image from ever displaying an absurd walk-away number. |
+
+Default `marketValueCapPremium = 1.05` — a 5% "I want this specific
+property" cushion over the anchor. Above that, paying more is buying
+negative equity on day one no matter how well the income math works. The
+premium is configurable per-call; pass `1.0` for a hard cap at the anchor.
+
+**UI copy:** `OfferCeilingCard` now shows a small explanatory line at the
+bottom of the card:
+
+- **Cap is binding** (rubric ceiling > cap): *"Bounded by comp-derived
+  fair value: walk-away ceiling capped at $495,600 (5% premium over
+  anchor). The income rubric alone would accept a higher price, but
+  paying above market value means buying negative equity on day one."*
+- **Cap is non-binding** (rubric ceiling ≤ cap): *"Market-value anchor:
+  $X (5% premium over comp-derived fair value). The rubric ceilings
+  above are all below this — the income math is the binding constraint
+  here, not overpayment risk."*
+
+This flips the walk-away card from "here's the math ceiling, good luck"
+into "here's the market-disciplined walk-away price, and here's exactly
+why we set it here." That's a demo-defensible story.
+
+**Reproducer test:** `lib/calculations.test.ts` now includes a
+`marketValueCap` describe block with six tests, the first of which
+asserts that on a rent-heavy listing (`$540k list, $15k/mo rent`) the
+uncapped rubric returns ceilings >$1.6M — reproducing the exact bug shape
+— and the next tests prove the cap clamps them to ≤$495,600 (cap × 1.05).
+Locks in regression prevention.
+
+**Result:** 168/168 tests pass (+6 from 162). tsc + next build clean.
+The $3,459,000 walk-away number on a $540k listing is now impossible —
+any tier ceiling on that listing is mathematically bounded at
+`max(listPrice, fairValue) × 1.05`.
+
 ### 20.15 Next chat starting prompt — USE THIS ONE
 
 ```
-Read §20.16 first (Negotiation Pack + Comp Reasoning Explainer + $29
-reprice — shipped 2026-04-22), then §20.14 (§20.8 architecture — shipped
-same day), then §20.13 (§20.9 items 1–9 — also shipped). The whole
-roadmap from §20.3, §20.4, §20.7, §20.8, §20.9, §20.10 is in. 162 tests
-pass. tsc + eslint + next build all clean.
+Read §20.17 first (walk-away market-value cap — shipped 2026-04-22,
+fixes user-reported $3.4M-walk-away-on-$540k-listing bug), then §20.16
+(Negotiation Pack + Comp Reasoning Explainer + $29 reprice — same day),
+then §20.14 (§20.8 architecture), then §20.13 (§20.9 items 1–9).
+The whole roadmap from §20.3, §20.4, §20.7, §20.8, §20.9, §20.10,
+§20.17 is in. 168 tests pass. tsc + eslint + next build all clean.
+
+Next strategic focus (user-approved "move forward" direction):
+  - Reposition funnel copy + free tier — target newer investors making
+    their first 10 offers; reframe free tier (e.g., unlimited fast
+    estimates + 1 free Pack lifetime, or 10 live comp pulls/month).
+  - Ship one-time Pack purchase path ($19-29 Stripe Checkout, no
+    signup required until after payment) so the Pack has a lower
+    friction way to get in front of buyers.
+  - Calibration gauntlet: 10 more listings across diverse markets +
+    property types to validate the engine. User should source these.
 
 Two manual operator tasks remain before launch:
   1. Run supabase/migrations/004_negotiation_packs.sql in the Supabase

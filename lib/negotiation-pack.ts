@@ -163,7 +163,17 @@ export function buildPack(args: BuildPackArgs): PackPayload {
   const warnings = args.warnings ?? [];
   const provenance = args.provenance ?? {};
 
-  const ceiling = findOfferCeiling(inputs);
+  // Market-value anchor: cap the walk-away ceiling by comp-derived fair value
+  // (or list price as a weaker fallback). Prevents the Pack from ever
+  // suggesting a walk-away price 5-10× market value on rent-heavy listings —
+  // which is the bug that destroys Pack credibility in a negotiation.
+  const marketValueAnchor =
+    comparables.marketValue?.value ??
+    (inputs.purchasePrice > 0 ? inputs.purchasePrice : undefined);
+  const ceiling = findOfferCeiling(inputs, {
+    marketValueCap: marketValueAnchor,
+    marketValueCapSource: comparables.marketValue?.value ? "comps" : "list",
+  });
   const headline = buildHeadline(inputs, analysis, ceiling);
   const weakAssumptions = pickWeakAssumptions({
     inputs,

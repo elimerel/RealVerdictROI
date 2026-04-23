@@ -255,4 +255,88 @@ describe("findOfferCeiling", () => {
     expect(rank).toBeGreaterThanOrEqual(3);
     expect(c.poor).toBeDefined();
   });
+
+  describe("marketValueCap — walk-away discipline vs pure income rubric", () => {
+    // Reproduces the user-reported bug: a rent-heavy listing where the
+    // income rubric alone says "even at $3.4M this still scores POOR", but
+    // comp-derived fair value is ~$472k and list is $540k. Without a cap the
+    // walk-away number is nonsense; with a cap it's disciplined by market.
+    const rentHeavy = (): DealInputs =>
+      make({
+        purchasePrice: 540_000,
+        monthlyRent: 15_000, // unrealistically high → rubric extends upward
+        annualPropertyTax: 6_000,
+        annualInsurance: 1_500,
+        downPaymentPercent: 25,
+        loanInterestRate: 7,
+      });
+
+    it("without a cap, rubric ceilings can exceed 3x list price on rent-heavy listings", () => {
+      const c = findOfferCeiling(rentHeavy());
+      const maxTierPrice = Math.max(
+        c.excellent ?? 0,
+        c.good ?? 0,
+        c.fair ?? 0,
+        c.poor ?? 0,
+      );
+      // This is the exact shape of the bug — no cap = absurd number.
+      expect(maxTierPrice).toBeGreaterThan(540_000 * 3);
+    });
+
+    it("comp-derived cap clamps every tier ceiling at cap × 1.05 (5% premium)", () => {
+      const c = findOfferCeiling(rentHeavy(), {
+        marketValueCap: 472_000,
+        marketValueCapSource: "comps",
+      });
+      const cap = 472_000 * 1.05; // = $495,600
+      for (const tier of ["excellent", "good", "fair", "poor"] as const) {
+        const price = c[tier];
+        if (typeof price === "number") {
+          expect(price).toBeLessThanOrEqual(cap + 500); // $500 rounding slack
+        }
+      }
+    });
+
+    it("records binding=true when cap actually clipped the rubric ceiling", () => {
+      const c = findOfferCeiling(rentHeavy(), {
+        marketValueCap: 472_000,
+        marketValueCapSource: "comps",
+      });
+      expect(c.marketValueCap).toBeDefined();
+      expect(c.marketValueCap?.cap).toBeCloseTo(472_000 * 1.05, 0);
+      expect(c.marketValueCap?.source).toBe("comps");
+      expect(c.marketValueCap?.binding).toBe(true);
+    });
+
+    it("records binding=false when rubric ceiling is already below cap", () => {
+      // Marginal cash flow → rubric ceiling is low, cap is high, cap doesn't bind.
+      const c = findOfferCeiling(
+        make({ purchasePrice: 400_000, monthlyRent: 2_800 }),
+        { marketValueCap: 2_000_000, marketValueCapSource: "list" },
+      );
+      expect(c.marketValueCap?.binding).toBe(false);
+    });
+
+    it("custom premium respected — premium=1 means hard cap at anchor", () => {
+      const c = findOfferCeiling(rentHeavy(), {
+        marketValueCap: 472_000,
+        marketValueCapPremium: 1,
+      });
+      for (const tier of ["excellent", "good", "fair", "poor"] as const) {
+        const price = c[tier];
+        if (typeof price === "number") {
+          expect(price).toBeLessThanOrEqual(472_000 + 500);
+        }
+      }
+    });
+
+    it("invalid / non-positive caps are ignored", () => {
+      const unclipped = findOfferCeiling(rentHeavy()).poor ?? 0;
+      for (const bad of [0, -100, NaN, Infinity]) {
+        const c = findOfferCeiling(rentHeavy(), { marketValueCap: bad });
+        expect(c.marketValueCap).toBeUndefined();
+        expect(c.poor).toBe(unclipped);
+      }
+    });
+  });
 });
