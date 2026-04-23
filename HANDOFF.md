@@ -41,14 +41,16 @@
   scenarios, counteroffer script. Pro-gated; free users get 3 Packs/week.
 - **Comp Reasoning Explainer**: Comps tab renders why each comp was
   included or excluded, with p25/median/p75 bands.
-- **Pricing**: single $29/mo Pro tier. Free tier: 3 full analyses/week.
-- **Homepage + pricing copy**: Pack-first framing. "For your next offer.
-  Walk in with a number. Not a feeling."
+- **Pricing**: single $29/mo Pro tier. Free tier: 3 live comp analyses/week
+  (same window the rate limiter enforces; aligns with homepage + pricing).
+- **Homepage + pricing copy**: ICP = **buy-and-hold rental investors**.
+  Underwriting + walk-away first; Pack when negotiating. Hero eyebrow
+  "Buy-and-hold rental investors" / walk-away headline (see `app/page.tsx`).
 - **Monetization infrastructure**: Stripe checkout + portal + webhook,
   Supabase `subscriptions`, per-user + per-IP free-tier limiters,
   Supabase `negotiation_packs`. Stripe is in test mode until we have at
   least one "I'd pay for that specifically" investor demo.
-- **Quality gates**: 169 vitest tests pass; `npx tsc --noEmit` clean;
+- **Quality gates**: 182 vitest tests pass; `npx tsc --noEmit` clean;
   `npx eslint` clean; `next build` clean.
 
 **Pending** (in priority order, from `HANDOFF_ARCHIVE.md §20.15`):
@@ -307,6 +309,9 @@ export type OfferCeiling = {
   currentPrice: number;
   currentTier: VerdictTier;
   recommendedCeiling?: { price: number; tier: VerdictTier };
+  /** Best tier reachable within ≤15% under list; excludes `poor` (PASS). */
+  primaryTarget?: { price: number; tier: VerdictTier; discountPercent: number };
+  stretchTarget?: { price: number; tier: VerdictTier; discountPercent: number };
   marketValueCap?: {
     cap: number;
     source: "comps" | "list";
@@ -326,6 +331,13 @@ How it works:
 - Verdict score is monotonically non-increasing as price rises.
 - Binary-search 25 iterations on `[1k, min(rubricUpper, marketValueCap * premium)]`.
 - Rounded to $500 (investors don't negotiate to the dollar).
+- **`primaryTarget` never uses PASS (`poor`).** If the best tier inside
+  the realistic negotiation band is still PASS, the card headline is
+  "Walk away" (no phantom max-offer). The ladder still shows each tier's
+  **ceiling** = max purchase at which the rubric is still at least that
+  tier; the bottom PASS row is therefore the list-capped top of the PASS
+  band (not AVOID), **not** a bid target — `OfferCeilingCard` adds a
+  footnote + tooltip when `primaryTarget` is unset.
 - Without `marketValueCap`, income-rubric alone can return absurd
   ceilings on rent-heavy listings (the $3.4M-on-a-$540k-listing bug).
   The cap is derived in `/results` from `comparables.marketValue.value`
@@ -433,24 +445,24 @@ address` (`packEligible`).
 
 ---
 
-## 10. Homepage + pricing (Pack-first framing, locked)
+## 10. Homepage + pricing (investor ICP + Pack, locked)
 
-**Homepage (`app/page.tsx`)** — 2026-04-22 Pack-first rewrite:
+**Homepage (`app/page.tsx`)** — buy-and-hold rental investor framing:
 
-- Eyebrow "For your next offer."
-- H1 "Walk in with a number. Not a feeling."
-- Subhead names the Pack and its deliverables.
-- Free-quota callout: "Free for your first 3 listings a week. $29/mo
-  for unlimited."
+- Eyebrow "Buy-and-hold rental investors."
+- H1 leads with walk-away / underwriting (not generic "any listing").
+- Subhead: verdict + walk-away first; Pack when negotiating.
+- Free-quota callout: "Free for your first 3 live analyses a week" (must
+  match pricing + `pack-routes-invariants` test + rate limiter semantics).
 - Value-prop section titled "What's in the Pack" — three `ValueCard`s:
   walk-away price, three weakest assumptions, counteroffer script.
 - "How it works": (1) paste Zillow URL, (2) run a live comp analysis,
   (3) generate the Pack.
-- Bottom CTA: "Try it on your next listing."
+- Bottom CTA: "Underwrite your next rental."
 
 **Pricing (`app/pricing/page.tsx`)**:
 
-- Headline "The Pack is free for your first 3 listings a week."
+- Headline "The Pack is free for your first 3 live analyses a week."
 - `<PackAnatomy />` section above the tier cards — six pillars of the
   Pack, visualized.
 - Free tier featured bullet: "3 full Negotiation Packs per week."

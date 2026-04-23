@@ -171,7 +171,12 @@ export default function OfferCeilingCard({
         </div>
       )}
 
-      <div className="mt-5 flex flex-col gap-1.5">
+      <div className="mt-5">
+        <div className="mb-2 flex items-end justify-between gap-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+          <span>Tier</span>
+          <span className="text-right">Max price in band</span>
+        </div>
+        <div className="flex flex-col gap-1.5">
         {ladder.map(({ tier, price }) => {
           const dot: CSSProperties = { backgroundColor: TIER_DOT[tier] };
           const isCurrent = tier === currentTier;
@@ -205,7 +210,16 @@ export default function OfferCeilingCard({
                   </span>
                 )}
               </div>
-              <div className="font-mono text-sm tabular-nums text-zinc-100">
+              <div
+                className="font-mono text-sm tabular-nums text-zinc-100"
+                title={
+                  tier === "poor" && !primary && reachable
+                    ? "List-capped top of the PASS rubric band (still not AVOID). Not a price to offer — BORDERLINE or better is where a buy could start."
+                    : reachable
+                      ? "Largest purchase price at which the verdict is still at least this tier (rubric)."
+                      : undefined
+                }
+              >
                 {reachable
                   ? `≤ ${formatCurrency(price, 0)}`
                   : "— not reachable"}
@@ -213,6 +227,7 @@ export default function OfferCeilingCard({
             </div>
           );
         })}
+        </div>
       </div>
 
       {!primary && ceiling.poor !== undefined && (
