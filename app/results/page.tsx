@@ -9,6 +9,7 @@ import WhatIfPanel from "../_components/WhatIfPanel";
 import StressTestPanel from "../_components/StressTestPanel";
 import VerdictRubric from "../_components/VerdictRubric";
 import SaveDealButton from "../_components/SaveDealButton";
+import PackGenerateButton from "../_components/PackGenerateButton";
 import ShareButton from "../_components/ShareButton";
 import AddToComparisonButton from "../_components/AddToComparisonButton";
 import OfferCeilingCard from "../_components/OfferCeilingCard";
@@ -141,7 +142,16 @@ export default async function ResultsPage({
   const user = supaConfig.configured ? await getCurrentUser() : null;
   const pro = user ? await isPro(user) : false;
 
-  if (!pro) {
+  // Live-comp opt-in (§20.8). Without this flag the page is a fast estimate:
+  // no RentCast comp pull, no quota burn. The "Run live comp analysis" CTA
+  // toggles this on. Pro users can opt in unlimited; free users have 3/mo
+  // (the new $29/3-mo-free tier in §20.7).
+  const liveComps = search.livecomps === "1";
+
+  // Quota only fires on the live-comp path. Browse-and-bounce visits to
+  // /results don't burn analyses anymore — that was eating the free tier
+  // for tire-kickers and not telling us anything about real intent.
+  if (liveComps && !pro) {
     const hList = await headers();
     const rateReq = new Request("https://internal/", { headers: hList });
     const bucket = user ? "analysis-free-user" : "analysis-free-anon";
@@ -171,10 +181,10 @@ export default async function ResultsPage({
 
   const analysis = analyseDeal(inputs);
 
-  // Pull comps in parallel with auth — they're hot paths for the new tabs.
-  // Beds/baths/sqft passed when present so the comp filter is meaningful.
-  // Any 0-or-smaller value is treated as "unknown" to avoid silently
-  // disabling filters (RentCast public records sometimes report 0 beds).
+  // Comp inputs (used only when liveComps === true). Beds/baths/sqft
+  // passed when present so the comp filter is meaningful. Any 0-or-smaller
+  // value is treated as "unknown" to avoid silently disabling filters
+  // (RentCast public records sometimes report 0 beds).
   const rawBeds = numberOrUndef(search.beds);
   const rawBaths = numberOrUndef(search.baths);
   const compsBeds = rawBeds && rawBeds > 0 ? rawBeds : undefined;
@@ -184,14 +194,21 @@ export default async function ResultsPage({
     typeof search.propertyType === "string" && search.propertyType.trim()
       ? search.propertyType.trim()
       : undefined;
-  const comps: CompsResult | null = address
-    ? await fetchComps({
-        address,
-        beds: compsBeds,
-        baths: compsBaths,
-        sqft: compsSqft,
-      })
-    : null;
+
+  // Live comp pull — only when the user has explicitly clicked through. On
+  // the fast estimate path comps and comparables stay null, and every UI
+  // surface that consumes them already has empty-state handling (the
+  // CompsSection EmptyState, HowWeGotThese.return null when comparables
+  // is null, EvidenceSection's `priceSub || rentSub` guard).
+  const comps: CompsResult | null =
+    liveComps && address
+      ? await fetchComps({
+          address,
+          beds: compsBeds,
+          baths: compsBaths,
+          sqft: compsSqft,
+        })
+      : null;
 
   // Derive fair value and market rent from comps with full "show your work"
   // workLog so we can display exactly how every number was built. Pass HOA,
@@ -205,27 +222,50 @@ export default async function ResultsPage({
       : undefined;
   const currentListPrice =
     search.listed === "1" ? inputs.purchasePrice : undefined;
-  const comparables = address
-    ? analyzeComparables(
-        {
-          address,
-          price: inputs.purchasePrice,
-          sqft: compsSqft,
-          beds: compsBeds,
-          baths: compsBaths,
-          yearBuilt: numberOrUndef(search.yearBuilt),
-          propertyType,
-          monthlyHOA: inputs.monthlyHOA,
-          lastSalePrice,
-          lastSaleDate,
-          currentListPrice,
-          expectedAppreciation: inputs.annualAppreciationPercent
-            ? inputs.annualAppreciationPercent / 100
-            : undefined,
-        },
-        comps,
-      )
-    : null;
+  const comparables =
+    liveComps && address
+      ? analyzeComparables(
+          {
+            address,
+            price: inputs.purchasePrice,
+            sqft: compsSqft,
+            beds: compsBeds,
+            baths: compsBaths,
+            yearBuilt: numberOrUndef(search.yearBuilt),
+            propertyType,
+            monthlyHOA: inputs.monthlyHOA,
+            lastSalePrice,
+            lastSaleDate,
+            currentListPrice,
+            expectedAppreciation: inputs.annualAppreciationPercent
+              ? inputs.annualAppreciationPercent / 100
+              : undefined,
+          },
+          comps,
+        )
+      : null;
+
+  // URL the "Run live comp analysis" button navigates to — same query
+  // string with livecomps=1 added. Built once so the CTA can render in
+  // multiple locations (top of page, inside Comps tab teaser).
+  const liveCompsHref = (() => {
+    const sp = inputsToSearchParams(inputs);
+    if (address) sp.set("address", address);
+    if (typeof search.beds === "string") sp.set("beds", search.beds);
+    if (typeof search.baths === "string") sp.set("baths", search.baths);
+    if (typeof search.sqft === "string") sp.set("sqft", search.sqft);
+    if (typeof search.yearBuilt === "string")
+      sp.set("yearBuilt", search.yearBuilt);
+    if (typeof search.propertyType === "string")
+      sp.set("propertyType", search.propertyType);
+    if (typeof search.lastSalePrice === "string")
+      sp.set("lastSalePrice", search.lastSalePrice);
+    if (typeof search.lastSaleDate === "string")
+      sp.set("lastSaleDate", search.lastSaleDate);
+    if (search.listed === "1") sp.set("listed", "1");
+    sp.set("livecomps", "1");
+    return `/results?${sp.toString()}`;
+  })();
 
   const tier = analysis.verdict.tier;
   const accent = TIER_ACCENT[tier];
@@ -265,12 +305,23 @@ export default async function ResultsPage({
           {/* How we got these numbers — subject + comps + $/sqft-normalized
               derivations. Shown at the top so the user trusts everything
               below it. If a number here looks wrong, they know which comp
-              to challenge and can re-run with the right rent. */}
+              to challenge and can re-run with the right rent. Renders
+              nothing on the fast-estimate path (no comp pool yet); the
+              RunLiveCompsCTA below carries the user through the upgrade. */}
           <HowWeGotThese
             comparables={comparables}
             subjectPrice={inputs.purchasePrice}
             subjectRent={inputs.monthlyRent}
           />
+
+          {/* Live-comp CTA — visible on the fast-estimate path only. The
+              fast view runs every tab on Zestimate / state-average inputs;
+              this button triggers the actual RentCast comp pull and
+              unlocks the Negotiation Pack. Pro users skip the quota
+              gate; free users have 3 live analyses/month (§20.7). */}
+          {!liveComps && address && (
+            <RunLiveCompsCTA href={liveCompsHref} isPro={pro} />
+          )}
 
           {/* HERO — tier, ceiling, summary, actions. Always visible. */}
           <HeroSection
@@ -283,6 +334,16 @@ export default async function ResultsPage({
             signedIn={!!user}
             isPro={pro}
             supabaseConfigured={supaConfig.configured}
+            packEligible={liveComps && !!comparables && !!address}
+            subjectFacts={{
+              beds: compsBeds,
+              baths: compsBaths,
+              sqft: compsSqft,
+              yearBuilt: numberOrUndef(search.yearBuilt),
+              propertyType,
+              lastSalePrice,
+              lastSaleDate,
+            }}
           />
 
           {/* DEEP ANALYSIS — tabbed. */}
@@ -313,7 +374,9 @@ export default async function ResultsPage({
                     <CompsSection
                       analysis={analysis}
                       comps={comps}
+                      comparables={comparables}
                       address={address}
+                      liveCompsHref={!liveComps ? liveCompsHref : undefined}
                     />
                   ) : (
                     <ProCompsTeaser returnTo={currentUrl} />
@@ -467,6 +530,8 @@ function HeroSection({
   signedIn,
   isPro,
   supabaseConfigured,
+  packEligible,
+  subjectFacts,
 }: {
   tier: VerdictTier;
   analysis: DealAnalysis;
@@ -477,6 +542,16 @@ function HeroSection({
   signedIn: boolean;
   isPro: boolean;
   supabaseConfigured: boolean;
+  packEligible: boolean;
+  subjectFacts: {
+    beds?: number;
+    baths?: number;
+    sqft?: number;
+    yearBuilt?: number;
+    propertyType?: string;
+    lastSalePrice?: number;
+    lastSaleDate?: string;
+  };
 }) {
   const contextParts: string[] = [];
   contextParts.push(formatCurrency(inputs.purchasePrice, 0));
@@ -525,6 +600,8 @@ function HeroSection({
           isPro={isPro}
           supabaseConfigured={supabaseConfigured}
           analysis={analysis}
+          packEligible={packEligible}
+          subjectFacts={subjectFacts}
         />
       </div>
 
@@ -544,6 +621,8 @@ function HeroActions({
   isPro,
   supabaseConfigured,
   analysis,
+  packEligible,
+  subjectFacts,
 }: {
   editHref: string;
   currentUrl: string;
@@ -553,9 +632,29 @@ function HeroActions({
   isPro: boolean;
   supabaseConfigured: boolean;
   analysis: DealAnalysis;
+  packEligible: boolean;
+  subjectFacts: {
+    beds?: number;
+    baths?: number;
+    sqft?: number;
+    yearBuilt?: number;
+    propertyType?: string;
+    lastSalePrice?: number;
+    lastSaleDate?: string;
+  };
 }) {
   return (
     <div className="mt-6 flex flex-wrap items-center gap-2">
+      {packEligible && address && (
+        <PackGenerateButton
+          inputs={inputs}
+          address={address}
+          subjectFacts={subjectFacts}
+          currentUrl={currentUrl}
+          signedIn={signedIn}
+          supabaseConfigured={supabaseConfigured}
+        />
+      )}
       <Link
         href={editHref}
         className="inline-flex h-11 min-h-[44px] items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/60 px-3.5 text-sm font-medium text-zinc-200 transition hover:border-zinc-700 hover:bg-zinc-900"
@@ -579,6 +678,60 @@ function HeroActions({
         signedIn={signedIn}
         remoteSyncEnabled={signedIn && isPro}
       />
+    </div>
+  );
+}
+
+// ===========================================================================
+// RUN LIVE COMP ANALYSIS CTA — visible on the fast-estimate path only
+//
+// Sits above the Hero on /results when the user landed via autofill (no
+// RentCast comp pull yet). Clicking navigates to ?livecomps=1 which
+// triggers the actual comp fetch, runs analyzeComparables, and populates
+// the "How we got these numbers" derivation, the Comps tab, and the
+// inputs for the Negotiation Pack. This is the §20.8 architecture pivot:
+// browse-and-bounce traffic costs us nothing, real intent gets the full
+// engine.
+// ===========================================================================
+
+function RunLiveCompsCTA({
+  href,
+  isPro,
+}: {
+  href: string;
+  isPro: boolean;
+}) {
+  return (
+    <div
+      className="mb-8 rounded-lg border p-5 sm:p-6"
+      style={{
+        borderColor: "var(--accent)",
+        backgroundColor: "var(--accent-soft)",
+      }}
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="max-w-2xl">
+          <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-400">
+            Fast estimate
+          </div>
+          <h2 className="mt-1 text-base font-semibold text-zinc-100 sm:text-lg">
+            This verdict is running on the fast estimate.
+          </h2>
+          <p className="mt-1.5 text-sm text-zinc-300">
+            Numbers above use Zillow&apos;s Zestimate, the live FRED 30-yr
+            rate, and state-average insurance + tax (homestead-corrected).
+            Run the live comp analysis to pull the actual sale and rent
+            comps for this address — and unlock the Negotiation Pack.
+            {!isPro && " Counts as one of your 3 free analyses this month."}
+          </p>
+        </div>
+        <Link
+          href={href}
+          className="inline-flex h-11 items-center justify-center whitespace-nowrap rounded-md bg-zinc-100 px-5 text-sm font-semibold text-zinc-900 transition hover:bg-white"
+        >
+          Run live comp analysis
+        </Link>
+      </div>
     </div>
   );
 }

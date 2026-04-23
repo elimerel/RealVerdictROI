@@ -1,68 +1,31 @@
 import { NextResponse } from "next/server";
 import { enforceRateLimit } from "@/lib/ratelimit";
 import { withErrorReporting, logEvent, captureError } from "@/lib/observability";
+import {
+  addressFromSlug,
+  extractZpidAndSlug,
+  stateFromSlugAddress,
+  US_STATE_CODES,
+} from "@/lib/zillow-url";
 
 // ---------------------------------------------------------------------------
-// Zillow URL recognition.
+// Zillow URL recognition + scrape orchestration.
 //
-// Zillow serves listings under a handful of shapes:
+// Slug + zpid extraction live in `lib/zillow-url.ts` so they're unit-testable
+// without spinning up the route. This file focuses on the I/O layer:
+// hitting ScraperAPI, parsing Zillow's __NEXT_DATA__ blob, and shipping a
+// canonical ZillowParseResult downstream.
+//
+// Zillow URL shapes we recognise:
 //   /homedetails/<slug>/<zpid>_zpid/
 //   /homedetails/<zpid>_zpid/            (rare, slug-less)
 //   /homes/for_sale/<slug>/<zpid>_zpid/
 //   /homes/<slug>/<zpid>_zpid/
 //   /b/<zpid>/                           (building-first permalinks)
-// and sometimes a ?zpid=... query param on search URLs.
-//
-// We match all of them by extracting the zpid FIRST, then recovering a slug
-// from whichever path component contains it (or before the `_zpid` suffix).
+//   ?zpid=...                            (search redirects)
 // ---------------------------------------------------------------------------
 
 const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY;
-
-const ZPID_FROM_PATH_RE = /\/(\d+)_zpid\b/i;
-const ZPID_FROM_B_RE = /\/b\/(\d+)(?:\/|$)/i;
-const SLUG_BEFORE_ZPID_RE = /\/([A-Za-z0-9-]+?)-\d+_zpid\b/i;
-
-function extractZpidAndSlug(
-  rawUrl: string,
-): { zpid: string; slug: string } | null {
-  let u: URL;
-  try {
-    u = new URL(rawUrl);
-  } catch {
-    return null;
-  }
-  if (!/zillow\.com$/i.test(u.hostname) && !u.hostname.endsWith(".zillow.com"))
-    return null;
-
-  const path = u.pathname;
-
-  // Path-based forms.
-  const zpidMatch = path.match(ZPID_FROM_PATH_RE) ?? path.match(ZPID_FROM_B_RE);
-  if (zpidMatch) {
-    const zpid = zpidMatch[1];
-    // Recover slug: either a `<slug>-<zpid>_zpid` segment or the path segment
-    // just before the one that contains `_zpid`.
-    const slugFromSuffix = path.match(SLUG_BEFORE_ZPID_RE)?.[1];
-    let slug = slugFromSuffix ?? "";
-    if (!slug) {
-      const segments = path.split("/").filter(Boolean);
-      const zpidIdx = segments.findIndex(
-        (s) => s.endsWith("_zpid") || s === zpid,
-      );
-      if (zpidIdx > 0) slug = segments[zpidIdx - 1] ?? "";
-    }
-    return { zpid, slug };
-  }
-
-  // Query-param fallback (used on search result redirects).
-  const zpidQuery = u.searchParams.get("zpid");
-  if (zpidQuery && /^\d+$/.test(zpidQuery)) {
-    return { zpid: zpidQuery, slug: "" };
-  }
-
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // Public response type. Every numeric field is optional — the resolver layer
@@ -75,6 +38,17 @@ export type ZillowParseResult = {
   url: string;
   /** Address string. Always populated — falls back to URL slug parse. */
   address: string;
+  /**
+   * 2-letter US state code, when we could resolve one from either Zillow's
+   * structured address blob OR the URL slug. Passed through explicitly
+   * (rather than re-parsed downstream) so the resolver doesn't have to
+   * recover state from a composed string that may have lost it.
+   *
+   * Fixes §16.U #2: structured-blob composition can drop the state token
+   * (when Zillow ships `state: ""`), and `detectStateFromAddress` then
+   * returns undefined even though the URL slug contained "IN" all along.
+   */
+  state?: string;
   facts: {
     beds?: number;
     baths?: number;
@@ -133,6 +107,7 @@ export const POST = withErrorReporting("api.zillow-parse", async (req: Request) 
 
   const { zpid, slug } = parsed;
   const slugAddress = slug ? addressFromSlug(slug) : `Zillow listing ${zpid}`;
+  const slugState = stateFromSlugAddress(slugAddress);
 
   // No scraper key → return a slug-only fallback so the resolver can still
   // chain into RentCast.
@@ -143,6 +118,7 @@ export const POST = withErrorReporting("api.zillow-parse", async (req: Request) 
       zpid,
       url,
       address: slugAddress,
+      state: slugState,
       facts: {},
       listing: {},
       notes: [
@@ -197,6 +173,7 @@ export const POST = withErrorReporting("api.zillow-parse", async (req: Request) 
       zpid,
       url,
       address: slugAddress,
+      state: slugState,
       facts: {},
       listing: {},
       notes: [
@@ -220,11 +197,19 @@ function extractListing(
   html: string,
   ctx: { url: string; zpid: string; slugAddress: string },
 ): ZillowParseResult {
+  // Recover the state from the URL slug as the SOURCE OF TRUTH for state
+  // detection in the URL flow. The structured Zillow blob can ship an empty
+  // `address.state` field, and re-parsing the composed address downstream
+  // is fragile (formatting variations strip the state token). Explicit
+  // pass-through prevents §16.U #2 entirely.
+  const slugState = stateFromSlugAddress(ctx.slugAddress);
+
   const result: ZillowParseResult = {
     source: "scraperapi",
     zpid: ctx.zpid,
     url: ctx.url,
     address: ctx.slugAddress,
+    state: slugState,
     facts: {},
     listing: {},
     notes: [],
@@ -275,20 +260,47 @@ function extractListing(
   });
 
   // Address. Zillow stores either a structured object or a string.
+  // Two cardinal rules here, both born from §16.U #2:
+  //   1. Compose addresses in canonical US format: "Street, City, ST ZIP".
+  //      The old composition omitted the comma between street and city,
+  //      which works most of the time but trips trailing-state regex on
+  //      addresses where the city is a single word ("Hoagland, IN 46745").
+  //   2. NEVER overwrite a state-bearing slug address with a stateless
+  //      structured one. If Zillow's blob ships an empty `address.state`,
+  //      we keep the slug address (which already had the state) instead
+  //      of silently downgrading.
   const addr = property.address ?? property.streetAddress;
+  let blobState: string | undefined;
   if (typeof addr === "string" && addr.length > 0) {
     result.address = addr;
+    blobState = stateFromSlugAddress(addr);
   } else if (addr && typeof addr === "object") {
     const a = addr as Record<string, unknown>;
     const street = String(a.streetAddress ?? "").trim();
     const city = String(a.city ?? "").trim();
-    const state = String(a.state ?? "").trim();
+    const stateRaw = String(a.state ?? "").trim();
     const zip = String(a.zipcode ?? a.postalCode ?? "").trim();
-    const composed = [street, [city, state].filter(Boolean).join(", "), zip]
-      .filter(Boolean)
-      .join(" ");
-    if (composed.length > 0) result.address = composed.replace(/\s+,/g, ",");
+    const stateUpper = stateRaw.length === 2 ? stateRaw.toUpperCase() : stateRaw;
+    const cityState = [city, stateUpper].filter(Boolean).join(", ");
+    const tail = [cityState, zip].filter(Boolean).join(" ");
+    const composed = [street, tail].filter(Boolean).join(", ");
+    blobState =
+      stateUpper.length === 2 && US_STATE_CODES.has(stateUpper)
+        ? stateUpper
+        : undefined;
+    // Only adopt the composed address if it doesn't lose the state token
+    // we already had from the slug. (Slug parsing is deterministic; the
+    // structured blob is sometimes incomplete.)
+    if (composed.length > 0) {
+      const composedHasState = blobState !== undefined || stateFromSlugAddress(composed) !== undefined;
+      if (composedHasState || !slugState) {
+        result.address = composed;
+      }
+    }
   }
+  // Choose state: blob wins (more authoritative when present), slug as backup.
+  const resolvedState = blobState ?? slugState;
+  if (resolvedState) result.state = resolvedState;
 
   // Facts.
   result.facts.beds = numberOrUndef(property.bedrooms);
@@ -685,27 +697,6 @@ function isAntiBotPage(html: string): boolean {
     /Please verify you are a human/i.test(html) ||
     /robot check/i.test(html)
   );
-}
-
-function addressFromSlug(slug: string): string {
-  // Zillow slug example: "2315-Ave-H-Austin-TX-78722"
-  // Convert to "2315 Ave H, Austin, TX 78722"
-  const parts = slug.split("-").filter(Boolean);
-  if (parts.length < 4) return slug.replace(/-/g, " ");
-  // Heuristic: assume last token is ZIP, second-to-last is state, third-to-last is city.
-  const zip = /^\d{5}(?:-\d{4})?$/.test(parts[parts.length - 1])
-    ? parts.pop()
-    : undefined;
-  const state =
-    parts.length > 1 && /^[A-Za-z]{2}$/.test(parts[parts.length - 1])
-      ? parts.pop()?.toUpperCase()
-      : undefined;
-  const city = parts.length > 1 ? parts.pop() : undefined;
-  const street = parts.join(" ");
-
-  return [street, city, [state, zip].filter(Boolean).join(" ")]
-    .filter(Boolean)
-    .join(", ");
 }
 
 function numberOrUndef(value: unknown): number | undefined {

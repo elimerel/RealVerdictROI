@@ -106,27 +106,76 @@ function categorize(propertyType: string | undefined): PropertyCategory {
   return "unknown";
 }
 
-/**
- * Infer the subject's category with HOA-aware override.
- *
- * HOA > ~$200/mo is a strong signal of condo-style ownership (shared
- * building/complex, amenities, master insurance) even when a listing is
- * labelled "Townhouse" — which in many Florida/CA markets is a condo with
- * stairs. A detached SFR in a normal neighborhood pays $0 HOA. So whenever
- * the subject has a material HOA, we treat it as condo-apt regardless of the
- * raw propertyType string.
- *
- * Without HOA data, fall back to the explicit propertyType string, then to
- * heuristic (3+ beds & 1400+ sqft ≈ SFR), then to "unknown".
- */
-function inferSubjectCategory(subject: SubjectSnapshot): PropertyCategory {
-  // HOA override: condo-style ownership trumps whatever label we got.
-  if (subject.monthlyHOA && subject.monthlyHOA >= 200) return "condo-apt";
+type CategoryDecision = {
+  category: PropertyCategory;
+  /**
+   * When non-null, the explicit propertyType label was overridden by
+   * structural signals — the resolver/UI should surface the reasoning so
+   * the user can see what we changed and why.
+   */
+  override?: { from: PropertyCategory; reason: string };
+};
 
+/**
+ * Infer the subject's category with structural overrides on top of the raw
+ * propertyType label. The label from RentCast / Zillow's
+ * `HomeTypeCategoryEnum` is unreliable in two specific failure modes:
+ *
+ *   1. **HOA-heavy condo mislabelled as Townhouse** (Boca case, §16.E). A
+ *      "Townhouse" listing with $400/mo HOA is condo-style ownership and
+ *      must be priced off condo comps — the existing override below.
+ *
+ *   2. **HOA-lite suburban SFR mislabelled as Condo** (Hoagland case,
+ *      §16.U #1). Zillow's enum returns "Condo" for parcels in small planned
+ *      developments with a nominal HOA covering shared driveways or
+ *      landscaping. A 3bd / 1,500+sqft / <$75-HOA property is structurally
+ *      an SFR — real condos at that size and HOA level are essentially
+ *      nonexistent — and pricing it off condo comps actively excludes the
+ *      correct peers via the SFR↔condo type penalty in scoreComp.
+ *
+ * Both overrides are symmetric: we trust whichever signal (label or
+ * structure) is the stronger evidence in the specific direction.
+ */
+function inferSubjectCategory(subject: SubjectSnapshot): CategoryDecision {
+  const hoa = subject.monthlyHOA ?? 0;
+  const beds = subject.beds ?? 0;
+  const sqft = subject.sqft ?? 0;
   const explicit = categorize(subject.propertyType);
-  if (explicit !== "unknown") return explicit;
-  if ((subject.beds ?? 0) >= 3 && (subject.sqft ?? 0) >= 1400) return "single-family";
-  return "unknown";
+
+  // Override A: high HOA → condo-style ownership trumps whatever label we got.
+  if (hoa >= 200) {
+    if (explicit !== "condo-apt" && explicit !== "unknown") {
+      return {
+        category: "condo-apt",
+        override: {
+          from: explicit,
+          reason: `HOA $${hoa}/mo is condo-style ownership — reclassifying "${subject.propertyType ?? explicit}" → condo-apt for comp filtering (a detached SFR doesn't carry a four-figure annual HOA).`,
+        },
+      };
+    }
+    return { category: "condo-apt" };
+  }
+
+  // Override B: SFR structural signals win over a "Condo" label when the
+  // structure is clearly not a condo. Threshold: 3+ beds AND 1500+ sqft AND
+  // HOA below $75/mo. This catches Zillow's HOA-lite SFR mislabel while
+  // leaving real medium-large condos (which always carry material HOA for
+  // shared building maintenance) alone.
+  if (explicit === "condo-apt" && hoa < 75 && beds >= 3 && sqft >= 1500) {
+    return {
+      category: "single-family",
+      override: {
+        from: "condo-apt",
+        reason: `Reclassifying "${subject.propertyType ?? "Condo"}" → single-family: ${beds}bd / ${sqft.toLocaleString()} sqft / HOA ${hoa > 0 ? `$${hoa}/mo` : "none"} is structurally an SFR. Trusting the "Condo" label here would filter out the correct peer comps (Zillow mislabels HOA-lite suburban tracts).`,
+      },
+    };
+  }
+
+  if (explicit !== "unknown") return { category: explicit };
+
+  // Final fallback: bed/sqft heuristic when no explicit label is available.
+  if (beds >= 3 && sqft >= 1400) return { category: "single-family" };
+  return { category: "unknown" };
 }
 
 function scoreComp(
@@ -306,6 +355,56 @@ function percentile(xs: number[], p: number): number {
   return s[idx];
 }
 
+const OUTLIER_Z = 2;
+const MIN_POOL_AFTER_TRIM = 3;
+
+/**
+ * Drop comps whose `pricePerSqft` is > OUTLIER_Z standard deviations from
+ * the pool mean. Needs at least MIN_TRIM_POOL_SIZE comps to compute a
+ * meaningful stdev, AND will not trim a pool below MIN_POOL_AFTER_TRIM —
+ * a 3-comp pool with one outlier is still better than a 2-comp pool.
+ *
+ * Fixes §16.U.1 #5 / §20.9 #8: previously a single luxury rehab or
+ * distressed sale could drag the headline value, and the anchor-blend
+ * pass downstream was doing the comp pool's housekeeping. Now bad
+ * outliers are removed at source with a transparent workLog note.
+ */
+const MIN_TRIM_POOL_SIZE = 5;
+function trimOutlierPricePerSqft<T extends { pricePerSqft?: number }>(
+  comps: T[],
+): { kept: T[]; dropped: T[] } {
+  if (comps.length < MIN_TRIM_POOL_SIZE) return { kept: comps, dropped: [] };
+  const xs = comps.map((c) => c.pricePerSqft!).filter((x) => Number.isFinite(x));
+  if (xs.length < MIN_TRIM_POOL_SIZE) return { kept: comps, dropped: [] };
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const variance =
+    xs.reduce((acc, x) => acc + (x - mean) ** 2, 0) / xs.length;
+  const stdev = Math.sqrt(variance);
+  // Tiny stdev (homogeneous pool) → no outliers worth dropping.
+  if (stdev <= 0 || stdev / mean < 0.05) return { kept: comps, dropped: [] };
+
+  const flagged: T[] = [];
+  const survivors: T[] = [];
+  for (const c of comps) {
+    const z = Math.abs((c.pricePerSqft! - mean) / stdev);
+    if (z > OUTLIER_Z) flagged.push(c);
+    else survivors.push(c);
+  }
+  // Don't shrink the pool below MIN_POOL_AFTER_TRIM. If we'd cross that
+  // threshold, restore the least-extreme outliers until we're back at the
+  // floor.
+  if (survivors.length < MIN_POOL_AFTER_TRIM) {
+    flagged.sort(
+      (a, b) =>
+        Math.abs(a.pricePerSqft! - mean) - Math.abs(b.pricePerSqft! - mean),
+    );
+    while (survivors.length < MIN_POOL_AFTER_TRIM && flagged.length > 0) {
+      survivors.push(flagged.shift()!);
+    }
+  }
+  return { kept: survivors, dropped: flagged };
+}
+
 function derive(
   rawComps: Comp[],
   subject: SubjectSnapshot,
@@ -314,7 +413,8 @@ function derive(
 ): Derivation | null {
   if (rawComps.length === 0) return null;
 
-  const subjectCategory = inferSubjectCategory(subject);
+  const decision = inferSubjectCategory(subject);
+  const subjectCategory = decision.category;
 
   // Score every comp.
   const scored = rawComps
@@ -375,14 +475,42 @@ function derive(
   const soldNote = soldPreferred
     ? ` and filtered to sold-only (sold prices reflect actual market clearing, active list prices are asks)`
     : "";
+  if (decision.override) {
+    workLog.push(`Subject reclassified: ${decision.override.reason}`);
+  }
   workLog.push(
     `Pulled ${rawComps.length} ${kind} comp${rawComps.length === 1 ? "" : "s"} ${rangeLabel}; scored and kept the top ${pool.length} on type/bed/bath/sqft/recency/distance${rollupHint}${soldNote}.`,
   );
 
   // --- Path A: we have subject sqft + ≥3 comps with sqft → $/sqft-normalized
-  const compsWithSqft = pool.filter(
+  const compsWithSqftRaw = pool.filter(
     (c) => c.pricePerSqft !== undefined && c.squareFootage && c.squareFootage > 0,
   );
+
+  // §16.U.1 #5 / §20.9 #8 — $/sqft outlier z-score filter.
+  // Before computing the median, drop comps whose $/sqft is more than
+  // OUTLIER_Z standard deviations from the pool mean. This stops a single
+  // luxury upgrade or distressed sale from dragging the headline number,
+  // and removes the burden the anchor-blend was carrying (cleaning up
+  // after a fundamentally bad comp pool). We require the pool to retain
+  // ≥3 comps after trimming so we never lose a thin pool entirely.
+  const { kept: compsWithSqft, dropped: outlierComps } =
+    trimOutlierPricePerSqft(compsWithSqftRaw);
+  if (outlierComps.length > 0) {
+    const dropList = outlierComps
+      .map((c) => {
+        const ratio =
+          kind === "sale"
+            ? `$${c.pricePerSqft!.toFixed(0)}/sqft`
+            : `$${c.pricePerSqft!.toFixed(2)}/sqft/mo`;
+        return `${c.address.split(",")[0]} (${ratio})`;
+      })
+      .join(", ");
+    workLog.push(
+      `Trimmed ${outlierComps.length} ${outlierComps.length === 1 ? "outlier" : "outliers"} from the $/sqft pool (>2σ from the mean): ${dropList}. These would have skewed the median without telling you anything about the subject's likely clearing price.`,
+    );
+  }
+
   if (subject.sqft && subject.sqft > 0 && compsWithSqft.length >= 3) {
     const pps = compsWithSqft.map((c) => c.pricePerSqft!);
     const sqfts = compsWithSqft.map((c) => c.squareFootage!);

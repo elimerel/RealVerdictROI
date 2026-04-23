@@ -404,17 +404,116 @@ function normalizeListing(l: RentcastListing, kind: "sale" | "rent"): Comp | nul
 // ---------------------------------------------------------------------------
 
 /**
- * Strip unit / apt / suite / # suffixes so "2000 Schindler Dr Unit B16" and
- * "2000 Schindler Dr Unit B20" both normalize to "2000 schindler dr".
+ * Normalize an address into a canonical building-level key so near-duplicate
+ * addresses collapse to the same group.
+ *
+ * Handles (in addition to the original unit/apt/# stripping):
+ *   - Hyphenated lot/building numbers ("150-2 Claffey Dr" → "150 claffey dr")
+ *   - Spurious bare numerics wedged between street number and street name
+ *     ("150 2 Claffey Dr" → "150 claffey dr"). This is the §16.U.1 #4 /
+ *     §20.9 #7 fix: Polson's rent pool had `150 Claffey Dr Unit Gdn` and
+ *     `150 2 Claffey Dr Unit Gdn` that the old key treated as distinct,
+ *     skewing thin-market medians.
+ *   - Street-suffix variations ("Drive"/"Dr", "Avenue"/"Ave", etc.)
+ *   - Directional prefix variations ("North"/"N", "Southeast"/"SE", etc.)
+ *
+ * We DO keep the canonical street suffix and directional in the key — they
+ * carry real geographic information ("100 Main St" ≠ "100 Main Ave",
+ * "100 N Main St" ≠ "100 S Main St"). Aggressive collapse on those would
+ * cause false-positive merges.
  */
+const STREET_SUFFIX_CANON: Record<string, string> = {
+  st: "st", street: "st",
+  ave: "ave", avenue: "ave", av: "ave",
+  blvd: "blvd", boulevard: "blvd", boul: "blvd",
+  rd: "rd", road: "rd",
+  dr: "dr", drive: "dr",
+  ln: "ln", lane: "ln",
+  ct: "ct", court: "ct",
+  pl: "pl", place: "pl",
+  pkwy: "pkwy", parkway: "pkwy", pky: "pkwy",
+  ter: "ter", terrace: "ter", terr: "ter",
+  cir: "cir", circle: "cir", crl: "cir",
+  trl: "trl", trail: "trl",
+  cv: "cv", cove: "cv",
+  sq: "sq", square: "sq",
+  hwy: "hwy", highway: "hwy",
+  way: "way",
+  loop: "loop",
+  row: "row",
+  pt: "pt", point: "pt",
+  xing: "xing", crossing: "xing",
+  run: "run",
+  vw: "vw", view: "vw",
+};
+
+const DIR_CANON: Record<string, string> = {
+  n: "n", north: "n",
+  s: "s", south: "s",
+  e: "e", east: "e",
+  w: "w", west: "w",
+  ne: "ne", northeast: "ne",
+  nw: "nw", northwest: "nw",
+  se: "se", southeast: "se",
+  sw: "sw", southwest: "sw",
+};
+
+function normalizeStreetToken(t: string): string {
+  const lower = t.toLowerCase().replace(/[.,]/g, "");
+  return STREET_SUFFIX_CANON[lower] ?? DIR_CANON[lower] ?? lower;
+}
+
+function isStreetSuffix(t: string): boolean {
+  return STREET_SUFFIX_CANON[t.toLowerCase().replace(/[.,]/g, "")] !== undefined;
+}
+function isDirectional(t: string): boolean {
+  return DIR_CANON[t.toLowerCase().replace(/[.,]/g, "")] !== undefined;
+}
+
 export function buildingKey(address: string): string {
-  const first = address.split(",")[0] ?? address;
-  return first
-    .replace(/\s+(Unit|Apt|Apartment|#|Suite|Ste|No\.?)\b.*$/i, "")
+  if (!address) return "";
+  const first = (address.split(",")[0] ?? address).toLowerCase();
+  // Strip unit / apt / suite / # suffixes (greedy — drop everything after).
+  const noUnit = first
+    .replace(/\s+(unit|apt|apartment|#|suite|ste|no\.?)\b.*$/i, "")
     .replace(/\s*#.*$/i, "")
-    .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+
+  // Tokenize on whitespace, hyphens, and slashes so "150-2 Claffey Dr" and
+  // "150/2 Claffey Dr" tokenize the same as "150 2 Claffey Dr".
+  const rawTokens = noUnit.split(/[\s\-/]+/).filter(Boolean);
+  if (rawTokens.length === 0) return "";
+
+  // Find the FIRST numeric token = street number. Allow trailing letter
+  // suffix ("123A").
+  const numIdx = rawTokens.findIndex((t) => /^\d+[a-z]?$/i.test(t));
+  if (numIdx === -1) {
+    // No street number — best-effort normalize the whole thing.
+    return rawTokens.map(normalizeStreetToken).join(" ");
+  }
+  const streetNumber = rawTokens[numIdx].toLowerCase();
+
+  // Walk the tail and drop bare numerics that are clearly NOT part of a
+  // numbered street (e.g. "5 Ave" stays — `5` is followed by a suffix).
+  // Bare numerics followed by a street name (non-suffix, non-directional
+  // token) are spurious lot/building numbers and get stripped — that's the
+  // §16.U.1 #4 case ("150 2 Claffey Dr" → drop the bare `2`).
+  const tail = rawTokens.slice(numIdx + 1);
+  const cleaned: string[] = [];
+  for (let i = 0; i < tail.length; i++) {
+    const t = tail[i];
+    if (/^\d+$/.test(t)) {
+      const next = tail[i + 1];
+      if (next && !isStreetSuffix(next) && !isDirectional(next)) {
+        // Drop the bare numeric — it's not part of a numbered street name.
+        continue;
+      }
+    }
+    cleaned.push(normalizeStreetToken(t));
+  }
+
+  return [streetNumber, ...cleaned].join(" ").trim();
 }
 
 function medianNum(xs: number[]): number {

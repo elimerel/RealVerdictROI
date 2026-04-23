@@ -109,13 +109,16 @@ function FreeTierCard() {
       </div>
 
       <ul className="mt-6 flex flex-1 flex-col gap-3 text-sm text-zinc-700 dark:text-zinc-300">
-        <Feature>Up to 5 full analyses per week (rolling)</Feature>
+        <Feature>
+          Unlimited fast estimates (Zestimate + FRED rates + state-average
+          tax &amp; insurance)
+        </Feature>
+        <Feature>3 live comp pulls per month — real RentCast sale &amp; rent comparables</Feature>
         <Feature>All metrics — cash flow, cap rate, DSCR, IRR, 5-year projections</Feature>
         <Feature>Walk-away price ceiling on every deal</Feature>
         <Feature>Stress test (5 scenarios) and what-if sliders</Feature>
         <Feature>Auto-fill from any address or Zillow URL</Feature>
         <Feature>AI advisor — ask follow-up questions about the deal</Feature>
-        <Feature>Shareable verdict links</Feature>
       </ul>
 
       <Link
@@ -140,20 +143,30 @@ function ProTierCard({ signedIn }: { signedIn: boolean }) {
         </h2>
         <div className="mt-3 flex items-baseline gap-2">
           <span className="text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-            $19
+            $29
           </span>
           <span className="text-sm text-zinc-500 dark:text-zinc-400">
             / month
           </span>
         </div>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          For investors actively evaluating deals.
+          For investors actively underwriting and offering on deals.
         </p>
       </div>
 
       <ul className="mt-6 flex flex-1 flex-col gap-3 text-sm text-zinc-700 dark:text-zinc-300">
-        <Feature highlighted>Everything in Free, with no weekly limit</Feature>
-        <Feature highlighted>Live sale &amp; rent comparables tab on every verdict</Feature>
+        <Feature highlighted>
+          Unlimited live comp analyses (no monthly cap)
+        </Feature>
+        <Feature highlighted>
+          Negotiation Pack — agent-ready PDF + share link with walk-away
+          price, three weakest seller assumptions, comp evidence, stress
+          scenarios, and a counteroffer script
+        </Feature>
+        <Feature highlighted>
+          Comp Reasoning Explainer — every comp the engine used (and excluded)
+          with a one-line why
+        </Feature>
         <Feature highlighted>Save deals to your portfolio dashboard</Feature>
         <Feature highlighted>Cross-device deal comparison sync</Feature>
         <Feature highlighted>Cancel anytime · 7-day refund, no questions</Feature>
@@ -208,15 +221,15 @@ function FAQ() {
   const items: Array<{ q: string; a: string }> = [
     {
       q: "Can I really use it free forever?",
-      a: "Yes. The free tier doesn't expire — up to 5 full analyses per rolling week.",
+      a: "Yes. Fast estimates (Zillow Zestimate + state-average tax & insurance + live FRED rate) are unlimited on the free tier. You get 3 live RentCast comp pulls per month before needing Pro.",
     },
     {
-      q: "What counts as one analysis?",
-      a: "Each time you submit a new property and view its verdict page. Re-opening a verdict you already ran doesn't count.",
+      q: "What's the difference between a fast estimate and a live comp pull?",
+      a: "The fast estimate gives you the verdict, walk-away price, stress tests, and what-if sliders using best-available defaults — no live MLS comps. A live comp pull queries the actual sale and rent comparables for that exact address; this is what unlocks the Negotiation Pack and the Comp Reasoning Explainer.",
     },
     {
       q: "What's actually different in Pro?",
-      a: "Three things: (1) no weekly cap, (2) the live comparables tab on every verdict, (3) saving deals to your portfolio with cross-device sync. The verdict math, walk-away ceiling, stress tests, and AI advisor are free.",
+      a: "Two things: (1) unlimited live comp analyses (no monthly cap), and (2) the Negotiation Pack — the agent-ready PDF + share link with walk-away price, the three weakest assumptions in the seller's pro forma, comp evidence, stress scenarios, and a counteroffer script. The verdict math, walk-away ceiling, stress tests, and AI advisor stay free.",
     },
     {
       q: "Where does the data come from?",

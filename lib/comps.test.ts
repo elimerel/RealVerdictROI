@@ -31,6 +31,45 @@ describe("buildingKey", () => {
   it("leaves non-unit addresses untouched", () => {
     expect(buildingKey("37 Merker Dr, Edison, NJ")).toBe("37 merker dr");
   });
+
+  // §16.U.1 #4 / §20.9 #7 regression — Polson rent pool had two listings
+  // for the same unit with a spurious bare numeric ("2") wedged between
+  // the street number and the street name. The old key treated them as
+  // distinct; the new key collapses both.
+  it("collapses bare-numeric building/lot artifacts (Polson regression)", () => {
+    expect(buildingKey("150 Claffey Dr Unit Gdn")).toBe("150 claffey dr");
+    expect(buildingKey("150 2 Claffey Dr Unit Gdn")).toBe("150 claffey dr");
+    expect(buildingKey("150-2 Claffey Dr")).toBe("150 claffey dr");
+    expect(buildingKey("150/2 Claffey Dr")).toBe("150 claffey dr");
+  });
+
+  it("normalises street suffix variations", () => {
+    expect(buildingKey("100 Main Street")).toBe("100 main st");
+    expect(buildingKey("100 Main St")).toBe("100 main st");
+    expect(buildingKey("100 Main Drive")).toBe("100 main dr");
+    expect(buildingKey("100 Main Dr")).toBe("100 main dr");
+    expect(buildingKey("100 Main Avenue")).toBe("100 main ave");
+    expect(buildingKey("100 Main Ave")).toBe("100 main ave");
+  });
+
+  it("normalises directional prefixes", () => {
+    expect(buildingKey("100 North Main St")).toBe("100 n main st");
+    expect(buildingKey("100 N Main St")).toBe("100 n main st");
+    expect(buildingKey("100 Southeast Main St")).toBe("100 se main st");
+    expect(buildingKey("100 SE Main St")).toBe("100 se main st");
+  });
+
+  it("does NOT collapse genuinely different streets", () => {
+    // Same street number, different suffix — must stay distinct.
+    expect(buildingKey("100 Main St")).not.toBe(buildingKey("100 Main Ave"));
+    // Same street, different directional — must stay distinct.
+    expect(buildingKey("100 N Main St")).not.toBe(buildingKey("100 S Main St"));
+    // Numbered street ("5 Ave" = "5th Avenue") — bare numeric is part of
+    // the street NAME, not a lot/building artifact, so it must survive.
+    expect(buildingKey("123 5 Ave")).toBe("123 5 ave");
+    expect(buildingKey("123 6 Ave")).toBe("123 6 ave");
+    expect(buildingKey("123 5 Ave")).not.toBe(buildingKey("123 6 Ave"));
+  });
 });
 
 describe("dedupeByBuilding", () => {
@@ -70,5 +109,22 @@ describe("dedupeByBuilding", () => {
     const out = dedupeByBuilding(items, 2);
     expect(out).toHaveLength(1);
     expect(out[0].bedrooms).toBe(2);
+  });
+
+  // §16.U.1 #4 / §20.9 #7 end-to-end. With only 3 comps in a thin market,
+  // the old key kept the duplicate Claffey listing as a distinct comp,
+  // dragging the median from $2,000 → $1,675. The new key collapses them.
+  it("collapses Polson-shaped near-duplicate addresses (rent thin-market regression)", () => {
+    const items = [
+      mk({ address: "150 Claffey Dr Unit Gdn", price: 1_675 }),
+      mk({ address: "150 2 Claffey Dr Unit Gdn", price: 1_675 }),
+      mk({ address: "200 Main St", price: 2_000 }),
+      mk({ address: "300 Oak Ln", price: 2_100 }),
+    ];
+    const out = dedupeByBuilding(items, 2);
+    // 4 raw → 3 buildings (the two Claffey listings collapse).
+    expect(out).toHaveLength(3);
+    const claffey = out.find((c) => /claffey/i.test(c.address))!;
+    expect(claffey.rolledUpCount).toBe(2);
   });
 });

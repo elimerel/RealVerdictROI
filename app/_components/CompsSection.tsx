@@ -1,20 +1,38 @@
+import Link from "next/link";
 import type { CompsResult } from "@/lib/comps";
 import { formatCurrency, type DealAnalysis } from "@/lib/calculations";
+import type { ComparablesAnalysis } from "@/lib/comparables";
+import CompReasoningPanel from "./CompReasoningPanel";
 
 // ---------------------------------------------------------------------------
 // Comps panel — sale + rent comps with median anchors and an explicit
 // "your number vs the market" call-out for both price and rent.
 // Renders nothing useful if comps is null (no address) or empty (out of area).
+//
+// The Reality Check headline ALWAYS reflects the engine's derived fair
+// value / rent (sqft-normalized + anchor-blended) when those exist, never
+// the raw pool median. The raw median lives on as the small p25/median/p75
+// anchor band under each comp table — it's still useful as "this is the
+// shape of the pool" but it's no longer making a verdict against the
+// subject. This fixes §16.U #5–6 / §16.U.1 #1 / §20.9 #4: the card and the
+// engine's "How we got these numbers" PDF derivation now tell ONE story.
 // ---------------------------------------------------------------------------
 
 export default function CompsSection({
   analysis,
   comps,
+  comparables,
   address,
+  liveCompsHref,
 }: {
   analysis: DealAnalysis;
   comps: CompsResult | null;
+  comparables: ComparablesAnalysis | null;
   address: string | undefined;
+  /** When present, the user hasn't opted into live comps yet — surface a
+   *  CTA pointing at this URL instead of the generic "service unavailable"
+   *  empty state. Only set on the fast-estimate path (§20.8). */
+  liveCompsHref?: string;
 }) {
   if (!address) {
     return (
@@ -25,6 +43,27 @@ export default function CompsSection({
     );
   }
   if (!comps) {
+    if (liveCompsHref) {
+      return (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6 text-sm text-zinc-300">
+          <div className="font-semibold text-zinc-100">
+            No live comps loaded yet.
+          </div>
+          <p className="mt-2 text-zinc-400">
+            The numbers above are running on the fast estimate (Zillow
+            Zestimate, FRED rate, state-average tax + insurance). Pull the
+            actual sale + rent comp pool for this address to unlock the
+            Negotiation Pack and the Comp Reasoning Explainer.
+          </p>
+          <Link
+            href={liveCompsHref}
+            className="mt-4 inline-flex h-10 items-center rounded-md bg-zinc-100 px-4 text-sm font-semibold text-zinc-900 transition hover:bg-white"
+          >
+            Run live comp analysis
+          </Link>
+        </div>
+      );
+    }
     return (
       <EmptyState>
         Comps service unavailable right now. Check that{" "}
@@ -42,13 +81,23 @@ export default function CompsSection({
 
   return (
     <section className="flex flex-col gap-8">
-      {/* Reality-check headline */}
+      {/* Reality-check headline — uses the engine's sqft-normalized +
+          anchor-blended derivation when available, otherwise falls back
+          to the raw pool median. Never two truths on one page. */}
       <RealityCheck
         subjectPrice={subjectPrice}
         subjectRent={subjectRent}
         saleStats={saleStats}
         rentStats={rentStats}
+        marketValue={comparables?.marketValue ?? null}
+        marketRent={comparables?.marketRent ?? null}
       />
+
+      {/* §20.4 Comp Reasoning Explainer — only renders when we have a real
+          comparables analysis (i.e. user opted into live comps). */}
+      {comparables && (
+        <CompReasoningPanel comps={comps} comparables={comparables} />
+      )}
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <CompTable
@@ -97,49 +146,107 @@ export default function CompsSection({
 // "Your rent is 14% above the median for nearby 3-bed listings".
 // ---------------------------------------------------------------------------
 
+type Derivation = NonNullable<ComparablesAnalysis["marketValue"]>;
+
+/**
+ * Choose the anchor the Reality Check should compare the subject against.
+ * Engine-derived value (sqft-normalized + anchor-blended) wins when
+ * available — that's the same number the "How we got these numbers"
+ * derivation surfaces. Raw pool median is only the fallback.
+ */
+function pickAnchor(
+  derivation: Derivation | null,
+  rawMedian: number | undefined,
+):
+  | { value: number; label: string; suffix: string }
+  | null {
+  if (derivation && derivation.value > 0) {
+    // The engine's derived value is sqft-normalized + anchor-blended —
+    // the same number "How we got these numbers" surfaces above.
+    const suffix =
+      derivation.confidence === "low"
+        ? " Confidence is low — see the derivation note above for caveats."
+        : "";
+    return {
+      value: derivation.value,
+      label: "the comp-derived fair value",
+      suffix,
+    };
+  }
+  if (rawMedian && rawMedian > 0) {
+    return {
+      value: rawMedian,
+      label: "the median nearby listing",
+      suffix: "",
+    };
+  }
+  return null;
+}
+
+/**
+ * Reality Check headline. Always pulls its number from the engine's
+ * derivation when one exists (sqft-normalized + anchor-blended). The raw
+ * pool median is only a last-resort fallback for cases where the engine
+ * couldn't produce a derivation (e.g. <3 sqft-bearing comps).
+ *
+ * Why: §16.U #5–6 and §16.U.1 #1 documented that the old card compared
+ * the subject to the raw median — a number the engine itself doesn't
+ * trust for unit-size mismatches or anchor disagreement. That produced
+ * "Reality Check says rent is 41% above median" while the same engine
+ * was projecting subject rent at the engine's normalized number a few
+ * inches away on the page. Two truths, one analysis.
+ */
 function RealityCheck({
   subjectPrice,
   subjectRent,
   saleStats,
   rentStats,
+  marketValue,
+  marketRent,
 }: {
   subjectPrice: number;
   subjectRent: number;
   saleStats: { median?: number };
   rentStats: { median?: number };
+  marketValue: Derivation | null;
+  marketRent: Derivation | null;
 }) {
   const lines: { text: string; tone: "good" | "warn" | "bad" | "neutral" }[] = [];
 
-  if (saleStats.median && subjectPrice > 0) {
-    const delta = (subjectPrice - saleStats.median) / saleStats.median;
+  // ----- Sale side -----
+  const saleAnchor = pickAnchor(marketValue, saleStats.median);
+  if (saleAnchor && subjectPrice > 0) {
+    const delta = (subjectPrice - saleAnchor.value) / saleAnchor.value;
     if (Math.abs(delta) >= 0.03) {
       const direction = delta > 0 ? "above" : "below";
       const tone = delta > 0.1 ? "warn" : delta < -0.1 ? "good" : "neutral";
       lines.push({
-        text: `Your purchase price is ${(Math.abs(delta) * 100).toFixed(0)}% ${direction} the median nearby sale (${formatCurrency(saleStats.median, 0)}).`,
+        text: `Your purchase price is ${(Math.abs(delta) * 100).toFixed(0)}% ${direction} ${saleAnchor.label} (${formatCurrency(saleAnchor.value, 0)}).${saleAnchor.suffix}`,
         tone,
       });
     } else {
       lines.push({
-        text: `Your purchase price is in line with nearby sales (${formatCurrency(saleStats.median, 0)} median).`,
+        text: `Your purchase price is in line with ${saleAnchor.label} (${formatCurrency(saleAnchor.value, 0)}).${saleAnchor.suffix}`,
         tone: "good",
       });
     }
   }
 
-  if (rentStats.median && subjectRent > 0) {
-    const delta = (subjectRent - rentStats.median) / rentStats.median;
+  // ----- Rent side -----
+  const rentAnchor = pickAnchor(marketRent, rentStats.median);
+  if (rentAnchor && subjectRent > 0) {
+    const delta = (subjectRent - rentAnchor.value) / rentAnchor.value;
     if (Math.abs(delta) >= 0.05) {
       const direction = delta > 0 ? "above" : "below";
       // Optimistic rent assumption is the #1 way investors fool themselves.
       const tone = delta > 0.1 ? "bad" : delta > 0.05 ? "warn" : "good";
       lines.push({
-        text: `Your rent assumption is ${(Math.abs(delta) * 100).toFixed(0)}% ${direction} the median nearby rental (${formatCurrency(rentStats.median, 0)}/mo). ${delta > 0.05 ? "Verify with at least 3 comps before banking on it." : ""}`.trim(),
+        text: `Your rent assumption is ${(Math.abs(delta) * 100).toFixed(0)}% ${direction} ${rentAnchor.label} (${formatCurrency(rentAnchor.value, 0)}/mo). ${delta > 0.05 ? "Verify with at least 3 comps before banking on it." : ""}`.trim() + rentAnchor.suffix,
         tone,
       });
     } else {
       lines.push({
-        text: `Your rent assumption is in line with nearby rentals (${formatCurrency(rentStats.median, 0)}/mo median).`,
+        text: `Your rent assumption is in line with ${rentAnchor.label} (${formatCurrency(rentAnchor.value, 0)}/mo).${rentAnchor.suffix}`,
         tone: "good",
       });
     }

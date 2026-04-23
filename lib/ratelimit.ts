@@ -37,6 +37,7 @@ export type LimiterName =
   | "comps"
   | "chat"
   | "deals-save"
+  | "pack-generate"
   | "address-autocomplete"
   | "stripe-webhook"
   | "stripe-checkout"
@@ -74,6 +75,13 @@ const LIMITS: Record<LimiterName, LimiterSpec> = {
   // Supabase-write. Keyed by user id when authed so this is per-user, not
   // per-IP. 60/hour is an absurdly fast pace for saving real deals.
   "deals-save": { label: "save", tokens: 60, windowSeconds: 3600 },
+
+  // Negotiation Pack generation. Each call re-pulls comps (cached) + writes
+  // a Supabase row. 30/hour per user is plenty (a real investor making 30
+  // distinct Pack decisions an hour isn't a real investor) and shuts down
+  // anyone trying to script the share-token endpoint as an enumeration
+  // sink. Keyed by user id, not IP — every Pack requires a sign-in.
+  "pack-generate": { label: "pack", tokens: 30, windowSeconds: 3600 },
 
   // Keystroke-level. Without a cap a bored user could burn through
   // Mapbox / Google credits. 2 per second sustained is plenty for real typing.

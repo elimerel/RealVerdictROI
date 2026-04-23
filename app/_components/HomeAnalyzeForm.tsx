@@ -21,7 +21,19 @@ import {
 
 // Bump when the resolver response shape changes so stale entries from an
 // older deploy can't leak through into a fresh session.
-const AUTOFILL_CACHE_VERSION = "v1";
+// v3: bumped with resolver v13. Two changes force a client-cache miss:
+//   - State now propagated explicitly from the Zillow URL flow (§16.U #2)
+//     so insurance / tax estimates land in the right state on cached
+//     autofills that previously had `state: undefined`.
+//   - User-facing notes are now sanitized (§16.U #4); cached payloads
+//     might still carry "RentCast: Property record: invalid RentCast API
+//     key" strings that need to drop out of the UI.
+// v4: bumped with resolver v15 (§20.8). The resolver no longer pulls
+//   comps; rent now falls back to Zillow's rent Zestimate during autofill
+//   (was the comp-derived median in v3). Any cached v3 entry carries a
+//   rent-comps provenance that's no longer accurate for the fast path
+//   and must be dropped.
+const AUTOFILL_CACHE_VERSION = "v4";
 const AUTOFILL_CACHE_NS = `autofill:${AUTOFILL_CACHE_VERSION}`;
 // 30 min — long enough to cover "analyse, edit, go back, retype the same
 // address" sessions, short enough that we don't hand the user data that's
@@ -41,6 +53,7 @@ type FieldProvenance = {
     | "rent-comps"
     | "zillow-listing"
     | "state-average"
+    | "state-investor-rate"
     | "national-average"
     | "fred"
     | "fhfa-hpi"
@@ -102,6 +115,7 @@ const SOURCE_LABEL: Record<FieldProvenance["source"], string> = {
   "rent-comps": "Rent comps",
   "zillow-listing": "Zillow",
   "state-average": "State avg",
+  "state-investor-rate": "Investor rate",
   "national-average": "Estimate",
   fred: "FRED",
   "fhfa-hpi": "FHFA HPI",
@@ -317,7 +331,24 @@ export default function HomeAnalyzeForm({
       }
 
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
+      if (!res.ok) {
+        // Prefer the human-readable `message` field that withErrorReporting
+        // and our 4xx returns ship; the legacy `error` field is sometimes a
+        // machine code ("server_error") which isn't useful UI copy. Fall
+        // back to a generic line — never expose raw HTTP / API error text
+        // to the user (§16.U #4 / §20.9 #5).
+        const safeMessage =
+          (typeof payload?.message === "string" && payload.message) ||
+          (typeof payload?.error === "string" &&
+          // Allow short, copy-style `error` strings (e.g. "Invalid JSON body.")
+          // but reject machine codes / raw stack traces.
+          payload.error.length < 120 &&
+          !/HTTP \d{3}|stack|trace|api[\s_-]?key/i.test(payload.error)
+            ? payload.error
+            : null) ||
+          "We hit a snag pulling that property. Try again, or fill the inputs manually below.";
+        throw new Error(safeMessage);
+      }
 
       const resolved = payload as ResolverPayload;
       const ok = applyResolvedPayload(resolved, mode, false);

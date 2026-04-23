@@ -1,17 +1,14 @@
 import type { NextRequest } from "next/server";
 import type { DealInputs } from "@/lib/calculations";
 import {
+  detectHomesteadTrap,
   detectStateFromAddress,
   estimateAnnualInsurance,
   estimateAnnualPropertyTax,
+  isValidStateCode,
   type Estimate,
   type StateCode,
 } from "@/lib/estimators";
-import { fetchComps, type CompsResult } from "@/lib/comps";
-import {
-  analyzeComparables,
-  type ComparablesAnalysis,
-} from "@/lib/comparables";
 import { KVCache } from "@/lib/kv-cache";
 import { getCurrentMortgageRate, fredRateNote } from "@/lib/rates";
 import {
@@ -28,7 +25,7 @@ import {
   type FloodZone,
 } from "@/lib/flood";
 import { enforceRateLimit } from "@/lib/ratelimit";
-import { withErrorReporting, logEvent } from "@/lib/observability";
+import { withErrorReporting, logEvent, captureError } from "@/lib/observability";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -39,6 +36,7 @@ export type ProvenanceSource =
   | "rent-comps"         // median of nearby long-term rent comps
   | "zillow-listing"     // scraped from a Zillow listing
   | "state-average"      // computed from per-state rate tables
+  | "state-investor-rate" // per-state non-homestead tax rate (overrides current-owner homestead line-item)
   | "national-average"   // last-resort national fallback
   | "fred"               // FRED macro series (e.g. Freddie Mac PMMS 30yr fixed)
   | "fhfa-hpi"           // FHFA Purchase-Only HPI metro-level trailing CAGR
@@ -89,11 +87,12 @@ export type ResolveResult = {
   /** Soft warnings the user should see (e.g. "Insurance is rough"). */
   warnings: string[];
   /**
-   * Full comparables analysis (subject + sale comps + rent comps + derivations
-   * + workLog). Populated whenever we had an address and RentCast returned
-   * data. The UI uses this to show "how we got these numbers".
+   * Resolver mode. Always "fast" — the resolver intentionally does NOT call
+   * RentCast comps anymore (§20.8). Live comp pulls happen only after the
+   * user clicks "Run live comp analysis" on /results, which routes through
+   * /api/comps and re-runs analyzeComparables on the results page.
    */
-  comparables?: ComparablesAnalysis;
+  mode: "fast";
 };
 
 // ---------------------------------------------------------------------------
@@ -125,7 +124,34 @@ const cache = new KVCache<ResolveResult>(
 //        strict + no-baths. Cache keys are forcibly invalidated so any
 //        stale v10 entry that still carries the dropped rentcast provenance
 //        doesn't leak through.
-const CACHE_VERSION = "v11";
+//   v12 = homestead-trap fix (§16.U #3 / §20.9 #1). Tax fallback defaults to
+//        the investor (non-homestead) state rate; assessor line-items that
+//        reflect the current owner's homestead exemption are detected and
+//        replaced with the investor estimate, with both numbers surfaced in
+//        the provenance note. Forces a cache miss so every cached v11 entry
+//        carrying a homesteaded line-item gets re-derived.
+//   v13 = Zillow URL-flow state detection (§16.U #2 / §20.9 #3). State now
+//        propagated explicitly from /api/zillow-parse instead of re-parsed
+//        from a composed address string. Address composition fixed to
+//        canonical "Street, City, ST ZIP" so trailing-state regex never
+//        misses the token. Internal API error text (§16.U #4 / §20.9 #5)
+//        no longer leaks into user-facing notes — RentCast 401/auth errors
+//        produce a generic "couldn't reach the property records database"
+//        copy, with the raw error captured in observability.
+//   v14 = dedupeByBuilding upgrade (§16.U.1 #4 / §20.9 #7) + $/sqft outlier
+//        z-score trim (§16.U.1 #5 / §20.9 #8). Building keys now collapse
+//        spurious bare numerics ("150 2 Claffey Dr" → "150 claffey dr"),
+//        normalize street suffixes / directionals, and split on hyphens.
+//        Comp pool drops >2σ $/sqft outliers before the median is taken,
+//        with a workLog note naming each dropped comp.
+//   v15 = §20.8 architecture change — defer comp pulls until intent. The
+//        resolver no longer calls fetchComps / analyzeComparables. Rent
+//        falls back to Zillow's rent Zestimate (when present) and price
+//        falls back to Zillow's sale Zestimate. Comp-derived rent + value
+//        only populate after the user clicks "Run live comp analysis" on
+//        /results. Cache must invalidate so any v14 entry that still
+//        carries comparables data is dropped.
+const CACHE_VERSION = "v15";
 
 export const GET = withErrorReporting(
   "api.property-resolve.GET",
@@ -228,13 +254,17 @@ async function resolveByAddress(address: string): Promise<ResolveResult> {
   result.address = address;
   result.state = detectStateFromAddress(address);
 
+  // Address-only flow: ONE RentCast call (/properties) for public-record
+  // facts (beds/baths/sqft/year/type/lat/lng/tax). No comp pull — that's
+  // deferred to the explicit "Run live comp analysis" button on /results
+  // (§20.8). Browse-and-bounce traffic now costs at most one RentCast
+  // request instead of four to six.
   const rentcast = await fetchRentcast(address);
   if (rentcast) {
     if (rentcast.address) result.address = rentcast.address;
     // RentCast sometimes returns bedrooms: 0 for older public-records rows
     // (especially pre-1940 homes). That's "unknown", not a studio — merging
-    // it as 0 would silently disable the bed filter in comp search and let
-    // 2bd condos match against a 4bd house.
+    // it as 0 would silently disable the bed filter when live comps run.
     const sanitized = { ...rentcast.facts };
     if (sanitized.bedrooms !== undefined && sanitized.bedrooms <= 0)
       delete sanitized.bedrooms;
@@ -252,15 +282,11 @@ async function resolveByAddress(address: string): Promise<ResolveResult> {
     }
 
     result.notes.push(...rentcast.notes);
-
-    const metro = applyMetroAppreciation(result);
-    await resolveFromComparables(result, {}, metro);
   } else {
     result.notes.push("RentCast lookup unavailable — using estimates.");
-    const metro = applyMetroAppreciation(result);
-    await resolveFromComparables(result, {}, metro);
   }
 
+  applyMetroAppreciation(result);
   await enrichWithEstimates(result);
   return result;
 }
@@ -284,6 +310,7 @@ async function resolveByZillowUrl(
   type ZillowParseResult = {
     source: "scraperapi" | "url-fallback";
     address?: string;
+    state?: string;
     facts?: {
       beds?: number;
       baths?: number;
@@ -310,14 +337,35 @@ async function resolveByZillowUrl(
   if (res.ok) {
     zillow = (await res.json()) as ZillowParseResult;
   } else {
+    // Capture the raw payload to observability but never leak it to the UI.
+    // Same contract as RentCast errors (§16.U #4 / §20.9 #5).
     const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    logEvent("zillow.parse.error", {
+      status: res.status,
+      rawError: payload?.error ?? null,
+      url,
+    });
     result.warnings.push(
-      payload?.error ?? `Zillow parse failed (HTTP ${res.status}).`,
+      "Couldn't read the Zillow listing directly — falling back to public records and listing-URL details.",
     );
   }
 
   if (zillow?.address) result.address = zillow.address;
-  result.state = detectStateFromAddress(result.address ?? "");
+  // State resolution priority for the Zillow URL flow:
+  //   1. Trust the explicit `state` field from /api/zillow-parse — it was
+  //      sourced from either Zillow's structured address blob or the URL
+  //      slug, and validated against the US state code set. This is the
+  //      authoritative path that fixes §16.U #2 (state was being lost when
+  //      detectStateFromAddress had to re-parse a composed address that
+  //      had dropped the state token).
+  //   2. Fall back to detectStateFromAddress on the resolved address as a
+  //      defensive backstop for any caller that ships an old payload.
+  const explicitState = (() => {
+    const raw = zillow?.state?.toUpperCase();
+    return raw && isValidStateCode(raw) ? raw : undefined;
+  })();
+  result.state =
+    explicitState ?? detectStateFromAddress(result.address ?? "");
 
   if (zillow?.facts) {
     result.facts = {
@@ -349,9 +397,20 @@ async function resolveByZillowUrl(
       note: `No active list price (${zillow.listing.listingStatus ?? "off-market"}). Using Zillow's Zestimate as the starting price — adjust to your actual offer.`,
     };
   }
-  // Rent is resolved AFTER RentCast + comps are fetched below (see
-  // resolveMonthlyRent). Track the Zillow rentZestimate as a candidate here.
+  // Rent fallback: Zillow's rent Zestimate is the fast-path source for
+  // monthly rent. The "Run live comp analysis" flow on /results will
+  // overlay a comp-derived number on top of this when the user opts in
+  // (§20.8). Without that opt-in we ship the Zestimate so Numbers / Stress
+  // / What-if / Rubric tabs all have a usable rent figure.
   const zillowRentZestimate = zillow?.listing?.rentZestimate;
+  if (zillowRentZestimate) {
+    result.inputs.monthlyRent = zillowRentZestimate;
+    result.provenance.monthlyRent = {
+      source: "zillow-listing",
+      confidence: "low",
+      note: "Zillow's rent Zestimate. Click 'Run live comp analysis' on the results page for a comp-derived number.",
+    };
+  }
   if (zillow?.listing?.annualPropertyTax) {
     result.inputs.annualPropertyTax = zillow.listing.annualPropertyTax;
     result.provenance.annualPropertyTax = {
@@ -379,16 +438,18 @@ async function resolveByZillowUrl(
 
   if (zillow?.notes) result.notes.push(...zillow.notes);
 
-  // Step 2: ALSO call RentCast in parallel so we get public-records data
-  // (rent AVM, value AVM, more accurate tax bill). Anything Zillow already
-  // gave us wins; RentCast fills the gaps.
+  // Step 2: ALSO call RentCast /properties in parallel so we get the
+  // public-records facts Zillow doesn't expose cleanly (last-sale price /
+  // date, accurate tax bill, geocoded lat/lng for flood). One RentCast
+  // request per fresh address, NOT a comp pull (§20.8). Anything Zillow
+  // already gave us wins; RentCast only fills the gaps.
   if (result.address) {
     const rentcast = await fetchRentcast(result.address);
     if (rentcast) {
       // Merge facts (don't overwrite — Zillow's listing data is more recent
       // for an active listing). Treat RentCast's bedrooms/bathrooms <= 0 as
       // "unknown" (common glitch on old homes) so they don't silently
-      // disable the comp bed filter.
+      // disable the bed filter when live comps eventually run.
       const rcBeds =
         rentcast.facts.bedrooms && rentcast.facts.bedrooms > 0
           ? rentcast.facts.bedrooms
@@ -408,8 +469,6 @@ async function resolveByZillowUrl(
         lastSaleDate: rentcast.facts.lastSaleDate,
         // Carry RentCast's geocoded coordinates through the Zillow flow so
         // FEMA flood zone lookup works without a Census geocode fallback.
-        // (A3 regression — Zillow-URL analyses were silently skipping flood
-        // enrichment whenever the scraper didn't ship lat/lng of its own.)
         latitude: result.facts.latitude ?? rentcast.facts.latitude,
         longitude: result.facts.longitude ?? rentcast.facts.longitude,
       };
@@ -426,28 +485,11 @@ async function resolveByZillowUrl(
           note: "Most recent year of public-record tax from RentCast.",
         };
       }
-      if (rentcast.notes.length > 0)
-        result.notes.push(...rentcast.notes.map((n) => `RentCast: ${n}`));
-
-      const metro = applyMetroAppreciation(result);
-      await resolveFromComparables(
-        result,
-        { zillowRentZestimate },
-        metro,
-      );
-    } else {
-      const metro = applyMetroAppreciation(result);
-      await resolveFromComparables(
-        result,
-        { zillowRentZestimate },
-        metro,
-      );
+      if (rentcast.notes.length > 0) result.notes.push(...rentcast.notes);
     }
-  } else {
-    const metro = applyMetroAppreciation(result);
-    await resolveFromComparables(result, { zillowRentZestimate }, metro);
   }
 
+  applyMetroAppreciation(result);
   await enrichWithEstimates(result);
   return result;
 }
@@ -467,10 +509,51 @@ async function enrichWithEstimates(result: ResolveResult): Promise<void> {
   }
 
   if (value && !result.inputs.annualPropertyTax) {
+    // No source returned a tax bill — estimate using the investor (non-
+    // homestead) state rate. This product is built for rental investors
+    // (§16.F), so the owner-occupant rate would silently undercount the
+    // post-purchase bill in IN/FL/TX/CA/GA/MI by 50–150%.
     const est = estimateAnnualPropertyTax(value, result.state);
     result.inputs.annualPropertyTax = est.value;
     result.provenance.annualPropertyTax = estimateToProvenance(est);
     if (est.confidence === "low") result.warnings.push(est.note);
+  } else if (
+    value &&
+    result.inputs.annualPropertyTax &&
+    result.state &&
+    result.provenance.annualPropertyTax?.source !== "user"
+  ) {
+    // A source (RentCast or Zillow) returned a public-record tax bill. In
+    // homestead-trap states (IN/FL/TX/CA/GA/MI) that line-item reflects the
+    // CURRENT owner's homestead exemption, not the investor's post-purchase
+    // tax. Detect the trap by comparing the implied effective rate to the
+    // state's non-homestead rate; if the line-item is a clear homestead
+    // outlier, swap in the investor estimate and surface both numbers.
+    const trap = detectHomesteadTrap(
+      result.inputs.annualPropertyTax,
+      value,
+      result.state,
+    );
+    if (trap) {
+      const previousTax = result.inputs.annualPropertyTax;
+      const previousNote = result.provenance.annualPropertyTax?.note ?? "";
+      result.inputs.annualPropertyTax = trap.investorEstimate;
+      result.provenance.annualPropertyTax = {
+        source: "state-investor-rate",
+        confidence: "medium",
+        note: `Replaced the assessor's $${previousTax.toLocaleString()}/yr line-item — that reflects the current owner's ${trap.state} homestead cap (${trap.observedRate.toFixed(2)}% of value). As an investor you lose homestead and pay the non-homestead rate (~${trap.investorRate.toFixed(2)}% of value = ~$${trap.investorEstimate.toLocaleString()}/yr).${previousNote ? ` Original source: ${previousNote}` : ""}`,
+      };
+      result.warnings.push(
+        `Property tax adjusted: the public-record bill of $${previousTax.toLocaleString()}/yr reflects the current owner's ${trap.state} homestead exemption. As an investor you'll pay roughly $${trap.investorEstimate.toLocaleString()}/yr at the non-homestead rate — a $${(trap.investorEstimate - previousTax).toLocaleString()}/yr expense the seller's pro forma is hiding.`,
+      );
+      logEvent("property-resolve.homestead-trap", {
+        state: trap.state,
+        observedRate: Number(trap.observedRate.toFixed(3)),
+        investorRate: trap.investorRate,
+        previousTax,
+        investorEstimate: trap.investorEstimate,
+      });
+    }
   }
 
   // Two network enrichments that don't depend on each other: live FRED
@@ -559,21 +642,11 @@ async function applyFloodAssessment(
 }
 
 /**
- * Derive market rent AND fair value from nearby comparables, normalized by
- * $/sqft when the subject has sqft, otherwise by bed-matched medians.
- *
- * This is the core pricing engine. It replaces AVM-last-wins with a real
- * comp-driven derivation that returns the subject, the top comps used, the
- * median $/sqft, and a human-readable workLog the UI can display as
- * "how we got these numbers". We NEVER silently hand back a garbage AVM.
- */
-/**
  * Populate annualAppreciationPercent + provenance from FHFA metro HPI, if
- * the subject's zip falls inside an FHFA top-100 metro. Returns the matched
- * metro (so callers can forward it to analyzeComparables as expectedAppreciation)
- * or null when we're falling back to DEFAULT_INPUTS for this deal.
- *
- * This mutates `result.inputs` and `result.provenance`.
+ * the subject's zip falls inside an FHFA top-100 metro. Mutates
+ * `result.inputs` and `result.provenance`. Returns the matched metro for
+ * the caller's records (no longer used downstream now that comp pulls
+ * happen on /results, not here).
  */
 function applyMetroAppreciation(
   result: ResolveResult,
@@ -590,133 +663,23 @@ function applyMetroAppreciation(
   return metro;
 }
 
-async function resolveFromComparables(
-  result: ResolveResult,
-  candidates: {
-    zillowRentZestimate?: number;
-  },
-  metro: MetroAppreciation | null = null,
-): Promise<void> {
-  // Coerce zero/undefined to proper undefined everywhere downstream, so a
-  // RentCast "0 beds" public-records glitch doesn't silently turn off the bed
-  // filter. `analyzeComparables` already does the same sanitation defensively.
-  const subjectBeds =
-    result.facts.bedrooms && result.facts.bedrooms > 0
-      ? result.facts.bedrooms
-      : undefined;
-  const subjectBaths =
-    result.facts.bathrooms && result.facts.bathrooms > 0
-      ? result.facts.bathrooms
-      : undefined;
-
-  // 1. Pull comps (always — we need them to defend every number on the page).
-  let comps: CompsResult | null = null;
-  if (result.address) {
-    try {
-      comps = await fetchComps({
-        address: result.address,
-        beds: subjectBeds,
-        baths: subjectBaths,
-        sqft: result.facts.squareFootage,
-        // Deliberately NOT passing propertyType as a RentCast filter — their
-        // enum is inconsistent ("Single Family" vs "Single Family Home") and
-        // returns empty sets too often. Instead, we score propertyType
-        // mismatches down in comparables.ts so condo/apartment comps never
-        // drive a single-family rent estimate.
-      });
-    } catch {
-      // comps are a nice-to-have — proceed without
-    }
-  }
-
-  // 2. Run the comparables analysis (scoring, $/sqft normalization, workLog).
-  //    We pass HOA, last-sale, and the currently-listed price so the
-  //    derivation engine can HOA-override the category (condo-style townhouse
-  //    doesn't get priced off detached SFRs) and cross-check its output
-  //    against the market's own pricing of THIS specific unit.
-  const listPriceProv = result.provenance.purchasePrice;
-  const currentListPrice =
-    listPriceProv?.source === "zillow-listing" && listPriceProv?.confidence === "high"
-      ? result.inputs.purchasePrice
-      : undefined;
-  const analysis = analyzeComparables(
-    {
-      address: result.address ?? "",
-      price: result.inputs.purchasePrice,
-      sqft: result.facts.squareFootage,
-      beds: subjectBeds,
-      baths: subjectBaths,
-      yearBuilt: result.facts.yearBuilt,
-      propertyType: result.facts.propertyType,
-      monthlyHOA: result.inputs.monthlyHOA,
-      lastSalePrice: result.facts.lastSalePrice,
-      lastSaleDate: result.facts.lastSaleDate,
-      currentListPrice,
-      // If we have a metro-level CAGR, roll the last-sale anchor forward at
-      // that rate instead of the blanket 3% fallback. This is the link from
-      // FHFA HPI → comparables market-anchor cross-check (see §16.E).
-      expectedAppreciation: metro ? metro.rate / 100 : undefined,
-    },
-    comps,
-  );
-  result.comparables = analysis;
-
-  // 3. RENT — prefer the comp derivation, fall back to AVMs only if comps are
-  //    empty. We do NOT second-guess the derived number against GRM bounds
-  //    because the derivation is already anchored in local reality.
-  if (analysis.marketRent) {
-    result.inputs.monthlyRent = Math.round(analysis.marketRent.value / 10) * 10;
-    result.provenance.monthlyRent = {
-      source: "rent-comps",
-      confidence: analysis.marketRent.confidence,
-      note:
-        analysis.marketRent.method === "median-per-sqft" && analysis.marketRent.medianPerSqft
-          ? `Derived from ${analysis.marketRent.compsUsed.length} nearby long-term rent comps at $${analysis.marketRent.medianPerSqft.toFixed(2)}/sqft × ${analysis.marketRent.subjectSqft?.toLocaleString()} sqft. See "How we got this" for the comps used.`
-          : `Median of ${analysis.marketRent.compsUsed.length} bed/bath-matched rent comps nearby. See "How we got this" for the comps used.`,
-    };
-  } else if (candidates.zillowRentZestimate) {
-    result.inputs.monthlyRent = candidates.zillowRentZestimate;
-    result.provenance.monthlyRent = {
-      source: "zillow-listing",
-      confidence: "low",
-      note: "No rent comps available; using Zillow's rent Zestimate. Adjust manually if you know the local market.",
-    };
-  }
-  // If nothing is available we simply leave monthlyRent unset — the form's
-  // default will kick in and the provenance badge will say "Default", making
-  // it obvious the user needs to fill it in.
-
-  // 4. FAIR VALUE — if the user has an active listing price (high confidence)
-  //    we leave it alone; the comp-derived value shows up alongside as a sanity
-  //    check in the "How we got this" panel. If all we have is a Zestimate or
-  //    AVM and the comps say something materially different, use the comp
-  //    derivation as the price (it's the defensible number).
-  const priceProvenance = result.provenance.purchasePrice;
-  const hasListedPrice =
-    priceProvenance?.confidence === "high" && priceProvenance.source === "zillow-listing";
-  if (!hasListedPrice && analysis.marketValue) {
-    const current = result.inputs.purchasePrice;
-    const derived = analysis.marketValue.value;
-    if (!current) {
-      result.inputs.purchasePrice = derived;
-      result.provenance.purchasePrice = {
-        source: "rent-comps",
-        confidence: analysis.marketValue.confidence,
-        note:
-          analysis.marketValue.method === "median-per-sqft" && analysis.marketValue.medianPerSqft
-            ? `Derived from ${analysis.marketValue.compsUsed.length} nearby sale comps at $${analysis.marketValue.medianPerSqft.toFixed(0)}/sqft × ${analysis.marketValue.subjectSqft?.toLocaleString()} sqft.`
-            : `Median of ${analysis.marketValue.compsUsed.length} bed/bath-matched sale comps nearby.`,
-      };
-    }
-    // If we DO have a Zestimate/AVM price and the comp derivation disagrees by
-    // more than 20%, note it — but don't silently replace the number, since
-    // the user's offer conversation usually anchors on the listed / Zestimate.
-  }
-}
+// resolveFromComparables() lived here through v14 — it pulled fetchComps
+// and ran analyzeComparables to derive rent + value from the live comp
+// pool during autofill. Removed in v15 (§20.8): comp pulls now happen
+// only on /results behind an explicit "Run live comp analysis" click.
+// The fast-path rent fallback moved into resolveByZillowUrl (Zillow rent
+// Zestimate). The /results page re-runs analyzeComparables with the
+// pulled comp pool when the user opts in, and the engine derivations
+// flow into the Negotiation Pack and Comp Reasoning Explainer from there.
 
 function estimateToProvenance(est: Estimate): FieldProvenance {
+  const source: ProvenanceSource = est.source.startsWith("state-investor-rate")
+    ? "state-investor-rate"
+    : est.source.startsWith("state")
+      ? "state-average"
+      : "national-average";
   return {
-    source: est.source.startsWith("state") ? "state-average" : "national-average",
+    source,
     confidence: est.confidence,
     note: est.note,
   };
@@ -737,19 +700,46 @@ type RentcastBundle = {
   notes: string[];
 };
 
+// RentCast error classification — drives both observability (full detail) and
+// user-facing copy (sanitized only). Raw API error text MUST NEVER flow into
+// `notes` (§16.U #4 / §20.9 #5).
+type RentcastErrorKind =
+  | "auth"        // 401 / 403 — key revoked, rotated, or invalid
+  | "no-data"     // 404 — address not in their database (benign)
+  | "rate-limit"  // 429 — quota exhausted
+  | "network"     // fetch threw (DNS, timeout, TLS)
+  | "http";       // any other 5xx / unexpected non-2xx
+
+type RentcastResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; kind: RentcastErrorKind; status?: number; rawError: string };
+
+/** User-safe one-liner for each error kind — never includes raw API text. */
+function userSafeRentcastNote(kind: RentcastErrorKind): string | null {
+  switch (kind) {
+    case "no-data":
+      return "No public-records data on file for this address — proceeding with listing data only.";
+    case "auth":
+    case "rate-limit":
+    case "network":
+    case "http":
+      // All operational issues are surfaced identically to the user — they
+      // can't act on the distinction. The raw kind/status is captured for
+      // ops via captureError below.
+      return "Couldn't reach the property-records database — proceeding with listing data only.";
+    default:
+      return null;
+  }
+}
+
 async function fetchRentcast(address: string): Promise<RentcastBundle | null> {
   const apiKey = process.env.RENTCAST_API_KEY;
   if (!apiKey) return null;
 
-  type RentcastFn = <T>(
+  const rentcast = async <T>(
     path: string,
     params: Record<string, string>,
-  ) => Promise<{ ok: true; data: T } | { ok: false; error: string }>;
-
-  const rentcast: RentcastFn = async <T>(
-    path: string,
-    params: Record<string, string>,
-  ) => {
+  ): Promise<RentcastResult<T>> => {
     const url = new URL(`https://api.rentcast.io/v1${path}`);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     if (process.env.RENTCAST_TRACE === "1") {
@@ -761,18 +751,26 @@ async function fetchRentcast(address: string): Promise<RentcastBundle | null> {
         next: { revalidate: 86_400 },
       });
       if (!res.ok) {
-        if (res.status === 404)
-          return { ok: false as const, error: "no data for this address" };
-        if (res.status === 401)
-          return { ok: false as const, error: "invalid RentCast API key" };
-        return { ok: false as const, error: `HTTP ${res.status}` };
+        const status = res.status;
+        let kind: RentcastErrorKind;
+        if (status === 404) kind = "no-data";
+        else if (status === 401 || status === 403) kind = "auth";
+        else if (status === 429) kind = "rate-limit";
+        else kind = "http";
+        return {
+          ok: false as const,
+          kind,
+          status,
+          rawError: `RentCast ${path} HTTP ${status}`,
+        };
       }
       const data = (await res.json()) as T;
       return { ok: true as const, data };
     } catch (err) {
       return {
         ok: false as const,
-        error: err instanceof Error ? err.message : "network error",
+        kind: "network",
+        rawError: err instanceof Error ? err.message : "network error",
       };
     }
   };
@@ -808,7 +806,27 @@ async function fetchRentcast(address: string): Promise<RentcastBundle | null> {
     : undefined;
 
   const notes: string[] = [];
-  if (!propRes.ok) notes.push(`Property record: ${propRes.error}`);
+  if (!propRes.ok) {
+    // Operational errors (auth/rate-limit/network/http) are escalated to
+    // observability with full raw detail. The user sees only a sanitized
+    // one-liner — never the API error string. This is the contract that
+    // prevents "invalid RentCast API key" from ever appearing in the UI
+    // again (§16.U #4, §20.9 #5).
+    if (propRes.kind !== "no-data") {
+      logEvent("rentcast.error", {
+        kind: propRes.kind,
+        status: propRes.status,
+        path: "/properties",
+        address,
+      });
+      captureError(new Error(propRes.rawError), {
+        area: "api.property-resolve.rentcast",
+        extra: { kind: propRes.kind, status: propRes.status, address },
+      });
+    }
+    const safe = userSafeRentcastNote(propRes.kind);
+    if (safe) notes.push(safe);
+  }
 
   const latestTax = latestPropertyTax(property?.propertyTaxes);
 
@@ -853,6 +871,7 @@ function emptyResult(): ResolveResult {
     provenance: {},
     notes: [],
     warnings: [],
+    mode: "fast",
   };
 }
 

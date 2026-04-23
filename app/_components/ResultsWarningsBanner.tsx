@@ -20,7 +20,13 @@
 import { useEffect, useState } from "react";
 import { normalizeCacheKey, sessionDelete, sessionGet } from "@/lib/client-session-cache";
 
-const RESULTS_WARNINGS_NS = "results-warnings:v1";
+// Must match HomeAnalyzeForm.tsx's `RESULTS_WARNINGS_NS` exactly — both
+// sides of the sessionStorage handoff need the same key. Bump the version
+// here in lockstep when the autofill cache version moves; otherwise the
+// banner silently shows nothing because it's reading a stale namespace.
+// (Was reading `results-warnings:v1` while the form had moved on to
+// `:v3`/`:v4` — the warnings banner was effectively dead since v2.)
+const RESULTS_WARNINGS_NS = "results-warnings:v4";
 
 type WarningsEntry = {
   warnings: string[];
