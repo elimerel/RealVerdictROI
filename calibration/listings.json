@@ -1,0 +1,17 @@
+{
+  "_README": "Edit this file to add listings. Each entry needs either `url` (Zillow homedetails link) or `address`. `gut` is your expected verdict — STRONG BUY / GOOD DEAL / BORDERLINE / PASS / AVOID — so the harness can score matches. `label` and `notes` are free-form strings for readability.",
+  "listings": [
+    {
+      "label": "Hoagland, IN — known-good SFR",
+      "address": "14215 Hawk Stream Cv, Hoagland, IN 46745",
+      "gut": "STRONG BUY",
+      "notes": "Previously validated in §16.U — engine should agree."
+    },
+    {
+      "label": "Polson, MT — thin rental market SFR",
+      "address": "35 Delphine Dr, Polson, MT 59860",
+      "gut": "PASS",
+      "notes": "Previously validated in §16.U — verdict was correctly PASS."
+    }
+  ]
+}

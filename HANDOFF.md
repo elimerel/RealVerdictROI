@@ -56,6 +56,12 @@
 1. **Calibration gauntlet** — user sources 10 more listings across
    diverse markets + property types; audit output for any BUY-labeled-
    AVOID regressions.
+   - **Tooling**: `calibration/listings.json` + `npm run calibrate` +
+     `app/api/calibrate/route.ts`. Writes a timestamped Markdown report
+     to `calibration/results-<stamp>.md` with summary table +
+     per-listing detail. Process exits non-zero on any hard miss
+     (engine ≥2 tiers off from your gut). See `calibration/README.md`
+     for usage. Production calls require `CALIBRATION_SECRET` env.
 2. **Investor demo signal** — at least one person who says "I'd pay for
    the Pack specifically." Only after that do we flip Stripe to live.
 3. **One-time Pack purchase path** — $19–29 Stripe Checkout with no

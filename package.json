@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "tsc --noEmit && npm run lint && npm test"
+    "check": "tsc --noEmit && npm run lint && npm test",
+    "calibrate": "node scripts/calibrate.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
