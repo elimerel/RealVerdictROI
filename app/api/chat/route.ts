@@ -8,6 +8,7 @@ import {
 } from "@/lib/calculations";
 import { enforceRateLimit } from "@/lib/ratelimit";
 import { withErrorReporting, logEvent } from "@/lib/observability";
+import type { MarketSignals } from "@/lib/market-context";
 
 // Allow the response up to a full minute — the longest answers can stream 15s+.
 export const maxDuration = 60;
@@ -31,7 +32,7 @@ export type ChatAnalysisContext = {
   marketRent?: number;
   marketRentConfidence?: "high" | "medium" | "low";
   weakAssumptions?: Array<{ field: string; current: string; realistic: string; gap: string }>;
-};
+} & MarketSignals;
 
 type ChatRequestBody = {
   messages: UIMessage[];
@@ -252,6 +253,8 @@ Cash-on-cash 8%+ · Cap rate 6%+ (market-dependent) · DSCR 1.25+ · Break-even 
   // which often produced a number that disagreed with the walk-away
   // displayed 200px above the chat input. That was the #1 reason chat
   // felt "disconnected" from the rest of the tool.
+  const marketContextBlock = formatMarketContextForPrompt(ctx);
+
   const packContext = ctx
     ? `
 
@@ -276,7 +279,97 @@ When user asks about risk, cite one of these. Don't invent new ones.`
 }`
     : "";
 
-  return preamble + formatContract + context + packContext;
+  return preamble + formatContract + context + marketContextBlock + packContext;
+}
+
+function formatMarketContextForPrompt(ctx?: ChatAnalysisContext): string {
+  if (!ctx) return "";
+  const hasZip =
+    ctx.marketZip ||
+    ctx.acsVintageYear !== undefined ||
+    ctx.zipMedianGrossRentMonthly !== undefined;
+  const hasDealShape =
+    ctx.dealStructureArchetype !== undefined ||
+    ctx.listPriceToAnnualGrossRentMultiple !== undefined;
+  if (!hasZip && !hasDealShape) return "";
+
+  const f = (n: number) =>
+    isFinite(n)
+      ? n.toLocaleString("en-US", {
+          style: "currency",
+          currency: "USD",
+          maximumFractionDigits: 0,
+        })
+      : "—";
+  const pct = (x: number) =>
+    isFinite(x) ? `${(x * 100).toFixed(1)}%` : "—";
+
+  const lines: string[] = [`
+
+=== MARKET BACKDROP (ZIP-LEVEL ACS + YOUR LIST/RENT GEOMETRY) ===`];
+
+  if (ctx.marketZip) {
+    lines.push(
+      `ZIP (ZCTA) parsed from the address string: ${ctx.marketZip}${ctx.acsVintageYear ? ` — ACS 5-year vintage ${ctx.acsVintageYear}` : ""}.`,
+    );
+  } else if (ctx.acsVintageYear) {
+    lines.push(`ACS vintage: ${ctx.acsVintageYear}.`);
+  } else if (hasDealShape) {
+    lines.push(
+      "No 5-digit ZIP was parsed from the address — ZIP-level ACS lines are absent; geometry tags below are from list ÷ gross rent only.",
+    );
+  }
+
+  if (ctx.zipMedianGrossRentMonthly && ctx.zipMedianGrossRentMonthly > 0) {
+    lines.push(
+      `ZIP median gross rent (renter households, ACS): ${f(ctx.zipMedianGrossRentMonthly)}/mo.`,
+    );
+  }
+  if (ctx.zipMedianOwnerOccupiedValue && ctx.zipMedianOwnerOccupiedValue > 0) {
+    lines.push(
+      `ZIP median owner-occupied home value (ACS): ${f(ctx.zipMedianOwnerOccupiedValue)}.`,
+    );
+  }
+  if (ctx.zipMedianHouseholdIncome && ctx.zipMedianHouseholdIncome > 0) {
+    lines.push(
+      `ZIP median household income (ACS): ${f(ctx.zipMedianHouseholdIncome)}/yr.`,
+    );
+  }
+  if (ctx.zipHousingVacancyRate !== undefined && ctx.zipHousingVacancyRate > 0) {
+    lines.push(`ZIP housing vacancy rate (ACS): ${pct(ctx.zipHousingVacancyRate)}.`);
+  }
+  if (ctx.userMonthlyRentToZipMedianRatio !== undefined) {
+    lines.push(
+      `User pro-forma monthly rent ÷ ZIP median gross rent: ${ctx.userMonthlyRentToZipMedianRatio.toFixed(2)}× (above 1.0 = hotter pro-forma than typical renter contract in the ZIP).`,
+    );
+  }
+  if (ctx.listPriceToAnnualGrossRentMultiple !== undefined) {
+    lines.push(
+      `List (or modeled purchase) ÷ annual gross rent on user inputs: ${ctx.listPriceToAnnualGrossRentMultiple.toFixed(1)}×.`,
+    );
+  }
+  if (ctx.annualGrossYieldPercent !== undefined) {
+    lines.push(
+      `Implied gross yield on list from user rent: ${ctx.annualGrossYieldPercent.toFixed(2)}%/yr (before expenses).`,
+    );
+  }
+  if (ctx.dealStructureArchetype) {
+    const hint =
+      ctx.dealStructureArchetype === "equity_heavy"
+        ? "Price is very high relative to the rent stream — cap-rate / cash-flow math fights you; appreciation or non-rent exit logic dominates the thesis."
+        : ctx.dealStructureArchetype === "income_slanted"
+          ? "Price is moderate relative to the rent stream — income metrics carry more weight than in coastal trophy markets."
+          : "List and rent are in a middling band — neither obvious pure cash-flow nor obvious pure equity story from geometry alone.";
+    lines.push(
+      `Deal-shape tag (from list ÷ annual gross rent only): ${ctx.dealStructureArchetype.replace(/_/g, " ").toUpperCase()}. ${hint}`,
+    );
+  }
+
+  lines.push(
+    `Use this block to explain *market type* and whether the rent story matches the ZIP's typical renter economics — not to replace walk-away or comps.`,
+  );
+
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

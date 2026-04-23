@@ -31,6 +31,11 @@ import { fetchComps, type CompsResult } from "@/lib/comps";
 import { analyzeComparables } from "@/lib/comparables";
 import { pickWeakAssumptions } from "@/lib/negotiation-pack";
 import type { ChatAnalysisContext } from "@/app/api/chat/route";
+import { fetchAcsZipProfile } from "@/lib/market-context-acs";
+import {
+  buildMarketSignals,
+  extractUsZipFromAddress,
+} from "@/lib/market-context";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { checkRateLimit, identifierFor } from "@/lib/ratelimit";
@@ -276,7 +281,13 @@ export default async function ResultsPage({
         provenance: {},
       }).slice(0, 3)
     : [];
+
+  const parsedZip = address ? extractUsZipFromAddress(address) : undefined;
+  const acsZipProfile = parsedZip ? await fetchAcsZipProfile(parsedZip) : null;
+  const marketSignals = buildMarketSignals(inputs, parsedZip, acsZipProfile);
+
   const analysisContext: ChatAnalysisContext = {
+    ...marketSignals,
     walkAwayPrice: ceilingForChat.primaryTarget?.price,
     walkAwayTier:
       ceilingForChat.primaryTarget?.tier === "avoid"

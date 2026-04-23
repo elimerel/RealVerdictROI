@@ -13,6 +13,7 @@ import {
   type VerdictTier,
 } from "@/lib/calculations";
 import { TIER_LABEL } from "./tier-style";
+import { formatMarketSignalsHeroLine } from "@/lib/market-context";
 
 // ---------------------------------------------------------------------------
 // Hero section for /results — verdict tier + walk-away price + AI summary
@@ -78,6 +79,10 @@ export default function HeroSection({
     `DSCR ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞"}`,
   );
 
+  const marketHeroLine = analysisContext
+    ? formatMarketSignalsHeroLine(analysisContext)
+    : null;
+
   return (
     <section className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-10">
       <div className="lg:col-span-3 flex flex-col">
@@ -95,6 +100,11 @@ export default function HeroSection({
         <p className="mt-3 text-xs sm:text-sm text-zinc-500 break-words">
           {contextParts.join(" · ")}
         </p>
+        {marketHeroLine && (
+          <p className="mt-2 max-w-2xl text-[11px] leading-snug text-zinc-600 sm:text-xs">
+            {marketHeroLine}
+          </p>
+        )}
 
         <div
           className="mt-6 border-l-4 pl-4 py-2"
