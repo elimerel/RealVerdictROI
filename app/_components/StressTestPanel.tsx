@@ -42,6 +42,15 @@ export default function StressTestPanel({
           ? `Cash-flow positive in ${survivors} of ${results.length} shocks. Watch the failures.`
           : `Cash-flow positive in only ${survivors} of ${results.length} shocks. Thin margin.`;
 
+  // For the bar chart: find the range of cash flows across base + all scenarios
+  const allCF = [
+    baseAnalysis.monthlyCashFlow,
+    ...results.map((r) => r.analysis?.monthlyCashFlow ?? 0),
+  ];
+  const cfMax = Math.max(...allCF);
+  const cfMin = Math.min(...allCF, 0);
+  const cfRange = cfMax - cfMin || 1;
+
   return (
     <section className="space-y-6">
       <header>
@@ -52,117 +61,108 @@ export default function StressTestPanel({
           {headline}
         </h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Each scenario keeps every other input the same and changes one thing.
-          The verdict you see is what the same engine produces under stress.
+          Each scenario changes one variable and leaves everything else constant.
         </p>
       </header>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-800">
-        <div className="hidden sm:grid sm:grid-cols-[1.6fr_0.95fr_0.7fr_0.85fr_0.85fr_0.95fr_1fr] divide-x divide-zinc-800 bg-zinc-900/40">
-          <Th>Scenario</Th>
-          <Th align="right">Cash flow</Th>
-          <Th align="right">DSCR</Th>
-          <Th align="right">Cap rate</Th>
-          <Th align="right">IRR</Th>
-          <Th align="right">Total ROI</Th>
-          <Th align="right">Verdict</Th>
-        </div>
-
+      <div className="flex flex-col gap-3">
         {results.map(({ scenario, analysis }) => {
-          const flip =
-            analysis && analysis.verdict.tier !== baseAnalysis.verdict.tier
-              ? diagnoseVerdictFlip(baseAnalysis, analysis)
-              : null;
+          if (!analysis) return null;
+          const flip = analysis.verdict.tier !== baseAnalysis.verdict.tier
+            ? diagnoseVerdictFlip(baseAnalysis, analysis)
+            : null;
+          const cf = analysis.monthlyCashFlow;
+          const cfPositive = cf >= 0;
+          const verdictChanged = analysis.verdict.tier !== baseAnalysis.verdict.tier;
+
+          // Bar width: positive bars grow right from zero, negative bars grow left
+          const zeroFrac = (-cfMin) / cfRange;
+          const barFrac = Math.abs(cf - 0) / cfRange;
+
           return (
             <div
               key={scenario.key}
-              className="grid grid-cols-1 sm:grid-cols-[1.6fr_0.95fr_0.7fr_0.85fr_0.85fr_0.95fr_1fr] divide-y divide-zinc-800 border-t border-zinc-800 sm:divide-y-0 sm:divide-x"
+              className={`rounded-xl border px-5 py-4 transition-colors ${
+                verdictChanged
+                  ? "border-red-900/60 bg-red-950/20"
+                  : "border-zinc-800/60 bg-zinc-900/30"
+              }`}
             >
-              <Cell>
-                <div className="text-sm font-medium text-zinc-100">
-                  {scenario.label}
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-100">
+                    {scenario.label}
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-500">
+                    {scenario.description}
+                  </div>
                 </div>
-                <div className="mt-0.5 text-xs text-zinc-500">
-                  {scenario.description}
-                </div>
-              </Cell>
-              {analysis ? (
-                <>
-                  <Cell
-                    align="right"
-                    mono
-                    className={
-                      analysis.monthlyCashFlow >= 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }
-                  >
-                    {formatCurrency(analysis.monthlyCashFlow, 0)}/mo
-                    <DeltaSub
-                      base={baseAnalysis.monthlyCashFlow}
-                      next={analysis.monthlyCashFlow}
-                      fmt={(n) => `${formatCurrency(n, 0)}/mo`}
-                      higherIsBetter
-                    />
-                  </Cell>
-                  <Cell align="right" mono className="text-zinc-100">
-                    {isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞"}
-                    <DeltaSub
-                      base={baseAnalysis.dscr}
-                      next={analysis.dscr}
-                      fmt={(n) => n.toFixed(2)}
-                      higherIsBetter
-                      skipIfBaseInfinite
-                    />
-                  </Cell>
-                  <Cell align="right" mono className="text-zinc-100">
-                    {formatPercent(analysis.capRate, 2)}
-                    <DeltaSub
-                      base={baseAnalysis.capRate}
-                      next={analysis.capRate}
-                      fmt={(n) => `${(n * 100).toFixed(2)}pt`}
-                      higherIsBetter
-                    />
-                  </Cell>
-                  <Cell align="right" mono className="text-zinc-100">
-                    {fmtIRR(analysis.irr)}
-                    <DeltaSub
-                      base={baseAnalysis.irr}
-                      next={analysis.irr}
-                      fmt={(n) => `${(n * 100).toFixed(1)}pt`}
-                      higherIsBetter
-                      skipIfBaseInfinite
-                    />
-                  </Cell>
-                  <Cell align="right" mono className="text-zinc-100">
-                    {fmtROI(analysis.totalROI)}
-                    <DeltaSub
-                      base={baseAnalysis.totalROI}
-                      next={analysis.totalROI}
-                      fmt={(n) => `${(n * 100).toFixed(0)}pt`}
-                      higherIsBetter
-                    />
-                  </Cell>
-                  <Cell
-                    align="right"
-                    className={`text-xs font-bold uppercase tracking-wider ${TIER_COLOR[analysis.verdict.tier]}`}
+                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-wider ${TIER_COLOR[analysis.verdict.tier]}`}
                   >
                     {TIER_LABEL[analysis.verdict.tier]}
-                    {flip && (
-                      <div
-                        className="mt-1 text-[10px] font-normal normal-case tracking-normal text-zinc-400"
-                        title={flip.detail}
-                      >
-                        {flip.direction === "down" ? "↓" : "↑"} on {flip.metric}
-                      </div>
-                    )}
-                  </Cell>
-                </>
-              ) : (
-                <Cell className="text-xs text-zinc-500">
-                  Could not run this scenario.
-                </Cell>
-              )}
+                  </span>
+                  {flip && (
+                    <span className="text-[10px] text-red-400" title={flip.detail}>
+                      {flip.direction === "down" ? "↓" : "↑"} flipped on {flip.metric}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Cash flow bar */}
+              <div className="relative h-6 rounded-md bg-zinc-800/60 overflow-hidden">
+                {/* Zero marker */}
+                <div
+                  className="absolute top-0 bottom-0 w-px bg-zinc-600"
+                  style={{ left: `${zeroFrac * 100}%` }}
+                />
+                {/* Bar */}
+                <div
+                  className={`absolute top-1 bottom-1 rounded-sm ${cfPositive ? "bg-emerald-500/70" : "bg-red-500/70"}`}
+                  style={
+                    cfPositive
+                      ? { left: `${zeroFrac * 100}%`, width: `${barFrac * 100}%` }
+                      : { right: `${(1 - zeroFrac) * 100}%`, width: `${barFrac * 100}%` }
+                  }
+                />
+              </div>
+
+              {/* Metrics row */}
+              <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-xs tabular-nums">
+                <span>
+                  <span className="text-zinc-600">Cash flow </span>
+                  <span className={`font-mono font-semibold ${cfPositive ? "text-emerald-400" : "text-red-400"}`}>
+                    {formatCurrency(cf, 0)}/mo
+                  </span>
+                  <DeltaSub
+                    base={baseAnalysis.monthlyCashFlow}
+                    next={cf}
+                    fmt={(n) => `${formatCurrency(n, 0)}/mo`}
+                    higherIsBetter
+                    inline
+                  />
+                </span>
+                <span>
+                  <span className="text-zinc-600">DSCR </span>
+                  <span className="font-mono font-semibold text-zinc-300">
+                    {isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞"}
+                  </span>
+                </span>
+                <span>
+                  <span className="text-zinc-600">Cap </span>
+                  <span className="font-mono font-semibold text-zinc-300">
+                    {formatPercent(analysis.capRate, 2)}
+                  </span>
+                </span>
+                <span>
+                  <span className="text-zinc-600">IRR </span>
+                  <span className="font-mono font-semibold text-zinc-300">
+                    {fmtIRR(analysis.irr)}
+                  </span>
+                </span>
+              </div>
             </div>
           );
         })}
@@ -254,71 +254,35 @@ function safeAnalyse(inputs: DealInputs): DealAnalysis | null {
   }
 }
 
-function Th({
-  children,
-  align = "left",
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right";
-}) {
-  return (
-    <div
-      className={`px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-zinc-500 ${
-        align === "right" ? "text-right" : ""
-      }`}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Cell({
-  children,
-  align = "left",
-  mono = false,
-  className = "",
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right";
-  mono?: boolean;
-  className?: string;
-}) {
-  return (
-    <div
-      className={`px-4 py-3 text-sm ${align === "right" ? "text-right" : ""} ${
-        mono ? "font-mono tabular-nums" : ""
-      } ${className}`}
-    >
-      {children}
-    </div>
-  );
-}
-
 function DeltaSub({
   base,
   next,
   fmt,
   higherIsBetter,
-  skipIfBaseInfinite = false,
+  inline = false,
 }: {
   base: number;
   next: number;
   fmt: (n: number) => string;
   higherIsBetter: boolean;
-  skipIfBaseInfinite?: boolean;
+  inline?: boolean;
 }) {
   if (!isFinite(base) || !isFinite(next)) return null;
-  if (skipIfBaseInfinite && !isFinite(base)) return null;
   const delta = next - base;
   if (Math.abs(delta) < 0.005) return null;
   const isUp = delta > 0;
   const good = higherIsBetter ? isUp : !isUp;
+  const cls = good ? "text-emerald-500/70" : "text-red-500/70";
+  if (inline) {
+    return (
+      <span className={`ml-1 text-[10px] ${cls}`}>
+        ({isUp ? "+" : "−"}{fmt(Math.abs(delta))})
+      </span>
+    );
+  }
   return (
-    <div
-      className={`mt-0.5 text-[10px] font-normal ${good ? "text-emerald-500/70" : "text-red-500/70"}`}
-    >
-      {isUp ? "+" : "−"}
-      {fmt(Math.abs(delta))}
+    <div className={`mt-0.5 text-[10px] font-normal ${cls}`}>
+      {isUp ? "+" : "−"}{fmt(Math.abs(delta))}
     </div>
   );
 }

@@ -13,11 +13,12 @@ import ResultsWarningsBanner from "../_components/ResultsWarningsBanner";
 import AnalysisQuotaExceeded from "../_components/AnalysisQuotaExceeded";
 import ProCompsTeaser from "../_components/ProCompsTeaser";
 import ResultsHeader from "../_components/results/ResultsHeader";
-import HeroSection, {
-  RunLiveCompsCTA,
-} from "../_components/results/HeroSection";
+import { RunLiveCompsCTA } from "../_components/results/HeroSection";
+import ResultsSidebar from "../_components/results/ResultsSidebar";
 import EvidenceSection from "../_components/results/EvidenceSection";
 import BreakdownSection from "../_components/results/BreakdownSection";
+import OfferCeilingCard from "../_components/OfferCeilingCard";
+import ProjectionChart from "../_components/ProjectionChart";
 import { TIER_ACCENT, TIER_LABEL } from "../_components/results/tier-style";
 import {
   analyseDeal,
@@ -335,128 +336,172 @@ export default async function ResultsPage({
       />
 
       <main className="flex-1">
-        <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-14">
-          <ResultsWarningsBanner address={address} />
+        {/* Two-panel layout: sticky sidebar (verdict) + scrollable main (detail) */}
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
+          <div className="flex flex-col gap-8 lg:flex-row lg:gap-0">
 
-          <HowWeGotThese
-            comparables={comparables}
-            subjectPrice={inputs.purchasePrice}
-            subjectRent={inputs.monthlyRent}
-          />
+            {/* ── LEFT: sticky sidebar ── */}
+            <div className="lg:w-72 lg:flex-shrink-0 lg:border-r lg:border-zinc-800/60">
+              <div className="lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:py-10 lg:pr-8 lg:scrollbar-hide">
+                <ResultsWarningsBanner address={address} />
 
-          {!liveComps && address && (
-            <RunLiveCompsCTA href={liveCompsHref} isPro={pro} />
-          )}
+                <HowWeGotThese
+                  comparables={comparables}
+                  subjectPrice={inputs.purchasePrice}
+                  subjectRent={inputs.monthlyRent}
+                />
 
-          <HeroSection
-            tier={tier}
-            analysis={analysis}
-            address={address}
-            inputs={inputs}
-            editHref={editHref}
-            currentUrl={currentUrl}
-            signedIn={!!user}
-            isPro={pro}
-            supabaseConfigured={supaConfig.configured}
-            packEligible={liveComps && !!comparables && !!address}
-            marketValueCap={
-              // Walk-away discipline: bound the ceiling by comp-derived fair
-              // value when we have it, list price otherwise. Without this the
-              // income rubric can return walk-away prices 5-10× market value
-              // on rent-heavy listings (the $3.4M-on-a-$540k-listing bug).
-              comparables?.marketValue?.value ??
-              (inputs.purchasePrice > 0 ? inputs.purchasePrice : undefined)
-            }
-            marketValueCapSource={
-              comparables?.marketValue?.value ? "comps" : "list"
-            }
-            subjectFacts={{
-              beds: compsBeds,
-              baths: compsBaths,
-              sqft: compsSqft,
-              yearBuilt: numberOrUndef(search.yearBuilt),
-              propertyType,
-              lastSalePrice,
-              lastSaleDate,
-            }}
-            isListed={search.listed === "1"}
-            analysisContext={analysisContext}
-            analyseDealOptions={analyseEvidence}
-          />
+                {!liveComps && address && (
+                  <div className="mb-6">
+                    <RunLiveCompsCTA href={liveCompsHref} isPro={pro} />
+                  </div>
+                )}
 
-          <div className="mt-10 sm:mt-14">
-            <ResultsTabs
-              tabs={[
-                {
-                  id: "numbers",
-                  label: "Numbers",
-                  content: (
-                    <div className="flex flex-col gap-12">
-                      <EvidenceSection analysis={analysis} comps={comps} />
-                      <BreakdownSection analysis={analysis} />
-                    </div>
-                  ),
-                },
-                {
-                  id: "stress",
-                  label: "Stress test",
-                  content: (
-                    <StressTestPanel
-                      baseInputs={inputs}
-                      baseAnalysis={analysis}
-                    />
-                  ),
-                },
-                {
-                  id: "comps",
-                  label: "Comps",
-                  badge:
-                    pro && comps
-                      ? String(
-                          comps.saleComps.stats.count +
-                            comps.rentComps.stats.count,
-                        )
-                      : undefined,
-                  content: pro ? (
-                    <CompsSection
-                      analysis={analysis}
-                      comps={comps}
-                      comparables={comparables}
-                      address={address}
-                      liveCompsHref={!liveComps ? liveCompsHref : undefined}
-                    />
-                  ) : (
-                    <ProCompsTeaser returnTo={currentUrl} />
-                  ),
-                },
-                {
-                  id: "whatif",
-                  label: "What-if",
-                  content: (
-                    <WhatIfPanel
-                      baseInputs={inputs}
-                      baseAnalysis={analysis}
-                      address={address}
-                    />
-                  ),
-                },
-                {
-                  id: "rubric",
-                  label: "Rubric",
-                  content: <VerdictRubric verdict={analysis.verdict} />,
-                },
-                {
-                  id: "chat",
-                  label: "Ask AI",
-                  content: (
-                    <FollowUpChat
-                      inputs={inputs}
-                      analysisContext={analysisContext}
-                    />
-                  ),
-                },
-              ]}
-            />
+                <ResultsSidebar
+                  tier={tier}
+                  analysis={analysis}
+                  address={address}
+                  inputs={inputs}
+                  editHref={editHref}
+                  currentUrl={currentUrl}
+                  signedIn={!!user}
+                  isPro={pro}
+                  supabaseConfigured={supaConfig.configured}
+                  packEligible={liveComps && !!comparables && !!address}
+                  subjectFacts={{
+                    beds: compsBeds,
+                    baths: compsBaths,
+                    sqft: compsSqft,
+                    yearBuilt: numberOrUndef(search.yearBuilt),
+                    propertyType,
+                    lastSalePrice,
+                    lastSaleDate,
+                  }}
+                  isListed={search.listed === "1"}
+                  analysisContext={analysisContext}
+                  analyseDealOptions={analyseEvidence}
+                  walkAwayPrice={ceilingForChat.primaryTarget?.price}
+                  walkAwayTier={
+                    ceilingForChat.primaryTarget?.tier === "avoid"
+                      ? undefined
+                      : ceilingForChat.primaryTarget?.tier
+                  }
+                />
+              </div>
+            </div>
+
+            {/* ── RIGHT: main content ── */}
+            <div className="flex-1 py-8 lg:pl-10 lg:py-10">
+
+              {/* Walk-away rubric ladder */}
+              <section className="mb-10">
+                <SectionLabel>Walk-away price</SectionLabel>
+                <OfferCeilingCard
+                  inputs={inputs}
+                  marketValueCap={
+                    comparables?.marketValue?.value ??
+                    (inputs.purchasePrice > 0 ? inputs.purchasePrice : undefined)
+                  }
+                  marketValueCapSource={
+                    comparables?.marketValue?.value ? "comps" : "list"
+                  }
+                  analyseDealOptions={analyseEvidence}
+                />
+              </section>
+
+              {/* 5-year projection chart */}
+              <section className="mb-10">
+                <SectionLabel>5-year projection</SectionLabel>
+                <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 pt-5 pb-4">
+                  <div className="mb-4 flex items-baseline justify-between">
+                    <span className="text-sm font-semibold text-zinc-200">
+                      Equity &amp; cumulative cash flow
+                    </span>
+                    <span className="text-xs text-zinc-600">
+                      {analysis.inputs.holdPeriodYears}-year hold
+                    </span>
+                  </div>
+                  <ProjectionChart
+                    projection={analysis.projection}
+                    accentColor={accent}
+                  />
+                </div>
+              </section>
+
+              {/* Deep-dive tabs */}
+              <ResultsTabs
+                tabs={[
+                  {
+                    id: "numbers",
+                    label: "Numbers",
+                    content: (
+                      <div className="flex flex-col gap-12">
+                        <EvidenceSection analysis={analysis} comps={comps} />
+                        <BreakdownSection analysis={analysis} />
+                      </div>
+                    ),
+                  },
+                  {
+                    id: "whatif",
+                    label: "What-if",
+                    content: (
+                      <WhatIfPanel
+                        baseInputs={inputs}
+                        baseAnalysis={analysis}
+                        address={address}
+                      />
+                    ),
+                  },
+                  {
+                    id: "stress",
+                    label: "Stress test",
+                    content: (
+                      <StressTestPanel
+                        baseInputs={inputs}
+                        baseAnalysis={analysis}
+                      />
+                    ),
+                  },
+                  {
+                    id: "comps",
+                    label: "Comps",
+                    badge:
+                      pro && comps
+                        ? String(
+                            comps.saleComps.stats.count +
+                              comps.rentComps.stats.count,
+                          )
+                        : undefined,
+                    content: pro ? (
+                      <CompsSection
+                        analysis={analysis}
+                        comps={comps}
+                        comparables={comparables}
+                        address={address}
+                        liveCompsHref={!liveComps ? liveCompsHref : undefined}
+                      />
+                    ) : (
+                      <ProCompsTeaser returnTo={currentUrl} />
+                    ),
+                  },
+                  {
+                    id: "rubric",
+                    label: "Rubric",
+                    content: <VerdictRubric verdict={analysis.verdict} />,
+                  },
+                  {
+                    id: "chat",
+                    label: "Ask AI",
+                    content: (
+                      <FollowUpChat
+                        inputs={inputs}
+                        analysisContext={analysisContext}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            </div>
           </div>
         </div>
       </main>
@@ -488,4 +533,12 @@ function priceBucketForAnalytics(price: number): string {
   if (price < 1_000_000) return "750k-1M";
   if (price < 2_000_000) return "1-2M";
   return "2M+";
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+      {children}
+    </div>
+  );
 }

@@ -6,9 +6,14 @@ import {
   DEFAULT_INPUTS,
   inputsFromSearchParams,
   inputsToSearchParams,
+  analyseDeal,
+  findOfferCeiling,
+  formatCurrency,
+  formatPercent,
   type DealInputs,
 } from "@/lib/calculations";
 import { getCurrentMortgageRate, fredRateNote } from "@/lib/rates";
+import { TIER_LABEL, TIER_ACCENT, TIER_TAILWIND_TEXT_LIGHT } from "@/lib/tier-constants";
 
 const SAMPLE_INPUTS: DealInputs = {
   ...DEFAULT_INPUTS,
@@ -55,6 +60,14 @@ export default async function Home({
   const sampleParams = inputsToSearchParams(SAMPLE_INPUTS);
   sampleParams.set("address", SAMPLE_ADDRESS);
   const sampleHref = `/results?${sampleParams.toString()}`;
+
+  const sampleAnalysis = analyseDeal(SAMPLE_INPUTS);
+  const sampleCeiling = findOfferCeiling(SAMPLE_INPUTS, {
+    marketValueCap: SAMPLE_INPUTS.purchasePrice,
+    marketValueCapSource: "list",
+  });
+  const sampleTier = sampleAnalysis.verdict.tier;
+  const sampleAccent = TIER_ACCENT[sampleTier];
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-950">
@@ -108,8 +121,8 @@ export default async function Home({
 
       <main id="analyze" className="flex-1">
         {/* ── Hero ── */}
-        <div className="mx-auto w-full max-w-3xl px-4 pt-14 pb-10 sm:px-6 sm:pt-24">
-          <div className="mb-10 text-center">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-14 pb-10 sm:px-6 sm:pt-20">
+          <div className="mb-8 text-center">
             <p className="mb-4 text-xs font-semibold uppercase tracking-[0.22em] text-blue-400">
               Buy-and-hold rental investors
             </p>
@@ -119,10 +132,77 @@ export default async function Home({
                 Your offer shouldn&apos;t be.
               </span>
             </h1>
-            <p className="mt-5 text-lg text-zinc-400">
+            <p className="mt-5 text-base text-zinc-400 sm:text-lg">
               Paste any address. Get a walk-away price backed by live comps, a full verdict, and a negotiation-ready Pack — in under a minute.
             </p>
           </div>
+
+          {/* Sample verdict preview — shows what users get before they type anything */}
+          <Link href={sampleHref} className="group mb-8 block">
+            <div
+              className="overflow-hidden rounded-xl border transition-colors group-hover:border-zinc-600"
+              style={{ borderColor: sampleAccent + "40" }}
+            >
+              {/* Header bar */}
+              <div
+                className="flex items-center justify-between px-5 py-3 text-[11px] font-semibold uppercase tracking-widest"
+                style={{ backgroundColor: sampleAccent + "14", color: sampleAccent }}
+              >
+                <span>{SAMPLE_ADDRESS}</span>
+                <span className="flex items-center gap-1.5">
+                  Sample verdict
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 opacity-70">
+                    <path fillRule="evenodd" d="M6.22 4.22a.75.75 0 011.06 0l3.25 3.25a.75.75 0 010 1.06l-3.25 3.25a.75.75 0 01-1.06-1.06L9.19 8 6.22 5.03a.75.75 0 010-1.06z" clipRule="evenodd" />
+                  </svg>
+                </span>
+              </div>
+
+              {/* Content */}
+              <div className="bg-zinc-900/60 px-5 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div
+                      className="text-2xl font-extrabold uppercase tracking-tight leading-none sm:text-3xl"
+                      style={{ color: sampleAccent }}
+                    >
+                      {TIER_LABEL[sampleTier]}
+                    </div>
+                    {sampleCeiling.primaryTarget && (
+                      <div className="mt-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Walk-away </span>
+                        <span className="font-mono text-lg font-bold tabular-nums text-zinc-200">
+                          {formatCurrency(sampleCeiling.primaryTarget.price, 0)}
+                        </span>
+                        <span className="ml-1.5 text-xs text-zinc-600">
+                          for {TIER_LABEL[sampleCeiling.primaryTarget.tier]}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5 text-right">
+                    <SampleMetric
+                      label="Cash flow"
+                      value={`${sampleAnalysis.monthlyCashFlow >= 0 ? "+" : ""}${formatCurrency(sampleAnalysis.monthlyCashFlow, 0)}/mo`}
+                      positive={sampleAnalysis.monthlyCashFlow >= 0}
+                    />
+                    <SampleMetric
+                      label="Cap rate"
+                      value={formatPercent(sampleAnalysis.capRate, 2)}
+                    />
+                    <SampleMetric
+                      label="DSCR"
+                      value={isFinite(sampleAnalysis.dscr) ? sampleAnalysis.dscr.toFixed(2) : "∞"}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Link>
+
+          {/* ── Form ── */}
+          <p className="mb-4 text-sm font-semibold text-zinc-400">
+            Analyze your own deal →
+          </p>
 
           <HomeAnalyzeForm
             initialInputs={initialInputs}
@@ -130,20 +210,9 @@ export default async function Home({
             initialProvenance={initialProvenance}
           />
 
-          <div className="mt-5 flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
-            <Link
-              href={sampleHref}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:border-zinc-700 hover:bg-zinc-800"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5 text-blue-400" aria-hidden="true">
-                <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.75 4.25a.75.75 0 00-1.5 0v3.5l-1.72 1.72a.75.75 0 001.06 1.06l2-2A.75.75 0 008.75 9V5.25z"/>
-              </svg>
-              See a sample verdict
-            </Link>
-            <p className="text-xs text-zinc-600">
-              3 free analyses / week · No credit card
-            </p>
-          </div>
+          <p className="mt-4 text-center text-xs text-zinc-600">
+            3 free analyses / week · No credit card
+          </p>
         </div>
 
         {/* ── Data sources ── */}
@@ -235,6 +304,33 @@ export default async function Home({
           </div>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function SampleMetric({
+  label,
+  value,
+  positive,
+}: {
+  label: string;
+  value: string;
+  positive?: boolean;
+}) {
+  return (
+    <div className="flex flex-col items-end gap-0">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">{label}</span>
+      <span
+        className={`font-mono text-sm font-semibold tabular-nums ${
+          positive === true
+            ? "text-emerald-400"
+            : positive === false
+              ? "text-red-400"
+              : "text-zinc-300"
+        }`}
+      >
+        {value}
+      </span>
     </div>
   );
 }

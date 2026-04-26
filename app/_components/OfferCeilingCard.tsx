@@ -183,15 +183,15 @@ export default function OfferCeilingCard({
         Walk-away price
       </div>
       {!primary ? (
-        <div className="text-4xl font-bold leading-none" style={{ color: "var(--accent)" }}>
+        <div className="text-5xl font-extrabold leading-none tracking-tight sm:text-6xl" style={{ color: "var(--accent)" }}>
           Walk away.
-          <p className="mt-2 text-sm font-normal text-zinc-400 leading-snug">
+          <p className="mt-3 text-base font-normal text-zinc-400 leading-snug">
             No realistic offer makes this a buy.
           </p>
         </div>
       ) : (
         <>
-          <div className="font-mono text-4xl font-bold leading-none tabular-nums" style={{ color: "var(--accent)" }}>
+          <div className="font-mono text-5xl font-extrabold leading-none tabular-nums tracking-tight sm:text-6xl" style={{ color: "var(--accent)" }}>
             {formatCurrency(primary.price, 0)}
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
