@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "RealVerdict",
+  "version": "1.0.0",
+  "description": "Instant rental property analysis on any listing page",
+  "permissions": ["sidePanel", "activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "Open RealVerdict"
+  },
+  "side_panel": {
+    "default_path": "side-panel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

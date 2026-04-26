@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RealVerdict</title>
+  <link rel="stylesheet" href="side-panel.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header>
+      <div class="logo">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <polyline points="1,12 5,7 8,9 12,4 15,6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <span>RealVerdict</span>
+      </div>
+      <button id="btn-settings" class="icon-btn" title="Settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Page context bar -->
+    <div id="context-bar" class="context-bar hidden">
+      <div class="context-site" id="context-site"></div>
+      <div class="context-url" id="context-url"></div>
+    </div>
+
+    <!-- Settings panel (hidden by default) -->
+    <div id="settings-panel" class="settings-panel hidden">
+      <label class="field-label">API endpoint</label>
+      <input id="input-api-url" type="url" class="field-input" placeholder="https://realverdictroi.com" />
+      <button id="btn-save-settings" class="btn-primary">Save</button>
+    </div>
+
+    <!-- Idle state -->
+    <div id="state-idle" class="state-panel">
+      <div class="idle-icon">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <polyline points="2,24 10,14 16,18 24,8 30,12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.3"/>
+        </svg>
+      </div>
+      <p class="idle-title">Navigate to a listing</p>
+      <p class="idle-sub">Go to any property on Zillow, Redfin, Realtor.com or anywhere else, then click Analyze.</p>
+      <button id="btn-analyze-idle" class="btn-primary" style="margin-top:16px">
+        Analyze current page
+      </button>
+    </div>
+
+    <!-- Listing detected state -->
+    <div id="state-detected" class="state-panel hidden">
+      <div class="detected-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        Listing detected
+      </div>
+      <p class="detected-address" id="detected-address">Loading…</p>
+      <button id="btn-analyze-detected" class="btn-primary btn-green">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <polyline points="1,12 5,7 8,9 12,4 15,6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Analyze this property
+      </button>
+    </div>
+
+    <!-- Loading state -->
+    <div id="state-loading" class="state-panel hidden">
+      <div class="spinner"></div>
+      <p class="loading-title">Reading page…</p>
+      <p class="loading-step" id="loading-step">Extracting property data</p>
+    </div>
+
+    <!-- Results state -->
+    <div id="state-results" class="state-panel hidden">
+
+      <!-- Verdict -->
+      <div class="verdict-card" id="verdict-card">
+        <div class="verdict-label" id="verdict-label">GOOD DEAL</div>
+        <div class="verdict-summary" id="verdict-summary"></div>
+      </div>
+
+      <!-- Walk-away hero -->
+      <div class="walkaway-card">
+        <div class="walkaway-label">Walk-away price</div>
+        <div class="walkaway-price" id="walkaway-price">—</div>
+        <div class="walkaway-sub">Max offer where the deal still clears your bar</div>
+      </div>
+
+      <!-- Metrics grid -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Monthly cash flow</div>
+          <div class="metric-value" id="m-cashflow">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Cap rate</div>
+          <div class="metric-value" id="m-cap">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Cash-on-cash</div>
+          <div class="metric-value" id="m-coc">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">DSCR</div>
+          <div class="metric-value" id="m-dscr">—</div>
+        </div>
+      </div>
+
+      <!-- Score breakdown -->
+      <div class="breakdown">
+        <div class="breakdown-title">Score breakdown</div>
+        <div id="breakdown-rows"></div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button id="btn-view-full" class="btn-primary">
+          Open full analysis
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+        <button id="btn-re-analyze" class="btn-secondary">Re-analyze</button>
+      </div>
+
+      <!-- Source note -->
+      <p class="source-note" id="source-note"></p>
+    </div>
+
+    <!-- Error state -->
+    <div id="state-error" class="state-panel hidden">
+      <div class="error-icon">⚠</div>
+      <p class="error-msg" id="error-msg">Something went wrong.</p>
+      <button id="btn-retry" class="btn-secondary" style="margin-top:12px">Try again</button>
+    </div>
+  </div>
+
+  <script src="side-panel.js"></script>
+</body>
+</html>
