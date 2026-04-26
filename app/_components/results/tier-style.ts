@@ -1,32 +1,6 @@
 import type { CSSProperties } from "react";
 import type { VerdictTier } from "@/lib/calculations";
-
-// ---------------------------------------------------------------------------
-// Shared UI constants for the /results page. Kept in one module so the
-// hero / evidence / breakdown / comps sections render consistent accents
-// without each file redefining them.
-//
-// Note: OfferCeilingCard has its own TIER_LABEL + TIER_DOT tables — left
-// as-is. The card's palette is deliberately dimmer (it harmonizes against
-// the page's --accent CSS variable rather than setting the tier color
-// outright) and reusing the same constants here would regress that.
-// ---------------------------------------------------------------------------
-
-export const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
-
-export const TIER_ACCENT: Record<VerdictTier, string> = {
-  excellent: "#22c55e",
-  good: "#22c55e",
-  fair: "#eab308",
-  poor: "#ef4444",
-  avoid: "#ef4444",
-};
+export { TIER_LABEL, TIER_ACCENT } from "@/lib/tier-constants";
 
 export const WARN_COLOR = "#eab308";
 export const BAD_COLOR = "#ef4444";

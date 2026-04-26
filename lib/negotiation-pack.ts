@@ -44,6 +44,8 @@ import {
   type VerdictTier,
 } from "@/lib/calculations";
 import type { FieldProvenance } from "@/app/api/property-resolve/route";
+import { TIER_LABEL } from "@/lib/tier-constants";
+import { STRESS_SCENARIOS } from "@/lib/stress-scenarios";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -141,13 +143,6 @@ export type PackPayload = {
 // Builders
 // ---------------------------------------------------------------------------
 
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
 
 export type BuildPackArgs = {
   address: string;
@@ -484,59 +479,14 @@ function buildCompWhy(comp: ScoredComp, kind: "sale" | "rent"): string {
   return bits.join("; ");
 }
 
-// ---------------------------------------------------------------------------
-// Stress scenarios — the four shocks per §20.3
-// ---------------------------------------------------------------------------
-
-type ScenarioDef = {
-  label: string;
-  description: string;
-  apply: (b: DealInputs) => DealInputs;
-};
-
-const PACK_SCENARIOS: ScenarioDef[] = [
-  {
-    label: "Rent drops 10%",
-    description:
-      "A market softening or a one-time concession to fill a vacancy. Tests how much rent cushion the deal has.",
-    apply: (b) => ({ ...b, monthlyRent: Math.round(b.monthlyRent * 0.9) }),
-  },
-  {
-    label: "Expenses jump 25%",
-    description:
-      "Tax reassessment, insurance renewal hike, or a CapEx event in year 1. Tests the operating cushion.",
-    apply: (b) => ({
-      ...b,
-      maintenancePercent: b.maintenancePercent * 1.25,
-      annualInsurance: Math.round(b.annualInsurance * 1.25),
-      annualPropertyTax: Math.round(b.annualPropertyTax * 1.05),
-    }),
-  },
-  {
-    label: "Refi rate +1pt",
-    description:
-      "Hold-period rate environment moves against you when refinancing. Tests interest-rate sensitivity.",
-    apply: (b) => ({ ...b, loanInterestRate: b.loanInterestRate + 1 }),
-  },
-  {
-    label: "Sells 10% below today",
-    description:
-      "Exit price comes in 10% under today's value. Tests how much of the return depends on appreciation vs cash flow.",
-    apply: (b) => ({
-      ...b,
-      annualAppreciationPercent:
-        b.annualAppreciationPercent -
-        100 *
-          (1 - Math.pow(0.9, 1 / Math.max(1, b.holdPeriodYears))),
-    }),
-  },
-];
+// Stress scenarios are imported from lib/stress-scenarios.ts so the Pack
+// and the UI StressTestPanel always run the same set.
 
 function runStressScenarios(
   inputs: DealInputs,
   base: DealAnalysis,
 ): StressOutcome[] {
-  return PACK_SCENARIOS.map((s) => {
+  return STRESS_SCENARIOS.map((s) => {
     let stressed: DealAnalysis;
     try {
       stressed = analyseDeal(sanitiseInputs(s.apply(inputs)));

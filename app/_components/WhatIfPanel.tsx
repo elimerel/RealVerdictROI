@@ -13,13 +13,7 @@ import {
   type VerdictTier,
 } from "@/lib/calculations";
 
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
+import { TIER_LABEL } from "@/lib/tier-constants";
 
 type Knob = {
   key: keyof DealInputs;
