@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Search, ArrowRight, Building2, MapPin, TrendingUp, Bookmark, ChevronDown } from "lucide-react"
+import { Search, ArrowRight, Building2, MapPin, TrendingUp, Bookmark, ChevronDown, Globe, CheckCircle2, Loader2 } from "lucide-react"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
 import type { DealInputs } from "@/lib/calculations"
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
-import { Suspense } from "react"
+import type { BrowseResponse } from "@/app/api/browse/route"
 
 const AUTOFILL_CACHE_NS = "autofill:v4"
 const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
@@ -29,12 +29,79 @@ type ResolverPayload = {
   provenance: Record<string, unknown>
 }
 
-const BOOKMARKLET_LABEL = "Analyze on RealVerdict"
-// When clicked on any listing page, opens RealVerdict with the current URL pre-filled.
+type BrowseStep = {
+  label: string
+  done: boolean
+}
+
+const LISTING_URL_RE = /^https?:\/\/(www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i
+
 function makeBookmarklet(siteUrl: string) {
   const js = `(function(){var u=encodeURIComponent(window.location.href);window.open('${siteUrl}/?url='+u,'_blank');})();`
   return `javascript:${js}`
 }
+
+// ---------------------------------------------------------------------------
+// BrowseLoader — shown while the headless browser is working
+// ---------------------------------------------------------------------------
+
+function BrowseLoader({
+  hostname,
+  screenshot,
+  steps,
+}: {
+  hostname: string
+  screenshot: string | null
+  steps: BrowseStep[]
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex items-center justify-center p-6">
+      <div className="w-full max-w-lg space-y-6">
+        <div className="flex items-center gap-3">
+          <Globe className="h-5 w-5 text-muted-foreground animate-pulse" />
+          <p className="text-sm font-medium">Browsing {hostname}…</p>
+        </div>
+
+        {/* Step list */}
+        <div className="space-y-2">
+          {steps.map((s, i) => (
+            <div key={i} className="flex items-center gap-2.5 text-sm">
+              {s.done ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              ) : i === steps.findIndex((x) => !x.done) ? (
+                <Loader2 className="h-4 w-4 text-muted-foreground animate-spin shrink-0" />
+              ) : (
+                <div className="h-4 w-4 rounded-full border border-border shrink-0" />
+              )}
+              <span className={s.done ? "text-foreground" : "text-muted-foreground"}>
+                {s.label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Screenshot preview — appears after browser visit completes */}
+        {screenshot && (
+          <div className="rounded-lg border border-border overflow-hidden shadow-lg">
+            <p className="px-3 py-1.5 text-[10px] text-muted-foreground bg-muted/50 border-b border-border">
+              Live screenshot from {hostname}
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`data:image/png;base64,${screenshot}`}
+              alt="Property page screenshot"
+              className="w-full max-h-72 object-cover object-top"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main search page
+// ---------------------------------------------------------------------------
 
 function SearchPageInner() {
   const router = useRouter()
@@ -47,19 +114,26 @@ function SearchPageInner() {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [activeSuggestion, setActiveSuggestion] = useState(-1)
+
+  // Browse mode state
+  const [browseHostname, setBrowseHostname] = useState<string | null>(null)
+  const [browseScreenshot, setBrowseScreenshot] = useState<string | null>(null)
+  const [browseSteps, setBrowseSteps] = useState<BrowseStep[]>([])
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const isZillowUrl = /zillow\.com|redfin\.com|realtor\.com/i.test(searchValue)
+  const isListingUrl = LISTING_URL_RE.test(searchValue)
 
-  const detectMode = (text: string): "zillow" | "address" | null => {
+  const detectMode = (text: string): "browse" | "address" | null => {
     if (!text.trim()) return null
-    if (/zillow\.com\/homedetails|redfin\.com\/[A-Z]{2}\/|realtor\.com\/realestateandhomes-detail/i.test(text)) return "zillow"
+    if (LISTING_URL_RE.test(text)) return "browse"
     if (/\d/.test(text) && text.trim().length >= 6) return "address"
     return null
   }
 
-  // Auto-submit when ?url= param is present (from bookmarklet)
+  // Auto-submit when ?url= param is present (bookmarklet)
   useEffect(() => {
     const urlParam = searchParams.get("url")
     if (!urlParam) return
@@ -71,9 +145,9 @@ function SearchPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Fetch address suggestions with debounce
+  // Address autocomplete
   useEffect(() => {
-    if (isZillowUrl || searchValue.length < 4) {
+    if (isListingUrl || searchValue.length < 4) {
       setSuggestions([])
       setShowSuggestions(false)
       return
@@ -88,14 +162,12 @@ function SearchPageInner() {
           setShowSuggestions(data.length > 0)
           setActiveSuggestion(-1)
         }
-      } catch {
-        // ignore — suggestions are non-critical
-      }
+      } catch { /* non-critical */ }
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [searchValue, isZillowUrl])
+  }, [searchValue, isListingUrl])
 
-  // Close dropdown when clicking outside
+  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
@@ -106,10 +178,16 @@ function SearchPageInner() {
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
+  const advanceStep = (idx: number) => {
+    setBrowseSteps((prev) =>
+      prev.map((s, i) => (i < idx ? { ...s, done: true } : s))
+    )
+  }
+
   const submitSearch = useCallback(async (text: string) => {
     const mode = detectMode(text)
     if (!mode) {
-      setError("Enter a street address or a listing URL (Zillow, Redfin, Realtor.com).")
+      setError("Enter a street address or a listing URL.")
       return
     }
     setError(null)
@@ -123,22 +201,97 @@ function SearchPageInner() {
       return
     }
 
+    // ------------------------------------------------------------------
+    // Browse mode: use headless browser + AI extraction
+    // ------------------------------------------------------------------
+    if (mode === "browse") {
+      let hostname = ""
+      try { hostname = new URL(text).hostname.replace("www.", "") } catch { hostname = text }
+
+      const steps: BrowseStep[] = [
+        { label: "Launching browser", done: false },
+        { label: `Visiting ${hostname}`, done: false },
+        { label: "Reading property data", done: false },
+        { label: "Filling in estimates", done: false },
+        { label: "Running analysis", done: false },
+      ]
+      setBrowseHostname(hostname)
+      setBrowseScreenshot(null)
+      setBrowseSteps(steps)
+
+      // Advance step 0 immediately, step 1 after 800ms (feels responsive)
+      advanceStep(1)
+      stepTimerRef.current = setTimeout(() => advanceStep(2), 1200)
+
+      try {
+        const res = await fetch("/api/browse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: text }),
+        })
+
+        // Show screenshot as soon as we get a response
+        if (res.ok) {
+          const data = (await res.json()) as BrowseResponse
+          setBrowseScreenshot(data.screenshot)
+          advanceStep(4)
+          stepTimerRef.current = setTimeout(() => advanceStep(5), 600)
+
+          const payload: ResolverPayload = {
+            address: data.address,
+            inputs: data.inputs,
+            facts: data.facts,
+            notes: data.notes,
+            warnings: data.warnings,
+            provenance: data.provenance,
+          }
+          sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
+
+          // Short pause so user sees the screenshot, then navigate
+          setTimeout(() => {
+            router.push(`/results?${buildParams(payload).toString()}`)
+          }, 1800)
+          return
+        }
+
+        // Browse failed — fall through to standard property-resolve
+        const errBody = await res.json().catch(() => ({})) as { error?: string }
+        if (errBody?.error?.includes("not configured")) {
+          // Browserbase not set up — silently fall through
+        } else {
+          throw new Error(errBody?.error ?? "Browser visit failed.")
+        }
+      } catch (err) {
+        // Non-configuration errors surface to the user
+        if (err instanceof Error && !err.message.includes("not configured")) {
+          setBrowseHostname(null)
+          setBrowseSteps([])
+          setError(err.message)
+          setIsLoading(false)
+          return
+        }
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Standard mode (address input, or browse fallback)
+    // ------------------------------------------------------------------
     try {
-      const res = mode === "zillow"
-        ? await fetch("/api/property-resolve", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: text }),
-          })
-        : await fetch(`/api/property-resolve?address=${encodeURIComponent(text)}`)
+      const res = await fetch("/api/property-resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          LISTING_URL_RE.test(text) ? { url: text } : { address: text }
+        ),
+      })
 
       if (!res.ok) {
         const payload = await res.json().catch(() => ({})) as { message?: string; error?: string }
-        const msg =
+        throw new Error(
           (typeof payload?.message === "string" && payload.message) ||
           (typeof payload?.error === "string" && payload.error.length < 120 ? payload.error : null) ||
           "Couldn't resolve that property. Try again or fill inputs manually."
-        throw new Error(msg)
+        )
       }
 
       const resolved = (await res.json()) as ResolverPayload
@@ -178,143 +331,155 @@ function SearchPageInner() {
   }
 
   const bookmarkletHref = makeBookmarklet(SITE_URL)
+  const isBrowseMode = browseHostname !== null && isLoading
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 pb-24">
-      <div className="w-full max-w-2xl space-y-8">
-        {/* Hero */}
-        <div className="text-center space-y-3">
-          <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Analyze any rental property
-          </h1>
-          <p className="text-muted-foreground text-balance">
-            Paste a listing URL or enter an address to get instant investment analysis
-          </p>
-        </div>
+    <>
+      {/* Browse loader overlay */}
+      {isBrowseMode && (
+        <BrowseLoader
+          hostname={browseHostname!}
+          screenshot={browseScreenshot}
+          steps={browseSteps}
+        />
+      )}
 
-        {/* Search */}
-        <form onSubmit={handleSearch} className="relative" ref={wrapperRef}>
-          <div
-            className={cn(
-              "relative rounded-lg border bg-card/50 backdrop-blur-sm transition-all duration-200",
-              isFocused ? "border-foreground/20 ring-1 ring-foreground/10" : "border-border",
-              showSuggestions && "rounded-b-none border-b-0",
-            )}
-          >
-            <div className="flex items-center gap-3 px-4 py-3">
-              {isZillowUrl
-                ? <Building2 className="h-5 w-5 text-muted-foreground shrink-0" />
-                : <MapPin className="h-5 w-5 text-muted-foreground shrink-0" />
-              }
-              <Input
-                type="text"
-                placeholder="zillow.com/homedetails/… or 123 Main St, City, ST"
-                value={searchValue}
-                onChange={(e) => { setSearchValue(e.target.value); setError(null) }}
-                onFocus={() => { setIsFocused(true); if (suggestions.length > 0) setShowSuggestions(true) }}
-                onBlur={() => setIsFocused(false)}
-                onKeyDown={handleKeyDown}
-                className="border-0 bg-transparent p-0 text-base placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-              <Button
-                type="submit"
-                size="sm"
-                disabled={!searchValue.trim() || isLoading}
-                className="shrink-0 gap-1.5"
-              >
-                {isLoading ? "Fetching…" : "Analyze"}
-                {!isLoading && <ArrowRight className="h-3.5 w-3.5" />}
-              </Button>
-            </div>
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 pb-24">
+        <div className="w-full max-w-2xl space-y-8">
+          {/* Hero */}
+          <div className="text-center space-y-3">
+            <h1 className="text-3xl font-semibold tracking-tight text-balance">
+              Analyze any rental property
+            </h1>
+            <p className="text-muted-foreground text-balance">
+              Paste a listing URL or enter an address — we&apos;ll read the page and run the numbers
+            </p>
           </div>
 
-          {/* Autocomplete dropdown */}
-          {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute z-50 w-full border border-t-0 border-border rounded-b-lg bg-card shadow-lg overflow-hidden">
-              {suggestions.map((s, i) => (
-                <button
-                  key={s.placeId}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); handleSuggestionSelect(s) }}
-                  className={cn(
-                    "w-full text-left px-4 py-2.5 flex flex-col gap-0.5 hover:bg-muted/60 transition-colors",
-                    i === activeSuggestion && "bg-muted/60",
-                    i < suggestions.length - 1 && "border-b border-border/50",
-                  )}
+          {/* Search */}
+          <form onSubmit={handleSearch} className="relative" ref={wrapperRef}>
+            <div
+              className={cn(
+                "relative rounded-lg border bg-card/50 backdrop-blur-sm transition-all duration-200",
+                isFocused ? "border-foreground/20 ring-1 ring-foreground/10" : "border-border",
+                showSuggestions && "rounded-b-none border-b-0",
+              )}
+            >
+              <div className="flex items-center gap-3 px-4 py-3">
+                {isListingUrl
+                  ? <Globe className="h-5 w-5 text-muted-foreground shrink-0" />
+                  : <MapPin className="h-5 w-5 text-muted-foreground shrink-0" />
+                }
+                <Input
+                  type="text"
+                  placeholder="zillow.com/homedetails/… or 123 Main St, City, ST"
+                  value={searchValue}
+                  onChange={(e) => { setSearchValue(e.target.value); setError(null) }}
+                  onFocus={() => { setIsFocused(true); if (suggestions.length > 0) setShowSuggestions(true) }}
+                  onBlur={() => setIsFocused(false)}
+                  onKeyDown={handleKeyDown}
+                  className="border-0 bg-transparent p-0 text-base placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!searchValue.trim() || isLoading}
+                  className="shrink-0 gap-1.5"
                 >
-                  <span className="text-sm font-medium">{s.primary}</span>
-                  <span className="text-xs text-muted-foreground">{s.secondary}</span>
-                </button>
+                  {isLoading ? "Fetching…" : "Analyze"}
+                  {!isLoading && <ArrowRight className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            </div>
+
+            {/* Autocomplete dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute z-50 w-full border border-t-0 border-border rounded-b-lg bg-card shadow-lg overflow-hidden">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={s.placeId}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); handleSuggestionSelect(s) }}
+                    className={cn(
+                      "w-full text-left px-4 py-2.5 flex flex-col gap-0.5 hover:bg-muted/60 transition-colors",
+                      i === activeSuggestion && "bg-muted/60",
+                      i < suggestions.length - 1 && "border-b border-border/50",
+                    )}
+                  >
+                    <span className="text-sm font-medium">{s.primary}</span>
+                    <span className="text-xs text-muted-foreground">{s.secondary}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {(searchValue || error) && !showSuggestions && (
+              <div className="absolute -bottom-6 left-4 text-xs">
+                {error
+                  ? <span className="text-amber-500">{error}</span>
+                  : isListingUrl
+                    ? <span className="flex items-center gap-1 text-muted-foreground"><Globe className="h-3 w-3" />Will read page directly</span>
+                    : <span className="flex items-center gap-1 text-muted-foreground"><MapPin className="h-3 w-3" />Address search</span>
+                }
+              </div>
+            )}
+          </form>
+
+          {/* Tips + bookmarklet */}
+          <div className="pt-6 space-y-4">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              How it works
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { icon: Globe,      label: "Reads listing pages directly" },
+                { icon: MapPin,     label: "Or search by address" },
+                { icon: TrendingUp, label: "Cap rate, CoC, DSCR & verdict" },
+              ].map((tip) => (
+                <div
+                  key={tip.label}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-muted-foreground bg-muted/50"
+                >
+                  <tip.icon className="h-3.5 w-3.5" />
+                  <span>{tip.label}</span>
+                </div>
               ))}
             </div>
-          )}
 
-          {(searchValue || error) && !showSuggestions && (
-            <div className="absolute -bottom-6 left-4 text-xs">
-              {error
-                ? <span className="text-amber-500">{error}</span>
-                : isZillowUrl
-                  ? <span className="flex items-center gap-1 text-muted-foreground"><Building2 className="h-3 w-3" />Listing URL detected</span>
-                  : <span className="flex items-center gap-1 text-muted-foreground"><MapPin className="h-3 w-3" />Address search</span>
-              }
-            </div>
-          )}
-        </form>
-
-        {/* Tips + bookmarklet */}
-        <div className="pt-6 space-y-4">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            How it works
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { icon: Building2,  label: "Paste any listing URL" },
-              { icon: MapPin,     label: "Or enter a full address" },
-              { icon: TrendingUp, label: "Get cap rate, CoC, DSCR & verdict" },
-            ].map((tip) => (
-              <div
-                key={tip.label}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-muted-foreground bg-muted/50"
-              >
-                <tip.icon className="h-3.5 w-3.5" />
-                <span>{tip.label}</span>
+            {/* Bookmarklet */}
+            <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <Bookmark className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">One-click analysis while you browse</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Drag the button below to your bookmarks bar. Click it on any Zillow, Redfin, or Realtor.com listing to instantly analyze it here.
+                  </p>
+                </div>
               </div>
-            ))}
-          </div>
-
-          {/* Bookmarklet */}
-          <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 p-4 space-y-3">
-            <div className="flex items-start gap-2">
-              <Bookmark className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium">Analyze while you browse</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Drag the button below to your bookmarks bar. Then click it on any Zillow, Redfin, or Realtor.com listing to instantly analyze it here.
-                </p>
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
+                <a
+                  href={bookmarkletHref}
+                  onClick={(e) => e.preventDefault()}
+                  draggable
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium",
+                    "bg-foreground text-background cursor-grab active:cursor-grabbing",
+                    "select-none border border-foreground/20 shadow-sm",
+                  )}
+                >
+                  <TrendingUp className="h-3.5 w-3.5" />
+                  Analyze on RealVerdict
+                  <ChevronDown className="h-3 w-3 opacity-50" />
+                </a>
+                <span className="text-xs text-muted-foreground">← drag to bookmarks bar</span>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
-              <a
-                href={bookmarkletHref}
-                onClick={(e) => e.preventDefault()}
-                draggable
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium",
-                  "bg-foreground text-background cursor-grab active:cursor-grabbing",
-                  "select-none border border-foreground/20 shadow-sm",
-                )}
-              >
-                <TrendingUp className="h-3.5 w-3.5" />
-                {BOOKMARKLET_LABEL}
-                <ChevronDown className="h-3 w-3 opacity-50" />
-              </a>
-              <span className="text-xs text-muted-foreground">← drag this to your bookmarks bar</span>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   )
 }
 
@@ -338,13 +503,13 @@ export default function SearchPage() {
 function buildParams(resolved: ResolverPayload): URLSearchParams {
   const i = resolved.inputs
   const p = new URLSearchParams()
-  if (i.purchasePrice)              p.set("purchasePrice",              String(i.purchasePrice))
-  if (i.monthlyRent)                p.set("monthlyRent",                String(i.monthlyRent))
-  if (i.annualPropertyTax)          p.set("annualPropertyTax",          String(i.annualPropertyTax))
-  if (i.annualInsurance)            p.set("annualInsurance",            String(i.annualInsurance))
-  if (i.monthlyHOA)                 p.set("monthlyHOA",                 String(i.monthlyHOA))
-  if (i.loanInterestRate)           p.set("loanInterestRate",           String(i.loanInterestRate))
-  if (i.annualAppreciationPercent)  p.set("annualAppreciationPercent",  String(i.annualAppreciationPercent))
-  if (resolved.address)             p.set("address",                    resolved.address)
+  if (i.purchasePrice)             p.set("purchasePrice",             String(i.purchasePrice))
+  if (i.monthlyRent)               p.set("monthlyRent",               String(i.monthlyRent))
+  if (i.annualPropertyTax)         p.set("annualPropertyTax",         String(i.annualPropertyTax))
+  if (i.annualInsurance)           p.set("annualInsurance",           String(i.annualInsurance))
+  if (i.monthlyHOA)                p.set("monthlyHOA",                String(i.monthlyHOA))
+  if (i.loanInterestRate)          p.set("loanInterestRate",          String(i.loanInterestRate))
+  if (i.annualAppreciationPercent) p.set("annualAppreciationPercent", String(i.annualAppreciationPercent))
+  if (resolved.address)            p.set("address",                   resolved.address)
   return p
 }
