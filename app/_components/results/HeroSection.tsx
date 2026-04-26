@@ -13,7 +13,7 @@ import {
   formatPercent,
   type VerdictTier,
 } from "@/lib/calculations";
-import { TIER_LABEL } from "./tier-style";
+import { TIER_LABEL, toneCoC, toneCap, toneDSCR, toneToStyle } from "./tier-style";
 import { formatMarketSignalsHeroLine } from "@/lib/market-context";
 
 // ---------------------------------------------------------------------------
@@ -86,37 +86,96 @@ export default function HeroSection({
     ? formatMarketSignalsHeroLine(analysisContext)
     : null;
 
+  const metrics = [
+    {
+      label: "Cash flow",
+      value: `${analysis.monthlyCashFlow >= 0 ? "+" : ""}${formatCurrency(analysis.monthlyCashFlow, 0)}/mo`,
+      style: toneToStyle(analysis.monthlyCashFlow >= 0 ? "good" : "bad"),
+    },
+    {
+      label: "Cap rate",
+      value: formatPercent(analysis.capRate, 2),
+      style: toneToStyle(toneCap(analysis.capRate)),
+    },
+    {
+      label: "DSCR",
+      value: isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞",
+      style: toneToStyle(toneDSCR(analysis.dscr)),
+    },
+    {
+      label: "IRR",
+      value: formatPercent(analysis.irr, 1),
+      style: toneToStyle(analysis.irr >= 0.09 ? "good" : analysis.irr >= 0.05 ? "warn" : "bad"),
+    },
+    {
+      label: "Cash-on-cash",
+      value: formatPercent(analysis.cashOnCashReturn, 1),
+      style: toneToStyle(toneCoC(analysis.cashOnCashReturn)),
+    },
+  ];
+
   return (
     <section className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-10">
-      <div className="lg:col-span-3 flex flex-col">
-        {address && (
-          <p className="mb-3 text-base font-semibold tracking-tight text-zinc-200 sm:text-lg break-words">
-            {address}
-          </p>
-        )}
-        <h1
-          className="text-4xl font-bold uppercase leading-none tracking-tight sm:text-5xl md:text-6xl"
-          style={{ color: "var(--accent)" }}
-        >
-          {TIER_LABEL[tier]}
-        </h1>
-        <p className="mt-3 text-xs sm:text-sm text-zinc-500 break-words">
-          {contextParts.join(" · ")}
-        </p>
-        {marketHeroLine && (
-          <p className="mt-2 max-w-2xl text-[11px] leading-snug text-zinc-600 sm:text-xs">
-            {marketHeroLine}
-          </p>
-        )}
+      {/* LEFT: Walk-away price — the hero number */}
+      <div className="lg:col-span-3">
+        <OfferCeilingCard
+          inputs={inputs}
+          marketValueCap={marketValueCap}
+          marketValueCapSource={marketValueCapSource}
+          analyseDealOptions={analyseDealOptions}
+        />
+      </div>
 
+      {/* RIGHT: verdict tier + metric grid + AI prose + actions */}
+      <div className="lg:col-span-2 flex flex-col gap-5">
+        <div>
+          <h1
+            className="text-3xl font-bold uppercase leading-none tracking-tight sm:text-4xl"
+            style={{ color: "var(--accent)" }}
+          >
+            {TIER_LABEL[tier]}
+          </h1>
+          {address && (
+            <p className="mt-2 text-sm font-medium text-zinc-400 break-words">
+              {address}
+            </p>
+          )}
+          {marketHeroLine && (
+            <p className="mt-1.5 text-[11px] leading-snug text-zinc-600">
+              {marketHeroLine}
+            </p>
+          )}
+        </div>
+
+        {/* 5-metric grid */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
+          {metrics.map((m) => (
+            <div
+              key={m.label}
+              className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2.5"
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                {m.label}
+              </div>
+              <div
+                className="mt-0.5 font-mono text-base font-bold tabular-nums"
+                style={m.style}
+              >
+                {m.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* AI prose */}
         <div
-          className="mt-6 border-l-4 pl-4 py-2"
+          className="rounded-lg border-l-4 pl-4 py-2"
           style={{
             borderColor: "var(--accent)",
             backgroundColor: "var(--accent-soft)",
           }}
         >
-          <div className="text-sm">
+          <div className="text-sm text-zinc-300">
             <InitialVerdict
               inputs={inputs}
               fallback={analysis.verdict.summary}
@@ -137,15 +196,6 @@ export default function HeroSection({
           packEligible={packEligible}
           subjectFacts={subjectFacts}
           isListed={isListed}
-        />
-      </div>
-
-      <div className="lg:col-span-2">
-        <OfferCeilingCard
-          inputs={inputs}
-          marketValueCap={marketValueCap}
-          marketValueCapSource={marketValueCapSource}
-          analyseDealOptions={analyseDealOptions}
         />
       </div>
     </section>
