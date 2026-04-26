@@ -398,6 +398,16 @@ export default async function ResultsPage({
                   ),
                 },
                 {
+                  id: "stress",
+                  label: "Stress test",
+                  content: (
+                    <StressTestPanel
+                      baseInputs={inputs}
+                      baseAnalysis={analysis}
+                    />
+                  ),
+                },
+                {
                   id: "comps",
                   label: "Comps",
                   badge:
@@ -417,16 +427,6 @@ export default async function ResultsPage({
                     />
                   ) : (
                     <ProCompsTeaser returnTo={currentUrl} />
-                  ),
-                },
-                {
-                  id: "stress",
-                  label: "Stress test",
-                  content: (
-                    <StressTestPanel
-                      baseInputs={inputs}
-                      baseAnalysis={analysis}
-                    />
                   ),
                 },
                 {

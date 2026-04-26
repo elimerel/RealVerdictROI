@@ -11,6 +11,7 @@ import {
   inputsToSearchParams,
   VerdictTier,
 } from "@/lib/calculations";
+import { TIER_LABEL, TIER_TAILWIND_TEXT_LIGHT } from "@/lib/tier-constants";
 
 type DealRow = {
   id: string;
@@ -157,17 +158,20 @@ export default async function DashboardPage({
             </div>
           )}
 
-          <PackSection rows={packRows} error={packsError?.message} />
-
           {rows.length === 0 ? (
             <EmptyDashboard />
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {rows.map((row) => (
-                <DealCard key={row.id} row={row} />
-              ))}
-            </div>
+            <>
+              <PortfolioSummary rows={rows} />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {rows.map((row) => (
+                  <DealCard key={row.id} row={row} />
+                ))}
+              </div>
+            </>
           )}
+
+          <PackSection rows={packRows} error={packsError?.message} />
         </div>
       </main>
     </div>
@@ -178,9 +182,13 @@ function DealCard({ row }: { row: DealRow }) {
   const tier = (row.verdict as VerdictTier) ?? "fair";
   const monthlyCashFlow = row.results?.monthlyCashFlow ?? 0;
   const capRate = row.results?.capRate ?? 0;
+  const dscr = row.results?.dscr;
   const price = row.results?.inputs?.purchasePrice ?? row.inputs.purchasePrice;
 
-  const href = `/results?${inputsToSearchParams(row.inputs).toString()}${
+  const viewHref = `/results?${inputsToSearchParams(row.inputs).toString()}${
+    row.address ? `&address=${encodeURIComponent(row.address)}` : ""
+  }`;
+  const rerunHref = `/?${inputsToSearchParams(row.inputs).toString()}${
     row.address ? `&address=${encodeURIComponent(row.address)}` : ""
   }`;
 
@@ -190,32 +198,50 @@ function DealCard({ row }: { row: DealRow }) {
     year: "numeric",
   });
 
-  return (
-    <Link
-      href={href}
-      className="group flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-            {row.address || formatCurrency(price, 0) + " deal"}
-          </div>
-          <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            {formatCurrency(price, 0)} · saved {displayDate}
-          </div>
-        </div>
-        <VerdictBadge tier={tier} />
-      </div>
+  const dscrDisplay =
+    dscr != null && isFinite(dscr) ? dscr.toFixed(2) : dscr != null ? "∞" : "—";
 
-      <div className="grid grid-cols-2 gap-3">
+  return (
+    <div className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700">
+      <Link href={viewHref} className="min-w-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              {row.address || formatCurrency(price, 0) + " deal"}
+            </div>
+            <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+              {formatCurrency(price, 0)} · saved {displayDate}
+            </div>
+          </div>
+          <VerdictBadge tier={tier} />
+        </div>
+      </Link>
+
+      <div className="grid grid-cols-3 gap-3">
         <Stat
-          label="Monthly cash flow"
-          value={formatCurrency(monthlyCashFlow, 0)}
+          label="Cash flow"
+          value={formatCurrency(monthlyCashFlow, 0) + "/mo"}
           tone={monthlyCashFlow >= 0 ? "positive" : "negative"}
         />
         <Stat label="Cap rate" value={formatPercent(capRate)} />
+        <Stat label="DSCR" value={dscrDisplay} />
       </div>
-    </Link>
+
+      <div className="flex gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800">
+        <Link
+          href={viewHref}
+          className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-900 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900"
+        >
+          View results
+        </Link>
+        <Link
+          href={rerunHref}
+          className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-600 transition hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          Re-run →
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -249,16 +275,16 @@ function VerdictBadge({ tier }: { tier: VerdictTier }) {
   const styles: Record<VerdictTier, string> = {
     excellent:
       "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-    good: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+    good: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
     fair: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-    poor: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+    poor: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
     avoid: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
   };
   return (
     <span
       className={`flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${styles[tier]}`}
     >
-      {tier}
+      {TIER_LABEL[tier]}
     </span>
   );
 }
@@ -405,31 +431,82 @@ function PackCard({ row }: { row: PackRow }) {
   );
 }
 
+function PortfolioSummary({ rows }: { rows: DealRow[] }) {
+  if (rows.length === 0) return null;
+  const totalCashFlow = rows.reduce(
+    (sum, r) => sum + (r.results?.monthlyCashFlow ?? 0),
+    0,
+  );
+  const avgCapRate =
+    rows.reduce((sum, r) => sum + (r.results?.capRate ?? 0), 0) / rows.length;
+  const bestTier = rows.reduce<VerdictTier>((best, r) => {
+    const order: VerdictTier[] = ["excellent", "good", "fair", "poor", "avoid"];
+    const current = (r.verdict as VerdictTier) ?? "fair";
+    return order.indexOf(current) < order.indexOf(best) ? current : best;
+  }, "avoid");
+
+  return (
+    <div className="mb-6 grid grid-cols-3 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/50">
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Portfolio cash flow
+        </div>
+        <div
+          className={`mt-1 font-mono text-xl font-semibold ${
+            totalCashFlow >= 0
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-red-600 dark:text-red-400"
+          }`}
+        >
+          {formatCurrency(totalCashFlow, 0)}/mo
+        </div>
+      </div>
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Avg cap rate
+        </div>
+        <div className="mt-1 font-mono text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+          {formatPercent(avgCapRate)}
+        </div>
+      </div>
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Best deal
+        </div>
+        <div
+          className={`mt-1 text-sm font-semibold ${TIER_TAILWIND_TEXT_LIGHT[bestTier]}`}
+        >
+          {TIER_LABEL[bestTier]}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EmptyDashboard() {
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-white/50 p-12 text-center dark:border-zinc-800 dark:bg-zinc-950/50">
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 via-sky-500 to-indigo-500 text-white">
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white">
         <svg
           viewBox="0 0 20 20"
           fill="currentColor"
           className="h-5 w-5"
           aria-hidden="true"
         >
-          <path d="M10 3.75a2 2 0 10-4 0 2 2 0 004 0zM17.25 4.5a.75.75 0 00-1.5 0v8.75a.75.75 0 00.22.53l1.5 1.5a.75.75 0 101.06-1.06l-1.28-1.28V4.5zM14 3a.75.75 0 01.75.75v8.5a.75.75 0 01-1.5 0V3.75A.75.75 0 0114 3z" />
+          <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
         </svg>
       </div>
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-        Your portfolio starts here
+        No deals saved yet
       </h2>
       <p className="mt-1 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-        Analyse a property on the home page, and you&rsquo;ll be able to save it
-        from the verdict page with one click.
+        Run an analysis on any listing, then hit &ldquo;Save to portfolio&rdquo; on the results page. Each saved deal shows cash flow, cap rate, and DSCR — plus a Re-run link to re-underwrite with fresh numbers.
       </p>
       <Link
         href="/"
-        className="mt-4 text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50"
+        className="mt-5 inline-flex h-9 items-center rounded-md bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
       >
-        Analyse a deal
+        Underwrite a deal →
       </Link>
     </div>
   );
