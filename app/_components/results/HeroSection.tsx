@@ -115,50 +115,43 @@ export default function HeroSection({
   ];
 
   return (
-    <section className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-10">
-      {/* LEFT: Walk-away price — the hero number */}
-      <div className="lg:col-span-3">
-        <OfferCeilingCard
-          inputs={inputs}
-          marketValueCap={marketValueCap}
-          marketValueCapSource={marketValueCapSource}
-          analyseDealOptions={analyseDealOptions}
-        />
-      </div>
-
-      {/* RIGHT: verdict tier + metric grid + AI prose + actions */}
-      <div className="lg:col-span-2 flex flex-col gap-5">
-        <div>
+    <section className="flex flex-col gap-8">
+      {/* VERDICT BANNER — full width, impossible to miss */}
+      <div
+        className="rounded-xl border-l-4 px-6 py-5 sm:px-8 sm:py-6"
+        style={{
+          borderColor: "var(--accent)",
+          backgroundColor: "var(--accent-soft)",
+        }}
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
           <h1
-            className="text-3xl font-bold uppercase leading-none tracking-tight sm:text-4xl"
+            className="text-5xl font-extrabold uppercase leading-none tracking-tighter sm:text-6xl md:text-7xl"
             style={{ color: "var(--accent)" }}
           >
             {TIER_LABEL[tier]}
           </h1>
-          {address && (
-            <p className="mt-2 text-sm font-medium text-zinc-400 break-words">
-              {address}
-            </p>
-          )}
-          {marketHeroLine && (
-            <p className="mt-1.5 text-[11px] leading-snug text-zinc-600">
-              {marketHeroLine}
-            </p>
-          )}
+          <div className="flex flex-col gap-0.5 sm:text-right">
+            {address && (
+              <p className="text-sm font-semibold text-zinc-200 break-words sm:max-w-sm sm:text-right">
+                {address}
+              </p>
+            )}
+            {marketHeroLine && (
+              <p className="text-xs text-zinc-500">{marketHeroLine}</p>
+            )}
+          </div>
         </div>
 
-        {/* 5-metric grid */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
+        {/* Metric strip */}
+        <div className="mt-5 flex flex-wrap gap-x-6 gap-y-3">
           {metrics.map((m) => (
-            <div
-              key={m.label}
-              className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2.5"
-            >
+            <div key={m.label} className="flex flex-col gap-0.5">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                 {m.label}
               </div>
               <div
-                className="mt-0.5 font-mono text-base font-bold tabular-nums"
+                className="font-mono text-lg font-bold tabular-nums leading-none"
                 style={m.style}
               >
                 {m.value}
@@ -166,37 +159,48 @@ export default function HeroSection({
             </div>
           ))}
         </div>
+      </div>
 
-        {/* AI prose */}
-        <div
-          className="rounded-lg border-l-4 pl-4 py-2"
-          style={{
-            borderColor: "var(--accent)",
-            backgroundColor: "var(--accent-soft)",
-          }}
-        >
-          <div className="text-sm text-zinc-300">
-            <InitialVerdict
-              inputs={inputs}
-              fallback={analysis.verdict.summary}
-              analysisContext={analysisContext}
-            />
-          </div>
+      {/* TWO COLUMNS: walk-away (dominant) + AI prose + actions */}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-10">
+        <div className="lg:col-span-3">
+          <OfferCeilingCard
+            inputs={inputs}
+            marketValueCap={marketValueCap}
+            marketValueCapSource={marketValueCapSource}
+            analyseDealOptions={analyseDealOptions}
+          />
         </div>
 
-        <HeroActions
-          editHref={editHref}
-          currentUrl={currentUrl}
-          inputs={inputs}
-          address={address}
-          signedIn={signedIn}
-          isPro={isPro}
-          supabaseConfigured={supabaseConfigured}
-          analysis={analysis}
-          packEligible={packEligible}
-          subjectFacts={subjectFacts}
-          isListed={isListed}
-        />
+        <div className="lg:col-span-2 flex flex-col gap-5">
+          {/* AI prose */}
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-4">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              AI analysis
+            </div>
+            <div className="text-sm leading-relaxed text-zinc-300">
+              <InitialVerdict
+                inputs={inputs}
+                fallback={analysis.verdict.summary}
+                analysisContext={analysisContext}
+              />
+            </div>
+          </div>
+
+          <HeroActions
+            editHref={editHref}
+            currentUrl={currentUrl}
+            inputs={inputs}
+            address={address}
+            signedIn={signedIn}
+            isPro={isPro}
+            supabaseConfigured={supabaseConfigured}
+            analysis={analysis}
+            packEligible={packEligible}
+            subjectFacts={subjectFacts}
+            isListed={isListed}
+          />
+        </div>
       </div>
     </section>
   );
