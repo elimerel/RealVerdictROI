@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Search, ArrowRight, Building2, MapPin, TrendingUp, Bookmark, ChevronDown, Globe, CheckCircle2, Loader2 } from "lucide-react"
+import { Search, ArrowRight, MapPin, TrendingUp, Bookmark, Globe, CheckCircle2, Loader2 } from "lucide-react"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -14,11 +14,6 @@ import type { BrowseResponse } from "@/app/api/browse/route"
 
 const AUTOFILL_CACHE_NS = "autofill:v4"
 const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
-
-const SITE_URL =
-  typeof window !== "undefined"
-    ? window.location.origin
-    : (process.env.NEXT_PUBLIC_SITE_URL ?? "https://realverdictroi.com")
 
 type ResolverPayload = {
   address?: string
@@ -36,8 +31,9 @@ type BrowseStep = {
 
 const LISTING_URL_RE = /^https?:\/\/(www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i
 
+// Navigate current tab — avoids Chrome popup blocker entirely
 function makeBookmarklet(siteUrl: string) {
-  const js = `(function(){var u=encodeURIComponent(window.location.href);window.open('${siteUrl}/?url='+u,'_blank');})();`
+  const js = `(function(){location.href='${siteUrl}/?url='+encodeURIComponent(location.href);})();`
   return `javascript:${js}`
 }
 
@@ -119,6 +115,9 @@ function SearchPageInner() {
   const [browseHostname, setBrowseHostname] = useState<string | null>(null)
   const [browseScreenshot, setBrowseScreenshot] = useState<string | null>(null)
   const [browseSteps, setBrowseSteps] = useState<BrowseStep[]>([])
+
+  const [siteUrl, setSiteUrl] = useState("")
+  useEffect(() => { setSiteUrl(window.location.origin) }, [])
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -330,7 +329,7 @@ function SearchPageInner() {
     }
   }
 
-  const bookmarkletHref = makeBookmarklet(SITE_URL)
+  const bookmarkletHref = siteUrl ? makeBookmarklet(siteUrl) : "#"
   const isBrowseMode = browseHostname !== null && isLoading
 
   return (
@@ -418,32 +417,31 @@ function SearchPageInner() {
                 {error
                   ? <span className="text-amber-500">{error}</span>
                   : isListingUrl
-                    ? <span className="flex items-center gap-1 text-muted-foreground"><Globe className="h-3 w-3" />Will read page directly</span>
+                    ? <span className="flex items-center gap-1 text-emerald-400 font-medium"><Globe className="h-3 w-3" />Browser mode — will read this page directly</span>
                     : <span className="flex items-center gap-1 text-muted-foreground"><MapPin className="h-3 w-3" />Address search</span>
                 }
               </div>
             )}
           </form>
 
-          {/* Tips + bookmarklet */}
+          {/* Browser mode explainer + bookmarklet */}
           <div className="pt-6 space-y-4">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              How it works
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { icon: Globe,      label: "Reads listing pages directly" },
-                { icon: MapPin,     label: "Or search by address" },
-                { icon: TrendingUp, label: "Cap rate, CoC, DSCR & verdict" },
-              ].map((tip) => (
-                <div
-                  key={tip.label}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-muted-foreground bg-muted/50"
-                >
-                  <tip.icon className="h-3.5 w-3.5" />
-                  <span>{tip.label}</span>
+
+            {/* Browser mode card */}
+            <div className="rounded-lg border border-border bg-card/40 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 rounded-md bg-emerald-500/10 flex items-center justify-center shrink-0">
+                  <Globe className="h-3.5 w-3.5 text-emerald-400" />
                 </div>
-              ))}
+                <p className="text-sm font-medium">Browser mode</p>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Paste any listing URL (Zillow, Redfin, Realtor.com, etc.) and the app launches a real browser, visits the page, takes a screenshot, and reads every number off it — price, HOA, tax, rent estimate. No scraper. No guessing.
+              </p>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span>Active — paste any listing URL above to use it</span>
+              </div>
             </div>
 
             {/* Bookmarklet */}
@@ -451,14 +449,13 @@ function SearchPageInner() {
               <div className="flex items-start gap-2">
                 <Bookmark className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium">One-click analysis while you browse</p>
+                  <p className="text-sm font-medium">One-click while browsing</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Drag the button below to your bookmarks bar. Click it on any Zillow, Redfin, or Realtor.com listing to instantly analyze it here.
+                    Drag the button below to your bookmarks bar. When you&apos;re on any listing page, click it — you&apos;ll land here with the analysis already running.
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
+              <div className="flex items-center gap-3 flex-wrap">
                 <a
                   href={bookmarkletHref}
                   onClick={(e) => e.preventDefault()}
@@ -467,14 +464,34 @@ function SearchPageInner() {
                     "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium",
                     "bg-foreground text-background cursor-grab active:cursor-grabbing",
                     "select-none border border-foreground/20 shadow-sm",
+                    !siteUrl && "opacity-50 pointer-events-none",
                   )}
                 >
                   <TrendingUp className="h-3.5 w-3.5" />
                   Analyze on RealVerdict
-                  <ChevronDown className="h-3 w-3 opacity-50" />
                 </a>
-                <span className="text-xs text-muted-foreground">← drag to bookmarks bar</span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs text-muted-foreground">← drag this to your bookmarks bar</span>
+                  <span className="text-[10px] text-muted-foreground/60">then click it while on Zillow, Redfin, etc.</span>
+                </div>
               </div>
+            </div>
+
+            {/* How it works chips */}
+            <div className="flex flex-wrap gap-2">
+              {[
+                { icon: Globe,      label: "Reads listing pages directly" },
+                { icon: MapPin,     label: "Or search by address" },
+                { icon: TrendingUp, label: "Cap rate, CoC, DSCR & verdict" },
+              ].map((tip) => (
+                <div
+                  key={tip.label}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-muted-foreground bg-muted/50"
+                >
+                  <tip.icon className="h-3 w-3" />
+                  <span>{tip.label}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
