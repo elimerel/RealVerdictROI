@@ -1,65 +1,73 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Analytics from "./_components/Analytics";
-import "./globals.css";
+import type { Metadata, Viewport } from "next"
+import { Geist, Geist_Mono } from "next/font/google"
+import { Analytics } from "@vercel/analytics/next"
+import { SidebarProvider } from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/layout/app-sidebar"
+import { createClient } from "@/lib/supabase/server"
+import { supabaseEnv } from "@/lib/supabase/config"
+import { getProStatus } from "@/lib/pro"
+import "./globals.css"
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-// metadataBase lets relative OG / Twitter image URLs resolve to absolute ones.
-// Override via NEXT_PUBLIC_SITE_URL in production.
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default:
-      "RealVerdict — Walk-away price for buy-and-hold rental investors",
+    default: "RealVerdict — Walk-away price for buy-and-hold rental investors",
     template: "%s · RealVerdict",
   },
   description:
-    "Underwrite a rental listing in one pass: verdict, cash flow, cap rate, DSCR, IRR — and the maximum offer where the deal still clears your bar. Optional Negotiation Pack when you are ready to go to contract.",
+    "Underwrite a rental listing in one pass: verdict, cash flow, cap rate, DSCR, IRR — and the maximum offer where the deal still clears your bar.",
   openGraph: {
     type: "website",
     siteName: "RealVerdict",
-    title:
-      "RealVerdict — Walk-away price for buy-and-hold rental investors",
-    description:
-      "Numbers-first underwriting for residential rentals you would hold and lease. Verdict plus walk-away price; live comps when you opt in.",
     images: ["/api/og"],
   },
-  twitter: {
-    card: "summary_large_image",
-    title:
-      "RealVerdict — Walk-away price for buy-and-hold rental investors",
-    description:
-      "Underwrite the rental before you fall in love with the listing. Walk-away price built in.",
-    images: ["/api/og"],
-  },
-};
+}
 
-export default function RootLayout({
+export const viewport: Viewport = {
+  themeColor: "#09090b",
+}
+
+export default async function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
+  // Fetch user + pro status server-side so the sidebar footer shows real data.
+  // Falls back gracefully when Supabase isn't configured (e.g. local dev without env).
+  let userEmail: string | undefined
+  let isPro = false
+  let dealCount: number | undefined
+
+  if (supabaseEnv().configured) {
+    try {
+      const supabase = await createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        userEmail = user.email
+        const [pro, { count }] = await Promise.all([
+          getProStatus(user.id),
+          supabase.from("deals").select("id", { count: "exact", head: true }),
+        ])
+        isPro = pro.isPro
+        dealCount = count ?? undefined
+      }
+    } catch {
+      // Non-fatal — sidebar just shows guest state
+    }
+  }
+
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">
-        {children}
-        <Analytics />
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} dark bg-background`}>
+      <body className="font-sans antialiased">
+        <SidebarProvider>
+          <AppSidebar userEmail={userEmail} isPro={isPro} dealCount={dealCount} />
+          <main className="flex-1 overflow-auto">{children}</main>
+        </SidebarProvider>
+        {process.env.NODE_ENV === "production" && <Analytics />}
       </body>
     </html>
-  );
+  )
 }

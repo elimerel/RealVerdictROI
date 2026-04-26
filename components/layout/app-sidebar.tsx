@@ -2,13 +2,7 @@
 
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import {
-  Search,
-  Inbox,
-  BarChart3,
-  Settings,
-  TrendingUp,
-} from "lucide-react"
+import { Search, Inbox, BarChart3, Settings, TrendingUp } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -25,31 +19,23 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 const navItems = [
-  {
-    title: "Search",
-    icon: Search,
-    href: "/",
-  },
-  {
-    title: "Leads Inbox",
-    icon: Inbox,
-    href: "/leads",
-    badge: 5,
-  },
-  {
-    title: "Market Insights",
-    icon: BarChart3,
-    href: "/insights",
-  },
-  {
-    title: "Settings",
-    icon: Settings,
-    href: "/settings",
-  },
+  { title: "Search",          icon: Search,   href: "/" },
+  { title: "Leads Inbox",     icon: Inbox,    href: "/leads",    badge: null },
+  { title: "Market Insights", icon: BarChart3, href: "/insights" },
+  { title: "Settings",        icon: Settings,  href: "/settings" },
 ]
 
-export function AppSidebar() {
+type Props = {
+  userEmail?: string
+  isPro?: boolean
+  dealCount?: number
+}
+
+export function AppSidebar({ userEmail, isPro, dealCount }: Props) {
   const pathname = usePathname()
+  const initials = userEmail
+    ? userEmail.slice(0, 2).toUpperCase()
+    : "—"
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
@@ -66,6 +52,7 @@ export function AppSidebar() {
           </span>
         </Link>
       </SidebarHeader>
+
       <SidebarContent>
         <SidebarGroup className="pt-2">
           <SidebarGroupContent>
@@ -74,6 +61,7 @@ export function AppSidebar() {
                 const isActive =
                   pathname === item.href ||
                   (item.href !== "/" && pathname.startsWith(item.href))
+                const badge = item.href === "/leads" && dealCount ? dealCount : null
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -82,19 +70,19 @@ export function AppSidebar() {
                       tooltip={item.title}
                       className={cn(
                         "relative",
-                        isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
+                        isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
                       )}
                     >
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
-                        {item.badge && (
-                          <Badge
-                            variant="secondary"
-                            className="ml-auto h-5 min-w-5 px-1.5 text-[10px] font-medium bg-foreground/10 text-foreground group-data-[collapsible=icon]:hidden"
-                          >
-                            {item.badge}
-                          </Badge>
-                        )}
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                      {badge != null && (
+                        <Badge
+                          variant="secondary"
+                          className="ml-auto h-5 min-w-5 px-1.5 text-[10px] font-medium bg-foreground/10 text-foreground group-data-[collapsible=icon]:hidden"
+                        >
+                          {badge}
+                        </Badge>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )
@@ -103,17 +91,21 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
       <SidebarFooter className="border-t border-sidebar-border p-2">
         <div className="flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:justify-center">
-          <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-medium text-muted-foreground">
-            JD
+          <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-medium text-muted-foreground shrink-0">
+            {initials}
           </div>
-          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="text-xs font-medium">John Doe</span>
-            <span className="text-[10px] text-muted-foreground">Pro Plan</span>
+          <div className="flex flex-col group-data-[collapsible=icon]:hidden min-w-0">
+            <span className="text-xs font-medium truncate">{userEmail ?? "Guest"}</span>
+            <span className="text-[10px] text-muted-foreground">
+              {isPro ? "Pro Plan" : "Free Plan"}
+            </span>
           </div>
         </div>
       </SidebarFooter>
+
       <SidebarRail />
     </Sidebar>
   )
