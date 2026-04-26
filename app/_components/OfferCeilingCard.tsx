@@ -173,9 +173,14 @@ export default function OfferCeilingCard({
     return `Market-value anchor: ${formatCurrency(cap, 0)} (5% premium over ${label}). The rubric ceilings above are all below this — the income math is the binding constraint here, not overpayment risk.`;
   })();
 
+  const constraintPill = (() => {
+    if (!ceiling.marketValueCap) return "income-bound";
+    return ceiling.marketValueCap.binding ? "comp-bound" : "income-bound";
+  })();
+
   const collapsedRubricNote =
     !primary && hiddenWithPrices.length > 0 ? (
-      <p className="mb-2 text-[11px] leading-snug text-zinc-500">
+      <p className="mb-2 text-xs leading-snug text-zinc-500">
         {hiddenWithPrices
           .map(
             ({ tier, price }) =>
@@ -193,27 +198,37 @@ export default function OfferCeilingCard({
       <div className="mb-1 text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
         Walk-away price
       </div>
-      <div className="text-base sm:text-lg font-semibold text-zinc-100">
-        {!primary ? (
-          <span style={{ color: "var(--accent)" }}>
-            Walk away.{" "}
-            <span className="text-zinc-400 font-normal text-sm">
-              No realistic offer makes this a buy.
+      {!primary ? (
+        <div className="text-4xl font-bold leading-none" style={{ color: "var(--accent)" }}>
+          Walk away.
+          <p className="mt-2 text-sm font-normal text-zinc-400 leading-snug">
+            No realistic offer makes this a buy.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="font-mono text-4xl font-bold leading-none tabular-nums" style={{ color: "var(--accent)" }}>
+            {formatCurrency(primary.price, 0)}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-zinc-500">Max offer for</span>
+            <span
+              className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]"
+              style={{
+                background: `${TIER_DOT[primary.tier]}22`,
+                color: TIER_DOT[primary.tier],
+                border: `1px solid ${TIER_DOT[primary.tier]}44`,
+              }}
+            >
+              {TIER_LABEL[primary.tier]}
             </span>
-          </span>
-        ) : (
-          <>
-            Max offer:{" "}
-            <span style={{ color: "var(--accent)" }}>
-              {formatCurrency(primary.price, 0)}
-            </span>{" "}
-            <span className="text-zinc-500 font-normal text-sm">
-              for {TIER_LABEL[primary.tier]}
+            <span className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+              {constraintPill}
             </span>
-          </>
-        )}
-      </div>
-      <p className="mt-1 text-sm text-zinc-400">{headlineCopy}</p>
+          </div>
+        </>
+      )}
+      <p className="mt-2 text-sm text-zinc-400">{headlineCopy}</p>
 
       {(stretchCopy || buydownCopy || capCopy) && (
         <div className="mt-3 space-y-1 text-xs text-zinc-500 leading-relaxed">
@@ -315,7 +330,7 @@ function TierLadderRow({
           {TIER_LABEL[tier]}
         </span>
         {isCurrent && (
-          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+          <span className="rounded-full bg-zinc-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-300">
             you are here
           </span>
         )}
