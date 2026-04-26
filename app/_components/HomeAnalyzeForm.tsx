@@ -130,21 +130,7 @@ const CONFIDENCE_TONE: Record<FieldProvenance["confidence"], string> = {
   low: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
 };
 
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
-
-const TIER_COLOR: Record<VerdictTier, string> = {
-  excellent: "text-emerald-500",
-  good: "text-emerald-500",
-  fair: "text-amber-500",
-  poor: "text-red-500",
-  avoid: "text-red-500",
-};
+import { TIER_LABEL, TIER_TAILWIND_TEXT_LIGHT as TIER_COLOR } from "@/lib/tier-constants";
 
 export default function HomeAnalyzeForm({
   initialInputs,

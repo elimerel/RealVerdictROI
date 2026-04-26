@@ -21,23 +21,8 @@ export const size = { width: 1200, height: 630 };
 // instead of blank.
 // ---------------------------------------------------------------------------
 
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
-
-// Tailwind-adjacent palette, hard-coded here because ImageResponse can't read
-// CSS variables. Keep in sync with TIER_ACCENT in app/results/page.tsx.
-const TIER_ACCENT: Record<VerdictTier, string> = {
-  excellent: "#22c55e",
-  good: "#22c55e",
-  fair: "#eab308",
-  poor: "#ef4444",
-  avoid: "#ef4444",
-};
+// ImageResponse can't read CSS variables — importing hex values directly.
+import { TIER_LABEL, TIER_ACCENT } from "@/lib/tier-constants";
 
 const BG = "#09090b"; // zinc-950
 const MUTED = "#a1a1aa"; // zinc-400

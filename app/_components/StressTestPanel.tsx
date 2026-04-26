@@ -10,79 +10,8 @@ import {
   type DealInputs,
   type VerdictTier,
 } from "@/lib/calculations";
-
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
-
-const TIER_COLOR: Record<VerdictTier, string> = {
-  excellent: "text-emerald-400",
-  good: "text-emerald-400",
-  fair: "text-amber-400",
-  poor: "text-red-400",
-  avoid: "text-red-400",
-};
-
-type Scenario = {
-  key: string;
-  label: string;
-  description: string;
-  apply: (base: DealInputs) => DealInputs;
-};
-
-const SCENARIOS: Scenario[] = [
-  {
-    key: "rent-drop",
-    label: "Rent drops 10%",
-    description: "Soft rental market or you misjudged comps",
-    apply: (b) => ({ ...b, monthlyRent: Math.round(b.monthlyRent * 0.9) }),
-  },
-  {
-    key: "rate-up",
-    label: "Refi rate +1pt",
-    description: "If you bought variable or have to refi at a higher rate",
-    apply: (b) => ({
-      ...b,
-      loanInterestRate: b.loanInterestRate + 1,
-    }),
-  },
-  {
-    key: "vacancy-bad-year",
-    label: "Bad year: 1.5 mo vacancy",
-    description: "Eviction, turnover, or a long re-rent",
-    apply: (b) => ({
-      ...b,
-      vacancyRatePercent: Math.max(b.vacancyRatePercent, 12.5),
-    }),
-  },
-  {
-    key: "expenses-spike",
-    label: "Expenses jump 25%",
-    description: "Roof, HVAC, insurance hike, or a big-ticket repair year",
-    apply: (b) => ({
-      ...b,
-      maintenancePercent: b.maintenancePercent * 1.25,
-      annualInsurance: Math.round(b.annualInsurance * 1.25),
-      annualPropertyTax: Math.round(b.annualPropertyTax * 1.05),
-    }),
-  },
-  {
-    key: "exit-down",
-    label: "Sells 10% below today",
-    description: "If the area cools and you exit at a discount",
-    apply: (b) => ({
-      ...b,
-      annualAppreciationPercent:
-        b.annualAppreciationPercent -
-        100 *
-          (1 - Math.pow(0.9, 1 / Math.max(1, b.holdPeriodYears))),
-    }),
-  },
-];
+import { TIER_LABEL, TIER_TAILWIND_TEXT as TIER_COLOR } from "@/lib/tier-constants";
+import { STRESS_SCENARIOS as SCENARIOS } from "@/lib/stress-scenarios";
 
 export default function StressTestPanel({
   baseInputs,

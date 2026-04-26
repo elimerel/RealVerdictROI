@@ -30,6 +30,7 @@ import {
   formatPercent,
   type VerdictTier,
 } from "./calculations";
+import { TIER_LABEL } from "./tier-constants";
 
 // ---------------------------------------------------------------------------
 // Styles — kept inline so the PDF builds in the route handler's runtime
@@ -52,13 +53,8 @@ const TIER_COLOR: Record<VerdictTier, string> = {
   avoid: "#b91c1c",
 };
 
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
+// TIER_COLOR is intentionally a print-safe dark palette — separate from
+// the web accent colors in lib/tier-constants.ts.
 
 const styles = StyleSheet.create({
   page: {

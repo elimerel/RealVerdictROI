@@ -6,23 +6,7 @@ import {
   formatCurrency,
   type VerdictTier,
 } from "@/lib/calculations";
-
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
-};
-
-// Use a dimmer accent palette so the card harmonizes with /results' --accent.
-const TIER_DOT: Record<VerdictTier, string> = {
-  excellent: "#22c55e",
-  good: "#22c55e",
-  fair: "#eab308",
-  poor: "#ef4444",
-  avoid: "#ef4444",
-};
+import { TIER_LABEL, TIER_ACCENT as TIER_DOT } from "@/lib/tier-constants";
 
 const LADDER_ORDER = ["excellent", "good", "fair", "poor"] as const;
 type LadderTier = (typeof LADDER_ORDER)[number];
