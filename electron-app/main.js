@@ -381,8 +381,8 @@ app.whenReady().then(async () => {
   serverProcess = startNextServer(PORT)
 
   waitForServer(PORT).then(() => {
-    // Server is ready — swap the loading screen for the real app
-    if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${PORT}`)
+    // Boot straight into the app, not the marketing homepage
+    if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
   }).catch((err) => {
     console.error("[electron]", err.message)
     // Fall back to the loading screen; it will show "Starting up…" which is
@@ -391,7 +391,12 @@ app.whenReady().then(async () => {
   })
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+      waitForServer(PORT).then(() => {
+        if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
+      }).catch(() => {})
+    }
   })
 })
 
