@@ -12,7 +12,11 @@
 const { cpSync, mkdirSync, rmSync, existsSync } = require("fs")
 const path = require("path")
 
-const repoRoot = path.resolve(__dirname, "..", "..")
+// Support REPO_ROOT env var for builds where the Next.js standalone was built
+// from a different directory (e.g. parent repo when using git worktrees).
+const repoRoot = process.env.REPO_ROOT
+  ? path.resolve(process.env.REPO_ROOT)
+  : path.resolve(__dirname, "..", "..")
 const standaloneDir = path.join(repoRoot, ".next", "standalone")
 
 if (!existsSync(standaloneDir)) {

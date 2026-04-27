@@ -11,7 +11,10 @@ export const metadata: Metadata = {
     "RealVerdict for Mac — a native desktop app with a built-in browser. Browse Zillow or Redfin inside the app and analyze any listing in one click.",
 }
 
-const DMG_URL = "https://github.com/elimerel/RealVerdictROI/releases/latest/download/RealVerdictROI.dmg"
+const DMG_ARM64 = "https://github.com/elimerel/RealVerdictROI/releases/latest/download/RealVerdict-arm64.dmg"
+const DMG_X64   = "https://github.com/elimerel/RealVerdictROI/releases/latest/download/RealVerdict-x64.dmg"
+// Default to Apple Silicon (most common modern Mac)
+const DMG_URL = DMG_ARM64
 
 const desktopFeatures = [
   {
@@ -110,13 +113,21 @@ export default function DownloadPage() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center pt-2">
-            <a
-              href={DMG_URL}
-              className="inline-flex items-center justify-center gap-2.5 rounded-xl bg-zinc-900 px-7 py-4 text-base font-semibold text-white shadow-lg transition hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              <Download className="h-5 w-5" />
-              Download for macOS
-            </a>
+            <div className="flex flex-col gap-2">
+              <a
+                href={DMG_ARM64}
+                className="inline-flex items-center justify-center gap-2.5 rounded-xl bg-zinc-900 px-7 py-4 text-base font-semibold text-white shadow-lg transition hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                <Download className="h-5 w-5" />
+                Download for Mac (Apple Silicon)
+              </a>
+              <a
+                href={DMG_X64}
+                className="text-center text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300 underline underline-offset-2"
+              >
+                Intel Mac? Download here
+              </a>
+            </div>
             <Link
               href="/search"
               target="_blank"
@@ -129,7 +140,7 @@ export default function DownloadPage() {
           </div>
 
           <p className="text-xs text-zinc-400 dark:text-zinc-600">
-            ~120 MB download · No account required to get started
+            ~115 MB download · macOS 12 Monterey or later · No account required to get started
           </p>
         </section>
 
@@ -269,9 +280,9 @@ export default function DownloadPage() {
             </div>
             <ol className="space-y-5">
               {[
-                ["Download", "Click the button above to download RealVerdictROI.dmg."],
-                ["Install", "Open the .dmg and drag RealVerdict into your Applications folder."],
-                ["Launch", "Open the app. macOS may ask you to confirm — click Open. It's code-signed."],
+                ["Download", "Click the button above. Choose Apple Silicon for M1/M2/M3 Macs, or Intel for older models."],
+                ["Install", "Open the downloaded .dmg and drag RealVerdict into your Applications folder."],
+                ["Launch", "Open the app. macOS may ask you to confirm — click Open."],
                 ["API key", "Add your OpenAI API key in Settings → API Keys to unlock AI-powered analysis."],
               ].map(([title, body], i) => (
                 <li key={title} className="flex gap-4">
