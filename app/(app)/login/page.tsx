@@ -7,9 +7,12 @@ import { getCurrentUser } from "@/lib/supabase/server";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redirect?: string; mode?: string }>;
+  searchParams: Promise<{ redirect?: string; mode?: string; error?: string }>;
 }) {
   const sp = await searchParams;
+  const oauthError = sp.error === "oauth_failed"
+    ? "Google sign-in failed. Please try again or use email."
+    : null;
   const redirectTo =
     typeof sp.redirect === "string" && sp.redirect.startsWith("/")
       ? sp.redirect
@@ -45,7 +48,14 @@ export default async function LoginPage({
 
       <main className="flex flex-1 items-center justify-center px-6 py-16">
         {supabaseEnv().configured ? (
-          <LoginForm redirectTo={redirectTo} initialMode={initialMode} />
+          <>
+            {oauthError && (
+              <div className="mb-4 w-full max-w-md rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+                {oauthError}
+              </div>
+            )}
+            <LoginForm redirectTo={redirectTo} initialMode={initialMode} />
+          </>
         ) : (
           <UnconfiguredNotice />
         )}

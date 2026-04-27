@@ -6,7 +6,7 @@ import {
 import {
   ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X,
   ExternalLink, AlertTriangle, CheckCircle2, TrendingUp,
-  ChevronLeft, BarChart3, DollarSign,
+  ChevronLeft, BarChart3, DollarSign, Home,
   Percent, ShieldCheck,
 } from "lucide-react"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
@@ -307,8 +307,8 @@ function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
     inputs: data.inputs,
     analysis,
     walkAway: ceiling.primaryTarget?.price ?? null,
-    siteName: data.siteName,
-    confidence: data.confidence,
+    siteName: data.siteName ?? null,
+    confidence: data.confidence ?? "medium",
   }
 }
 

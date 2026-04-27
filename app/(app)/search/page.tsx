@@ -10,7 +10,18 @@ import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
 import type { DealInputs } from "@/lib/calculations"
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
-import type { BrowseResponse } from "@/app/api/browse/route"
+// BrowseResponse shape — mirrors what /api/browse returns (route removed, type inlined)
+type BrowseResponse = {
+  screenshot?: string
+  address?: string
+  inputs: Record<string, unknown>
+  facts?: Record<string, unknown>
+  notes?: string[]
+  warnings?: string[]
+  provenance?: Record<string, unknown>
+  siteName?: string | null
+  confidence?: string
+}
 
 const AUTOFILL_CACHE_NS = "autofill:v4"
 const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
@@ -232,17 +243,17 @@ function SearchPageInner() {
         // Show screenshot as soon as we get a response
         if (res.ok) {
           const data = (await res.json()) as BrowseResponse
-          setBrowseScreenshot(data.screenshot)
+          setBrowseScreenshot(data.screenshot ?? null)
           advanceStep(4)
           stepTimerRef.current = setTimeout(() => advanceStep(5), 600)
 
           const payload: ResolverPayload = {
             address: data.address,
             inputs: data.inputs,
-            facts: data.facts,
-            notes: data.notes,
-            warnings: data.warnings,
-            provenance: data.provenance,
+            facts: data.facts ?? {},
+            notes: data.notes ?? [],
+            warnings: data.warnings ?? [],
+            provenance: data.provenance ?? {},
           }
           sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
 
