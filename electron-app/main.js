@@ -260,14 +260,17 @@ function createMainWindow() {
   mainWindow.on("resize", () => syncBrowserViewBounds())
   mainWindow.on("move", () => syncBrowserViewBounds())
 
-  // Detect sign-out: app redirects to /login → swap back to login window
-  mainWindow.webContents.on("did-navigate", (_e, url) => {
+  // Detect sign-out: Next.js router.push("/login") fires did-navigate-in-page
+  // (client-side navigation), not did-navigate. Must listen to both.
+  function onSignOut(_e, url) {
     if (url.includes(`127.0.0.1:${PORT}/login`)) {
       destroyBrowserView()
       createLoginWindow()
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
     }
-  })
+  }
+  mainWindow.webContents.on("did-navigate", onSignOut)
+  mainWindow.webContents.on("did-navigate-in-page", onSignOut)
 }
 
 // ---------------------------------------------------------------------------
