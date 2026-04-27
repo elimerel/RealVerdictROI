@@ -237,8 +237,7 @@ export async function POST(req: NextRequest) {
           for (const [k, v] of Object.entries(resolved.inputs ?? {})) {
             const key = k as keyof DealInputs
             if (inputs[key] == null && v != null) {
-              // @ts-expect-error dynamic merge
-              inputs[key] = v
+              (inputs as Record<string, unknown>)[key] = v
             }
           }
           Object.assign(facts, resolved.facts)
