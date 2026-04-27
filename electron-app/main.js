@@ -1,6 +1,6 @@
 "use strict"
 
-const { app, BrowserWindow, WebContentsView, ipcMain, utilityProcess } = require("electron")
+const { app, BrowserWindow, WebContentsView, ipcMain, utilityProcess, screen } = require("electron")
 const path = require("path")
 const http = require("http")
 const net = require("net")
@@ -14,10 +14,9 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) { app.quit() }
 
 app.on("second-instance", () => {
-  const win = mainWindow || loginWindow
-  if (win && !win.isDestroyed()) {
-    if (win.isMinimized()) win.restore()
-    win.focus()
+  if (appWindow && !appWindow.isDestroyed()) {
+    if (appWindow.isMinimized()) appWindow.restore()
+    appWindow.focus()
   }
 })
 
@@ -36,6 +35,10 @@ const nextRoot = app.isPackaged
 
 const CONFIG_PATH = path.join(app.getPath("userData"), "config.json")
 const LOADING_FILE = path.join(__dirname, "loading.html")
+
+// Login window dimensions
+const LOGIN_W = 420
+const LOGIN_H = 560
 
 // ---------------------------------------------------------------------------
 // Config helpers
@@ -56,11 +59,12 @@ function writeConfig(data) {
 // State
 // ---------------------------------------------------------------------------
 
-/** @type {BrowserWindow | null} */
-let loginWindow = null
-
-/** @type {BrowserWindow | null} */
-let mainWindow = null
+/**
+ * Single window that morphs between login (small) and main app (large).
+ * No window swapping — just resize + navigate.
+ * @type {BrowserWindow | null}
+ */
+let appWindow = null
 
 /** @type {WebContentsView | null} */
 let browserView = null
@@ -70,6 +74,7 @@ let serverProcess = null
 
 let PORT = 3000
 let serverReady = false
+let isMainMode = false   // tracks whether window is currently in main-app mode
 
 // ---------------------------------------------------------------------------
 // Port helpers
@@ -120,8 +125,6 @@ function startNextServer(port) {
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
       NEXT_SHARP_PATH: "",
-      // Pass userData path so the API route can read the key at request time
-      // (avoids needing a server restart when the key is saved in Settings)
       USER_DATA_PATH: app.getPath("userData"),
       ...(config.openaiApiKey ? { OPENAI_API_KEY: config.openaiApiKey } : {}),
     },
@@ -153,74 +156,38 @@ function waitForServer(port, maxMs = 60_000) {
 }
 
 // ---------------------------------------------------------------------------
-// Login window — small, centered, shown before auth
+// Window helpers
 // ---------------------------------------------------------------------------
 
-function createLoginWindow() {
-  if (loginWindow && !loginWindow.isDestroyed()) {
-    loginWindow.focus(); return
+function centeredBounds(w, h) {
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
+  return {
+    x: Math.round((sw - w) / 2),
+    y: Math.round((sh - h) / 2),
+    width: w,
+    height: h,
   }
-
-  loginWindow = new BrowserWindow({
-    width: 400,
-    height: 520,
-    resizable: false,
-    center: true,
-    backgroundColor: "#09090b",
-    // Standard macOS title bar — no overlap with content, traffic lights in their own bar
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-
-  // Show loading screen while server boots, then switch to compact login
-  if (!serverReady) {
-    loginWindow.loadFile(LOADING_FILE)
-    waitForServer(PORT).then(() => {
-      serverReady = true
-      if (loginWindow && !loginWindow.isDestroyed()) {
-        loginWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
-      }
-    }).catch(() => {
-      if (loginWindow && !loginWindow.isDestroyed()) loginWindow.loadFile(LOADING_FILE)
-    })
-  } else {
-    loginWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
-  }
-
-  loginWindow.on("closed", () => {
-    loginWindow = null
-    if (!mainWindow || mainWindow.isDestroyed()) app.quit()
-  })
 }
 
 // ---------------------------------------------------------------------------
-// Main window — full app, shown after auth
+// Single app window
 // ---------------------------------------------------------------------------
 
-// afterReady — optional callback fired once the window is visible and focused.
-// Use this to close the login window AFTER the main window is on screen,
-// preventing any gap where no window is visible.
-function createMainWindow(afterReady) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.focus()
-    if (afterReady) afterReady()
+function createAppWindow() {
+  if (appWindow && !appWindow.isDestroyed()) {
+    appWindow.focus()
     return
   }
 
-  mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
-    show: false,         // revealed in ready-to-show to prevent blank flash
+  isMainMode = false
+
+  appWindow = new BrowserWindow({
+    ...centeredBounds(LOGIN_W, LOGIN_H),
+    resizable: false,
+    show: false,
     backgroundColor: "#09090b",
-    // Integrated title bar: 28px transparent drag strip at top, traffic
-    // lights sit in it at y=8. CSS in globals.css shifts body down 28px
-    // so content never underlaps the traffic lights.
+    // hiddenInset from the start so traffic lights are always in place
+    // and the window can expand into main-app mode without recreating it.
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 8 },
     webPreferences: {
@@ -231,35 +198,70 @@ function createMainWindow(afterReady) {
     },
   })
 
-  mainWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
-
-  // Show once the first paint is ready — no blank flash.
-  // Also fall back after 4 s in case ready-to-show is delayed.
-  let shown = false
-  const doShow = () => {
-    if (shown || !mainWindow || mainWindow.isDestroyed()) return
-    shown = true
-    mainWindow.show()
-    mainWindow.focus()
-    if (afterReady) afterReady()
-  }
-  mainWindow.once("ready-to-show", doShow)
-  setTimeout(doShow, 4000)
-
-  if (DEV) mainWindow.webContents.openDevTools({ mode: "detach" })
-
-  mainWindow.on("closed", () => {
-    destroyBrowserView()
-    mainWindow = null
-    // If the login window isn't open (sign-out didn't trigger this), the user
-    // manually closed the app — quit entirely rather than leaving a ghost process
-    if (!loginWindow || loginWindow.isDestroyed()) {
-      app.quit()
-    }
+  // Reveal once the first paint is ready (no blank flash)
+  appWindow.once("ready-to-show", () => {
+    if (appWindow && !appWindow.isDestroyed()) appWindow.show()
   })
 
-  mainWindow.on("resize", () => syncBrowserViewBounds())
-  mainWindow.on("move", () => syncBrowserViewBounds())
+  if (!serverReady) {
+    appWindow.loadFile(LOADING_FILE)
+    // waitForServer() in app.whenReady() will navigate to /login once ready
+  } else {
+    appWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
+  }
+
+  appWindow.on("resize", () => syncBrowserViewBounds())
+  appWindow.on("move",   () => syncBrowserViewBounds())
+  appWindow.on("closed", () => {
+    destroyBrowserView()
+    appWindow = null
+    isMainMode = false
+    app.quit()
+  })
+}
+
+/**
+ * Expand the window into full main-app mode after a successful sign-in.
+ * The window animates to 1400×900, then navigates to /search.
+ * This matches the "window expands into the app" pattern used by Claude Desktop.
+ */
+function expandToMainApp() {
+  if (!appWindow || appWindow.isDestroyed()) return
+  if (isMainMode) { appWindow.focus(); return }
+  isMainMode = true
+
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
+  const w = Math.min(1400, sw - 60)
+  const h = Math.min(900,  sh - 60)
+
+  appWindow.setResizable(true)
+  appWindow.setMinimumSize(900, 600)
+  appWindow.setBounds(centeredBounds(w, h), true)   // true = animate on macOS
+  appWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
+
+  if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
+}
+
+/**
+ * Shrink the window back to login mode after sign-out.
+ * Animates to 420×560, then navigates to /login.
+ */
+function shrinkToLogin() {
+  if (!appWindow || appWindow.isDestroyed()) return
+  destroyBrowserView()
+  isMainMode = false
+
+  // Clear the minimum size before shrinking, then lock resizing
+  appWindow.setMinimumSize(0, 0)
+  appWindow.setResizable(false)
+  appWindow.setBounds(centeredBounds(LOGIN_W, LOGIN_H), true)  // animated
+
+  // Navigate after the animation has started so it doesn't flash
+  setTimeout(() => {
+    if (appWindow && !appWindow.isDestroyed()) {
+      appWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
+    }
+  }, 250)
 }
 
 // ---------------------------------------------------------------------------
@@ -282,21 +284,21 @@ function createBrowserView() {
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
   )
-  mainWindow.contentView.addChildView(browserView)
+  appWindow.contentView.addChildView(browserView)
 
   const sendNav = () => {
-    if (!mainWindow || !browserView) return
+    if (!appWindow || !browserView) return
     const url = browserView.webContents.getURL()
-    mainWindow.webContents.send("browser:nav-update", {
+    appWindow.webContents.send("browser:nav-update", {
       url, title: browserView.webContents.getTitle(),
       isListing: LISTING_RE.test(url), loading: false,
     })
   }
-  browserView.webContents.on("did-navigate", sendNav)
+  browserView.webContents.on("did-navigate",         sendNav)
   browserView.webContents.on("did-navigate-in-page", sendNav)
-  browserView.webContents.on("page-title-updated", sendNav)
+  browserView.webContents.on("page-title-updated",   sendNav)
   browserView.webContents.on("did-start-loading", () => {
-    mainWindow?.webContents.send("browser:nav-update", { loading: true })
+    appWindow?.webContents.send("browser:nav-update", { loading: true })
   })
   browserView.webContents.on("did-stop-loading", sendNav)
   browserView.webContents.setWindowOpenHandler(({ url }) => {
@@ -307,8 +309,8 @@ function createBrowserView() {
 
 function destroyBrowserView() {
   if (!browserView) return
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.contentView.removeChildView(browserView)
+  if (appWindow && !appWindow.isDestroyed()) {
+    appWindow.contentView.removeChildView(browserView)
   }
   try { browserView.webContents.close() } catch { /* already closed */ }
   browserView = null
@@ -334,8 +336,8 @@ ipcMain.handle("browser:create", (_e, bounds) => {
   createBrowserView(); pendingBounds = bounds; syncBrowserViewBounds()
   return { reused: false }
 })
-ipcMain.handle("browser:destroy", () => destroyBrowserView())
-ipcMain.handle("browser:hide", () => hideBrowserView())
+ipcMain.handle("browser:destroy",      () => destroyBrowserView())
+ipcMain.handle("browser:hide",         () => hideBrowserView())
 ipcMain.handle("browser:show", (_e, bounds) => {
   if (!browserView) return { exists: false }
   pendingBounds = bounds; showBrowserView()
@@ -347,10 +349,10 @@ ipcMain.handle("browser:get-state", () => {
   const url = browserView.webContents.getURL()
   return { exists: true, url, title: browserView.webContents.getTitle(), isListing: LISTING_RE.test(url) }
 })
-ipcMain.handle("browser:navigate", (_e, url) => browserView?.webContents.loadURL(url))
-ipcMain.handle("browser:back", () => { if (browserView?.webContents.canGoBack()) browserView.webContents.goBack() })
-ipcMain.handle("browser:forward", () => { if (browserView?.webContents.canGoForward()) browserView.webContents.goForward() })
-ipcMain.handle("browser:reload", () => browserView?.webContents.reload())
+ipcMain.handle("browser:navigate",     (_e, url) => browserView?.webContents.loadURL(url))
+ipcMain.handle("browser:back",         () => { if (browserView?.webContents.canGoBack())    browserView.webContents.goBack()    })
+ipcMain.handle("browser:forward",      () => { if (browserView?.webContents.canGoForward()) browserView.webContents.goForward() })
+ipcMain.handle("browser:reload",       () => browserView?.webContents.reload())
 ipcMain.handle("browser:bounds-update", (_e, bounds) => { pendingBounds = bounds; syncBrowserViewBounds() })
 
 ipcMain.handle("browser:extract-dom", async () => {
@@ -398,24 +400,11 @@ ipcMain.handle("browser:analyze", async () => {
 })
 
 // ---------------------------------------------------------------------------
-// IPC — auth events (explicit signals, more reliable than watching URL changes)
+// IPC — auth
 // ---------------------------------------------------------------------------
 
-// Called by LoginForm / ElectronAutoSignIn after a successful sign-in.
-// We close the login window only AFTER the main window is ready-to-show,
-// so there is never a moment where no window is visible.
-ipcMain.handle("auth:signed-in", () => {
-  createMainWindow(() => {
-    if (loginWindow && !loginWindow.isDestroyed()) loginWindow.close()
-  })
-})
-
-// Called by the sidebar sign-out button after supabase.auth.signOut()
-ipcMain.handle("auth:signed-out", () => {
-  destroyBrowserView()
-  createLoginWindow()
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
-})
+ipcMain.handle("auth:signed-in",  () => expandToMainApp())
+ipcMain.handle("auth:signed-out", () => shrinkToLogin())
 
 // ---------------------------------------------------------------------------
 // IPC — config / API keys
@@ -442,25 +431,21 @@ app.whenReady().then(async () => {
 
   serverProcess = startNextServer(PORT)
 
-  // Boot server in background; login window shows loading screen until ready
+  // Boot server in the background; navigate to /login once ready
   waitForServer(PORT).then(() => {
     serverReady = true
-    // If login window is open and still on loading screen, switch it to /login
-    if (loginWindow && !loginWindow.isDestroyed()) {
-      loginWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
+    if (appWindow && !appWindow.isDestroyed() && !isMainMode) {
+      appWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
     }
   }).catch((err) => {
     console.error("[electron] server failed to start:", err.message)
   })
 
-  // Show login window immediately (displays loading screen while server warms up)
-  createLoginWindow()
+  // Create the single app window (shows loading screen while server boots)
+  createAppWindow()
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      // If logged in, Next.js will redirect /login → /search automatically
-      createLoginWindow()
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createAppWindow()
   })
 })
 

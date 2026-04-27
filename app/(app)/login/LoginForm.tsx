@@ -40,33 +40,36 @@ export default function LoginForm({
     | { state: "needs_confirmation" }
   >({ state: "idle" });
 
-  // In Electron, use explicit IPC rather than router navigation —
-  // URL-watching via did-navigate-in-page is unreliable for auth state changes.
-  const api = typeof window !== "undefined" ? (window as any).electronAPI : null;
+  // In Electron, use explicit IPC rather than router navigation.
+  // IMPORTANT: read window.electronAPI fresh inside the callback rather than
+  // capturing it from a render-time closure — the closure could be stale (null)
+  // if window.electronAPI wasn't set during the very first SSR/hydration pass.
   const calledSignedIn = useRef(false);
 
   const afterSignIn = useCallback(() => {
-    if (api?.signedIn) {
+    const electronAPI = typeof window !== "undefined" ? (window as any).electronAPI : null;
+    if (electronAPI?.signedIn) {
       if (calledSignedIn.current) return;
       calledSignedIn.current = true;
-      api.signedIn();
+      electronAPI.signedIn();
     } else {
       router.replace(redirectTo);
       router.refresh();
     }
-  }, [api, redirectTo, router]);
+  }, [redirectTo, router]);
 
   // Listen for Supabase auth state changes — handles:
   // - INITIAL_SESSION: fires on subscribe if a session already exists (app restart flow)
   // - SIGNED_IN: fires after email/password login or Google OAuth callback
   useEffect(() => {
-    if (!api?.signedIn) return;  // only needed in Electron
+    const electronAPI = typeof window !== "undefined" ? (window as any).electronAPI : null;
+    if (!electronAPI?.signedIn) return;  // only needed in Electron
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session) afterSignIn();
     });
     return () => subscription.unsubscribe();
-  }, [afterSignIn, api]);
+  }, [afterSignIn]);
 
   const signInWithGoogle = async () => {
     setStatus({ state: "oauth_loading" });
