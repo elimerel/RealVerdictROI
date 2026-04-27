@@ -448,17 +448,24 @@ ipcMain.handle("auth:signed-out", () => shrinkToLogin())
 /**
  * OAuth popup flow for Electron.
  *
- * Opens a dedicated BrowserWindow for the OAuth provider (Google, etc.).
- * When the provider redirects back to our local /auth/callback URL, we:
- *   1. Load that callback URL in the main window (so Next.js can exchange
- *      the code and set the session cookie).
- *   2. Close the popup.
+ * Opens a dedicated BrowserWindow so the login window never navigates away.
+ * Session cookies are shared across all BrowserWindows in the default
+ * Electron session, so once the popup processes /auth/callback the main
+ * window can navigate to /search and find itself authenticated.
  *
- * The main window's did-navigate listener then sees the /auth/callback →
- * /search redirect chain and calls expandToMainApp().
+ * Detection strategy — three layers:
  *
- * This keeps Google sign-in in a proper standalone window rather than
- * navigating the small login window to google.com and back.
+ * 1. did-redirect-navigation: fires for EVERY server-side HTTP redirect
+ *    BEFORE it completes.  Catches Google → /auth/callback redirect early.
+ *
+ * 2. did-navigate: fires once the navigation COMMITS (final URL after all
+ *    redirects).  Catches the /search landing as a fallback.
+ *
+ * 3. did-navigate-in-page: hash-fragment / SPA navigation fallback.
+ *
+ * In all cases, once we detect a URL on our local server we hand it to the
+ * main window and close the popup.  The main window's own did-navigate
+ * listener then calls expandToMainApp().
  */
 ipcMain.handle("auth:open-oauth", (_e, oauthUrl) => {
   return new Promise((resolve) => {
@@ -470,43 +477,57 @@ ipcMain.handle("auth:open-oauth", (_e, oauthUrl) => {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        // No preload — this is a sandboxed auth popup only
       },
       parent: appWindow ?? undefined,
       modal: false,
     })
 
     popup.setMenuBarVisibility(false)
+
+    // Spoof a standard Chrome user-agent.  Google rejects OAuth requests from
+    // user-agents that contain "Electron" (embedded WebView policy).
+    const chromeUA =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    popup.webContents.setUserAgent(chromeUA)
     popup.loadURL(oauthUrl)
 
-    // Watch every navigation inside the popup.
-    // When it lands on our local /auth/callback, hand the URL to the main
-    // window and close the popup.
-    popup.webContents.on("did-navigate", (_event, url) => {
+    let resolved = false
+    const finish = (url) => {
+      if (resolved) return
+      resolved = true
+      // If the URL is the auth callback, load it in the main window so the
+      // session cookie gets set, then the main window redirects to /search.
+      // If it's already /search (or any app page), load it directly — the
+      // session cookie was already set by the callback the popup processed.
+      appWindow?.loadURL(url)
+      popup.destroy()
+      resolve({ ok: true })
+    }
+
+    const checkUrl = (url) => {
       try {
         const u = new URL(url)
-        if (u.hostname === "127.0.0.1" && u.pathname.startsWith("/auth/callback")) {
-          // Navigate main window to the callback so the session is established
-          appWindow?.loadURL(url)
-          popup.destroy()
-          resolve({ ok: true })
+        // Any URL on our local server means OAuth is done (or the callback
+        // has been hit).  Hand it to the main window.
+        if (u.hostname === "127.0.0.1" && u.port === String(PORT)) {
+          finish(url)
         }
-      } catch { /* non-URL */ }
-    })
+      } catch { /* ignore */ }
+    }
 
-    // Also watch in-page redirects (some OAuth providers use hash fragments)
-    popup.webContents.on("did-navigate-in-page", (_event, url) => {
-      try {
-        const u = new URL(url)
-        if (u.hostname === "127.0.0.1" && u.pathname.startsWith("/auth/callback")) {
-          appWindow?.loadURL(url)
-          popup.destroy()
-          resolve({ ok: true })
-        }
-      } catch { /* non-URL */ }
-    })
+    // Layer 1: server-side redirects (fires BEFORE the redirect completes)
+    popup.webContents.on("did-redirect-navigation", (_e, url) => checkUrl(url))
 
-    popup.on("closed", () => resolve({ cancelled: true }))
+    // Layer 2: committed navigation (final URL after all redirects)
+    popup.webContents.on("did-navigate", (_e, url) => checkUrl(url))
+
+    // Layer 3: SPA / hash navigation
+    popup.webContents.on("did-navigate-in-page", (_e, url) => checkUrl(url))
+
+    popup.on("closed", () => {
+      if (!resolved) resolve({ cancelled: true })
+    })
   })
 })
 
