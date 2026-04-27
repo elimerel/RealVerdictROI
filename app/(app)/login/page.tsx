@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { TrendingUp } from "lucide-react";
 import LoginForm from "./LoginForm";
+import ElectronAutoSignIn from "./ElectronAutoSignIn";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 
@@ -20,7 +21,16 @@ export default async function LoginPage({
       : "/search";
 
   const user = await getCurrentUser();
-  if (user) redirect(redirectTo);
+  if (user) {
+    // In Electron the login page loads in a small 400×520 window.
+    // A normal redirect() would show the full app crammed into that tiny window.
+    // Instead, render a client component that calls api.signedIn() via IPC so
+    // the main process opens the real mainWindow and closes this login window.
+    if (sp.source === "electron") {
+      return <ElectronAutoSignIn />;
+    }
+    redirect(redirectTo);
+  }
 
   const initialMode: "signin" | "signup" =
     sp.mode === "signup" ? "signup" : "signin";

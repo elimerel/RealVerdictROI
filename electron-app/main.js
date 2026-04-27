@@ -193,26 +193,8 @@ function createLoginWindow() {
 
   loginWindow.on("closed", () => {
     loginWindow = null
-    // Close app if main window isn't open (user closed login window = done)
     if (!mainWindow || mainWindow.isDestroyed()) app.quit()
   })
-
-  // Detect successful auth: Next.js redirects away from /login & /auth/
-  // We must listen to BOTH events:
-  //   did-navigate       → full page load (e.g. OAuth callback redirect)
-  //   did-navigate-in-page → History API pushState/replaceState used by Next.js router.replace()
-  function onAuthNav(_e, url) {
-    if (
-      url.startsWith(`http://127.0.0.1:${PORT}`) &&
-      !url.includes("/login") &&
-      !url.includes("/auth/")
-    ) {
-      createMainWindow()
-      if (loginWindow && !loginWindow.isDestroyed()) loginWindow.close()
-    }
-  }
-  loginWindow.webContents.on("did-navigate", onAuthNav)
-  loginWindow.webContents.on("did-navigate-in-page", onAuthNav)
 }
 
 // ---------------------------------------------------------------------------
@@ -259,18 +241,6 @@ function createMainWindow() {
 
   mainWindow.on("resize", () => syncBrowserViewBounds())
   mainWindow.on("move", () => syncBrowserViewBounds())
-
-  // Detect sign-out: Next.js router.push("/login") fires did-navigate-in-page
-  // (client-side navigation), not did-navigate. Must listen to both.
-  function onSignOut(_e, url) {
-    if (url.includes(`127.0.0.1:${PORT}/login`)) {
-      destroyBrowserView()
-      createLoginWindow()
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
-    }
-  }
-  mainWindow.webContents.on("did-navigate", onSignOut)
-  mainWindow.webContents.on("did-navigate-in-page", onSignOut)
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +376,23 @@ ipcMain.handle("browser:analyze", async () => {
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Network error." }
   }
+})
+
+// ---------------------------------------------------------------------------
+// IPC — auth events (explicit signals, more reliable than watching URL changes)
+// ---------------------------------------------------------------------------
+
+// Called by LoginForm after a successful sign-in (email or OAuth)
+ipcMain.handle("auth:signed-in", () => {
+  createMainWindow()
+  if (loginWindow && !loginWindow.isDestroyed()) loginWindow.close()
+})
+
+// Called by the sidebar sign-out button after supabase.auth.signOut()
+ipcMain.handle("auth:signed-out", () => {
+  destroyBrowserView()
+  createLoginWindow()
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
 })
 
 // ---------------------------------------------------------------------------

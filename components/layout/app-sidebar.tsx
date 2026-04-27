@@ -47,11 +47,17 @@ export function AppSidebar({ userEmail, isPro, dealCount }: Props) {
     ? userEmail.slice(0, 2).toUpperCase()
     : "—"
 
+  const api = typeof window !== "undefined" ? (window as any).electronAPI : null
+
   const signOut = async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
-    router.push("/login")
-    router.refresh()
+    if (api?.signedOut) {
+      api.signedOut()  // Electron: tell main process to swap windows
+    } else {
+      router.push("/login")
+      router.refresh()
+    }
   }
 
   return (

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 // Google "G" logo SVG — official brand colour
@@ -40,19 +40,47 @@ export default function LoginForm({
     | { state: "needs_confirmation" }
   >({ state: "idle" });
 
+  // In Electron, use explicit IPC rather than router navigation —
+  // URL-watching via did-navigate-in-page is unreliable for auth state changes.
+  const api = typeof window !== "undefined" ? (window as any).electronAPI : null;
+  const calledSignedIn = useRef(false);
+
+  const afterSignIn = useCallback(() => {
+    if (api?.signedIn) {
+      if (calledSignedIn.current) return;
+      calledSignedIn.current = true;
+      api.signedIn();
+    } else {
+      router.replace(redirectTo);
+      router.refresh();
+    }
+  }, [api, redirectTo, router]);
+
+  // Listen for Supabase auth state changes — handles Google OAuth callback
+  // (server-side redirect bypasses our submit handler) and the INITIAL_SESSION
+  // event fired when the user is already signed in on page load.
+  useEffect(() => {
+    if (!api?.signedIn) return;  // only needed in Electron
+    const supabase = createClient();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session) afterSignIn();
+    });
+    return () => subscription.unsubscribe();
+  }, [afterSignIn, api]);
+
   const signInWithGoogle = async () => {
     setStatus({ state: "oauth_loading" });
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
+        // After OAuth, the callback page calls afterSignIn via the auth state listener
         redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
       },
     });
     if (error) {
       setStatus({ state: "error", message: error.message });
     }
-    // On success, Supabase redirects the browser to Google — no further action needed here
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -62,34 +90,18 @@ export default function LoginForm({
     const supabase = createClient();
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-
-        // If email confirmation is disabled in the Supabase project, the
-        // session is returned immediately and we can proceed.
-        if (data.session) {
-          router.replace(redirectTo);
-          router.refresh();
-          return;
-        }
+        if (data.session) { afterSignIn(); return; }
         setStatus({ state: "needs_confirmation" });
         return;
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-
-      router.replace(redirectTo);
-      router.refresh();
+      afterSignIn();
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Authentication failed.";
+      const message = err instanceof Error ? err.message : "Authentication failed.";
       setStatus({ state: "error", message });
     }
   };
