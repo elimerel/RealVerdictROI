@@ -153,3 +153,12 @@ input[type="number"] {
     @apply font-sans;
   }
 }
+
+/* Electron window drag region — sidebar header is draggable,
+   links/buttons inside it must opt out with .no-drag-region */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag-region {
+  -webkit-app-region: no-drag;
+}

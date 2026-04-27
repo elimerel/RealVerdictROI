@@ -1,5 +1,5 @@
 import { generateObject } from "ai"
-import { openai } from "@ai-sdk/openai"
+import { createOpenAI } from "@ai-sdk/openai"
 import { z } from "zod"
 import type { NextRequest } from "next/server"
 import type { DealInputs } from "@/lib/calculations"
@@ -55,12 +55,28 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "No page text provided." }, { status: 400, headers: cors })
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Resolve the key: env var first, then Electron userData config (set in Settings)
+    const apiKey = process.env.OPENAI_API_KEY || (() => {
+      try {
+        const userDataPath = process.env.USER_DATA_PATH
+        if (!userDataPath) return undefined
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const fs = require("fs") as typeof import("fs")
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const nodePath = require("path") as typeof import("path")
+        const cfg = JSON.parse(fs.readFileSync(nodePath.join(userDataPath, "config.json"), "utf8"))
+        return cfg?.openaiApiKey as string | undefined
+      } catch { return undefined }
+    })()
+
+    if (!apiKey) {
       return Response.json(
-        { error: "OPENAI_API_KEY is not configured on the server." },
+        { error: "No OpenAI API key found. Add one in Settings → OpenAI API Key." },
         { status: 503, headers: cors },
       )
     }
+
+    const openai = createOpenAI({ apiKey })
 
     // Step 1: AI extraction from the rendered page text
     const { object: extracted } = await generateObject({

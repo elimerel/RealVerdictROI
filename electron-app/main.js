@@ -120,6 +120,9 @@ function startNextServer(port) {
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
       NEXT_SHARP_PATH: "",
+      // Pass userData path so the API route can read the key at request time
+      // (avoids needing a server restart when the key is saved in Settings)
+      USER_DATA_PATH: app.getPath("userData"),
       ...(config.openaiApiKey ? { OPENAI_API_KEY: config.openaiApiKey } : {}),
     },
     stdio: "pipe",
@@ -227,6 +230,9 @@ function createMainWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#09090b",
+    // Integrated title bar: traffic lights float over the sidebar header
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 18 },
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -242,6 +248,11 @@ function createMainWindow() {
   mainWindow.on("closed", () => {
     destroyBrowserView()
     mainWindow = null
+    // If the login window isn't open (sign-out didn't trigger this), the user
+    // manually closed the app — quit entirely rather than leaving a ghost process
+    if (!loginWindow || loginWindow.isDestroyed()) {
+      app.quit()
+    }
   })
 
   mainWindow.on("resize", () => syncBrowserViewBounds())

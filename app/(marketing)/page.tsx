@@ -45,6 +45,12 @@ function MarketingNav() {
             <Download className="h-3.5 w-3.5" />
             Mac App
           </Link>
+          <Link
+            href="/login"
+            className="font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50 hidden sm:block"
+          >
+            Sign in
+          </Link>
           <a
             href="/search"
             target="_blank"
