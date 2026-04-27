@@ -14,9 +14,10 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) { app.quit() }
 
 app.on("second-instance", () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+  const win = mainWindow || loginWindow
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore()
+    win.focus()
   }
 })
 
@@ -33,33 +34,30 @@ const nextRoot = app.isPackaged
   ? path.join(process.resourcesPath, "nextapp")
   : path.join(__dirname, "..")
 
-// Config file lives in the user's Application Support folder — persists across updates
 const CONFIG_PATH = path.join(app.getPath("userData"), "config.json")
+const LOADING_FILE = path.join(__dirname, "loading.html")
 
 // ---------------------------------------------------------------------------
-// Config helpers (API keys, preferences)
+// Config helpers
 // ---------------------------------------------------------------------------
 
 function readConfig() {
-  try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"))
-  } catch {
-    return {}
-  }
+  try { return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) } catch { return {} }
 }
 
 function writeConfig(data) {
   try {
     fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true })
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2), "utf8")
-  } catch (err) {
-    console.error("[config] write error:", err)
-  }
+  } catch (err) { console.error("[config] write error:", err) }
 }
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
+
+/** @type {BrowserWindow | null} */
+let loginWindow = null
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null
@@ -71,6 +69,7 @@ let browserView = null
 let serverProcess = null
 
 let PORT = 3000
+let serverReady = false
 
 // ---------------------------------------------------------------------------
 // Port helpers
@@ -95,27 +94,16 @@ async function findFreePort(start = 3000) {
 }
 
 // ---------------------------------------------------------------------------
-// Loading screen
-// ---------------------------------------------------------------------------
-
-const LOADING_FILE = path.join(__dirname, "loading.html")
-
-// ---------------------------------------------------------------------------
-// Next.js server via utilityProcess (no Dock icon, no ELECTRON_RUN_AS_NODE)
+// Next.js server
 // ---------------------------------------------------------------------------
 
 function startNextServer(port) {
   const config = readConfig()
-  const serverJs = app.isPackaged
-    ? path.join(nextRoot, "server.js")
-    : path.join(nextRoot, "node_modules", ".bin", "next") // unused in dev path
 
   if (!app.isPackaged) {
-    // Dev: fall back to spawn for `npm run dev`
     const { spawn } = require("child_process")
     const proc = spawn("npm", ["run", "dev", "--", "-p", String(port)], {
-      cwd: nextRoot,
-      shell: true,
+      cwd: nextRoot, shell: true,
       env: { ...process.env, PORT: String(port) },
     })
     proc.stdout?.on("data", (d) => process.stdout.write(`[next] ${d}`))
@@ -123,7 +111,7 @@ function startNextServer(port) {
     return proc
   }
 
-  // Production: utilityProcess runs a Node.js script without showing in the Dock
+  const serverJs = path.join(nextRoot, "server.js")
   const child = utilityProcess.fork(serverJs, [], {
     cwd: nextRoot,
     env: {
@@ -132,16 +120,12 @@ function startNextServer(port) {
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
       NEXT_SHARP_PATH: "",
-      // Inject stored API keys into the server's environment
       ...(config.openaiApiKey ? { OPENAI_API_KEY: config.openaiApiKey } : {}),
     },
     stdio: "pipe",
   })
-
   child.stdout?.on("data", (d) => process.stdout.write(`[next] ${d}`))
   child.stderr?.on("data", (d) => process.stderr.write(`[next] ${d}`))
-  child.on("exit", (code) => console.log(`[next] exited with code ${code}`))
-
   return child
 }
 
@@ -166,10 +150,73 @@ function waitForServer(port, maxMs = 60_000) {
 }
 
 // ---------------------------------------------------------------------------
-// Main window
+// Login window — small, centered, shown before auth
 // ---------------------------------------------------------------------------
 
-function createWindow() {
+function createLoginWindow() {
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.focus(); return
+  }
+
+  loginWindow = new BrowserWindow({
+    width: 460,
+    height: 600,
+    resizable: false,
+    center: true,
+    backgroundColor: "#fafafa",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 18 },
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+
+  // Show loading screen while server boots, then switch to login
+  if (!serverReady) {
+    loginWindow.loadFile(LOADING_FILE)
+    waitForServer(PORT).then(() => {
+      serverReady = true
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.loadURL(`http://127.0.0.1:${PORT}/login`)
+      }
+    }).catch(() => {
+      if (loginWindow && !loginWindow.isDestroyed()) loginWindow.loadFile(LOADING_FILE)
+    })
+  } else {
+    loginWindow.loadURL(`http://127.0.0.1:${PORT}/login`)
+  }
+
+  loginWindow.on("closed", () => {
+    loginWindow = null
+    // Close app if main window isn't open (user closed login window = done)
+    if (!mainWindow || mainWindow.isDestroyed()) app.quit()
+  })
+
+  // Detect successful auth: Next.js redirects away from /login & /auth/
+  loginWindow.webContents.on("did-navigate", (_e, url) => {
+    if (
+      url.startsWith(`http://127.0.0.1:${PORT}`) &&
+      !url.includes("/login") &&
+      !url.includes("/auth/")
+    ) {
+      createMainWindow()
+      if (loginWindow && !loginWindow.isDestroyed()) loginWindow.close()
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Main window — full app, shown after auth
+// ---------------------------------------------------------------------------
+
+function createMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus(); return
+  }
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -184,7 +231,7 @@ function createWindow() {
     },
   })
 
-  mainWindow.loadFile(LOADING_FILE)
+  mainWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
 
   if (DEV) mainWindow.webContents.openDevTools({ mode: "detach" })
 
@@ -195,6 +242,15 @@ function createWindow() {
 
   mainWindow.on("resize", () => syncBrowserViewBounds())
   mainWindow.on("move", () => syncBrowserViewBounds())
+
+  // Detect sign-out: app redirects to /login → swap back to login window
+  mainWindow.webContents.on("did-navigate", (_e, url) => {
+    if (url.includes(`127.0.0.1:${PORT}/login`)) {
+      destroyBrowserView()
+      createLoginWindow()
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +354,7 @@ ipcMain.handle("browser:extract-dom", async () => {
         return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,30000) }
       })()
     `)
-  } catch (err) { console.error("[electron] extract-dom error:", err); return null }
+  } catch (err) { console.error("[electron] extract-dom:", err); return null }
 })
 
 ipcMain.handle("browser:analyze", async () => {
@@ -312,7 +368,7 @@ ipcMain.handle("browser:analyze", async () => {
         return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,30000) }
       })()
     `)
-  } catch (err) { return { error: "Could not read the page. Try reloading it." } }
+  } catch { return { error: "Could not read the page. Try reloading it." } }
 
   if (!dom || dom.text.length < 50)
     return { error: "Not enough page content. Make sure you're on a property listing." }
@@ -333,19 +389,16 @@ ipcMain.handle("browser:analyze", async () => {
 })
 
 // ---------------------------------------------------------------------------
-// IPC — config (API keys)
+// IPC — config / API keys
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("config:get", () => readConfig())
-
 ipcMain.handle("config:set-openai-key", (_e, key) => {
   const config = readConfig()
   config.openaiApiKey = key
   writeConfig(config)
-  // The key takes effect on the NEXT server start; if user just set it, prompt to restart
   return { ok: true }
 })
-
 ipcMain.handle("config:has-openai-key", () => {
   const config = readConfig()
   return !!(config.openaiApiKey || process.env.OPENAI_API_KEY)
@@ -358,23 +411,26 @@ ipcMain.handle("config:has-openai-key", () => {
 app.whenReady().then(async () => {
   try { PORT = await findFreePort(3000) } catch { PORT = 3000 }
 
-  createWindow()
-
   serverProcess = startNextServer(PORT)
 
+  // Boot server in background; login window shows loading screen until ready
   waitForServer(PORT).then(() => {
-    if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
+    serverReady = true
+    // If login window is open and still on loading screen, switch it to /login
+    if (loginWindow && !loginWindow.isDestroyed()) {
+      loginWindow.loadURL(`http://127.0.0.1:${PORT}/login`)
+    }
   }).catch((err) => {
-    console.error("[electron]", err.message)
-    if (mainWindow) mainWindow.loadFile(LOADING_FILE)
+    console.error("[electron] server failed to start:", err.message)
   })
+
+  // Show login window immediately (displays loading screen while server warms up)
+  createLoginWindow()
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-      waitForServer(PORT).then(() => {
-        if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
-      }).catch(() => {})
+      // If logged in, Next.js will redirect /login → /search automatically
+      createLoginWindow()
     }
   })
 })
