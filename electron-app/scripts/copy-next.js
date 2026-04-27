@@ -51,4 +51,34 @@ if (existsSync(publicSrc)) {
   cpSync(publicSrc, path.join(dest, "public"), { recursive: true })
 }
 
-console.log("[copy-next] Done. Resources ready at electron-app/resources/nextapp/")
+// 4. Safety-net: remove any directories that Next.js file-tracing may have
+//    accidentally included from the wider repo (e.g. electron-app/dist/ from a
+//    previous build, .claude/ worktree state, calibration/, etc.).
+//    These are excluded via outputFileTracingExcludes in next.config.mjs, but
+//    this guard ensures a corrupt standalone never inflates the app bundle.
+const tracingArtifacts = [
+  "electron-app",
+  ".claude",
+  ".claire",
+  "calibration",
+  "docs",
+]
+for (const name of tracingArtifacts) {
+  const p = path.join(dest, name)
+  if (existsSync(p)) {
+    rmSync(p, { recursive: true, force: true })
+    console.log(`[copy-next] Removed file-tracing artifact: ${name}/`)
+  }
+}
+
+// Report final file count so build logs show the bundle health at a glance.
+const { readdirSync } = require("fs")
+function countFiles(dir) {
+  let n = 0
+  for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
+    if (entry.isFile()) n++
+  }
+  return n
+}
+const fileCount = countFiles(dest)
+console.log(`[copy-next] Done — ${fileCount.toLocaleString()} files in resources/nextapp/`)
