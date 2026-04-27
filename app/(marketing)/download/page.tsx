@@ -11,8 +11,8 @@ export const metadata: Metadata = {
     "RealVerdict for Mac — a native desktop app with a built-in browser. Browse Zillow or Redfin inside the app and analyze any listing in one click.",
 }
 
-const DMG_ARM64 = "https://github.com/elimerel/RealVerdictROI/releases/latest/download/RealVerdict-arm64.dmg"
-const DMG_X64   = "https://github.com/elimerel/RealVerdictROI/releases/latest/download/RealVerdict-x64.dmg"
+const DMG_ARM64 = "https://github.com/elimerel/RealVerdictROI/releases/latest/download/RealVerdict-1.0.0-arm64.dmg"
+const DMG_X64   = "https://github.com/elimerel/RealVerdictROI/releases/latest/download/RealVerdict-1.0.0.dmg"
 // Default to Apple Silicon (most common modern Mac)
 const DMG_URL = DMG_ARM64
 
