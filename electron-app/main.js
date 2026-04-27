@@ -191,6 +191,10 @@ function createAppWindow() {
     // and the window can expand into main-app mode without recreating it.
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 8 },
+    // macOS: pass the first click straight to the web content instead of
+    // just focusing the window.  Without this the user has to click twice
+    // before any button or input responds, making the login form feel broken.
+    acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -447,6 +451,11 @@ app.whenReady().then(async () => {
     serverReady = true
     if (appWindow && !appWindow.isDestroyed() && !isMainMode) {
       appWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
+      // Bring the window to the front after navigation so the first click
+      // lands on the form rather than just focusing the window.
+      appWindow.once("did-finish-load", () => {
+        if (appWindow && !appWindow.isDestroyed()) appWindow.focus()
+      })
     }
   }).catch((err) => {
     console.error("[electron] server failed to start:", err.message)
