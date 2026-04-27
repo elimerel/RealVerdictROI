@@ -1,5 +1,6 @@
 import { generateObject } from "ai"
 import { createOpenAI } from "@ai-sdk/openai"
+import { createAnthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import type { NextRequest } from "next/server"
 import type { DealInputs } from "@/lib/calculations"
@@ -7,10 +8,13 @@ import fs from "fs"
 import nodePath from "path"
 
 // ---------------------------------------------------------------------------
-// This endpoint is called by the Chrome extension.
-// It receives already-rendered page text (extracted by the content script
-// directly from the DOM — no scraping, no Browserbase needed) and returns
-// structured property data + supplemental estimates from property-resolve.
+// Called by the Chrome extension / Electron browser:analyze IPC.
+// Receives already-rendered page text (extracted by the content script
+// directly from the DOM — no scraping needed) and returns:
+//   1. Structured property data for the deal calculator
+//   2. Negative risk signals scanned from the page
+//   3. ARV + rehab estimates for the wholesaler/flip walk-away formula
+// Model priority: Claude (Anthropic) > GPT-4o-mini (OpenAI)
 // ---------------------------------------------------------------------------
 
 export const maxDuration = 30
@@ -25,25 +29,126 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS_HEADERS })
 }
 
-const PagePropertySchema = z.object({
-  address:              z.string().nullable(),
-  listPrice:            z.number().nullable(),
-  monthlyRentEstimate:  z.number().nullable(),
-  beds:                 z.number().nullable(),
-  baths:                z.number().nullable(),
-  sqft:                 z.number().nullable(),
-  yearBuilt:            z.number().nullable(),
-  propertyType:         z.string().nullable(),
-  monthlyHOA:           z.number().nullable(),
-  annualPropertyTax:    z.number().nullable(),
-  annualInsurance:      z.number().nullable(),
-  confidence:           z.enum(["high", "medium", "low"]),
-  siteName:             z.string().nullable(),
+// ---------------------------------------------------------------------------
+// Schema — investor-grade extraction for both buy-and-hold AND flip analysis
+// ---------------------------------------------------------------------------
+
+const NegativeSignalSchema = z.object({
+  signal: z.string(),
+  excerpt: z.string().max(120),
+  severity: z.enum(["high", "medium", "low"]),
 })
 
+const InvestorExtractionSchema = z.object({
+  // Core listing facts
+  address:             z.string().nullable(),
+  listPrice:           z.number().nullable(),
+  monthlyRentEstimate: z.number().nullable(),
+  beds:                z.number().nullable(),
+  baths:               z.number().nullable(),
+  sqft:                z.number().nullable(),
+  yearBuilt:           z.number().nullable(),
+  propertyType:        z.string().nullable(),
+  monthlyHOA:          z.number().nullable(),
+  annualPropertyTax:   z.number().nullable(),
+  annualInsurance:     z.number().nullable(),
+
+  // Flip / wholesale fields
+  arvEstimate:         z.number().nullable(),
+  estimatedRehabCost:  z.number().nullable(),
+
+  // Risk signal scan — the most important part for deal snipers
+  negativeSignals: z.array(NegativeSignalSchema),
+
+  confidence: z.enum(["high", "medium", "low"]),
+  siteName:   z.string().nullable(),
+})
+
+// ---------------------------------------------------------------------------
+// Prompt
+// ---------------------------------------------------------------------------
+
+function buildPrompt(title: string, url: string, text: string): string {
+  return `You are a professional real estate deal underwriter for high-velocity investors (wholesalers and flippers). Your job is to extract structured data from this listing page with maximum precision.
+
+EXTRACTION RULES:
+- Return null for any field not found. All money values = plain numbers (no $ signs).
+- siteName: the platform name (e.g. "Zillow", "Redfin", "Realtor.com", "MLS").
+- confidence: "high" if you found the address and list price clearly, "medium" if you inferred values, "low" if the page is sparse.
+
+NEGATIVE SIGNAL SCAN — CRITICAL:
+Search the FULL page text for these investor red flags and list EVERY one you find. Be thorough — these signals can kill a deal.
+
+HIGH severity (walk away immediately):
+  - Probate/estate: "subject to probate", "probate sale", "estate sale", "court approval"
+  - Foundation: "foundation", "foundation issue", "foundation crack", "structural"
+  - Title: "encroachment", "title issues", "quiet title", "boundary dispute"
+  - Liens: "tax lien", "back taxes", "judgment lien", "mechanic's lien"
+
+MEDIUM severity (investigate before offering):
+  - Financing: "cash only", "cash buyers only", "no financing", "as-is", "sold as-is"
+  - Damage: "fire damage", "water damage", "flood damage", "mold", "asbestos", "lead paint"
+  - Condition: "needs work", "investor special", "TLC", "major repairs", "gut renovation"
+
+LOW severity (note for due diligence):
+  - "short sale", "bank owned", "REO", "pre-foreclosure", "auction"
+  - "easement", "right of way", "deed restriction", "HOA violation"
+
+ARV ESTIMATE:
+Based on all visible data (neighborhood, comps, Zestimate, sold prices nearby, $/sqft patterns), estimate the After Repair Value — what this property is worth fully renovated. If you see a "Zestimate", nearby sold prices, or $/sqft data, use it. If the listing says "recently renovated", the ARV ≈ list price.
+
+REHAB COST ESTIMATE:
+Based on condition signals in the listing, estimate rehab cost:
+- "Move-in ready", "fully renovated", "turnkey" → $0–$5,000
+- "Needs cosmetic updates", "dated kitchen/bath" → $15,000–$40,000
+- "Needs work", "TLC", "investor special" → $40,000–$80,000
+- "Major repairs", "gut renovation", fire/water damage → $80,000–$150,000+
+Return null if you cannot make a reasonable estimate.
+
+Page title: ${title}
+Page URL: ${url}
+
+Page text:
+${text}`
+}
+
+// ---------------------------------------------------------------------------
+// Key resolution — try Anthropic first, fall back to OpenAI
+// ---------------------------------------------------------------------------
+
+type ModelBundle =
+  | { provider: "anthropic"; key: string }
+  | { provider: "openai";    key: string }
+  | null
+
+function resolveModel(): ModelBundle {
+  // 1. Anthropic from env
+  const anthropicEnv = process.env.ANTHROPIC_API_KEY
+  if (anthropicEnv) return { provider: "anthropic", key: anthropicEnv }
+
+  // 2. Anthropic from Electron userData config.json
+  if (process.env.USER_DATA_PATH) {
+    try {
+      const cfg = JSON.parse(
+        fs.readFileSync(nodePath.join(process.env.USER_DATA_PATH, "config.json"), "utf8")
+      )
+      if (cfg?.anthropicApiKey) return { provider: "anthropic", key: cfg.anthropicApiKey }
+      if (cfg?.openaiApiKey)    return { provider: "openai",    key: cfg.openaiApiKey }
+    } catch { /* config missing — continue */ }
+  }
+
+  // 3. OpenAI from env
+  const openaiEnv = process.env.OPENAI_API_KEY
+  if (openaiEnv) return { provider: "openai", key: openaiEnv }
+
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Route handler
+// ---------------------------------------------------------------------------
+
 export async function POST(req: NextRequest) {
-  // CORS headers go on EVERY response — including errors — so the extension
-  // never sees a bare network failure instead of the real error message.
   const cors = CORS_HEADERS
 
   try {
@@ -57,41 +162,42 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "No page text provided." }, { status: 400, headers: cors })
     }
 
-    // Resolve the key: env var first, then Electron userData config (saved in Settings)
-    let apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey && process.env.USER_DATA_PATH) {
-      try {
-        const cfg = JSON.parse(
-          fs.readFileSync(nodePath.join(process.env.USER_DATA_PATH, "config.json"), "utf8")
-        )
-        apiKey = cfg?.openaiApiKey || undefined
-      } catch { /* config not found or unreadable — leave apiKey undefined */ }
-    }
-
-    if (!apiKey) {
+    const bundle = resolveModel()
+    if (!bundle) {
       return Response.json(
-        { error: "No OpenAI API key found. Add one in Settings → OpenAI API Key." },
+        { error: "No AI API key found. Add an Anthropic or OpenAI key in Settings." },
         { status: 503, headers: cors },
       )
     }
 
-    const openai = createOpenAI({ apiKey })
+    const prompt = buildPrompt(
+      body.title ?? "",
+      body.url ?? "",
+      body.text.slice(0, 20000),
+    )
 
-    // Step 1: AI extraction from the rendered page text
-    const { object: extracted } = await generateObject({
-      model: openai("gpt-4o-mini"),
-      schema: PagePropertySchema,
-      prompt: `Extract real estate listing data from this rendered page text.
-Return null for any field not found. All money values should be plain numbers.
+    // Step 1: AI extraction
+    let extracted: z.infer<typeof InvestorExtractionSchema>
 
-Page title: ${body.title ?? ""}
-Page URL: ${body.url ?? ""}
+    if (bundle.provider === "anthropic") {
+      const anthropic = createAnthropic({ apiKey: bundle.key })
+      const result = await generateObject({
+        model: anthropic("claude-sonnet-4-6"),
+        schema: InvestorExtractionSchema,
+        prompt,
+      })
+      extracted = result.object
+    } else {
+      const openai = createOpenAI({ apiKey: bundle.key })
+      const result = await generateObject({
+        model: openai("gpt-4o-mini"),
+        schema: InvestorExtractionSchema,
+        prompt,
+      })
+      extracted = result.object
+    }
 
-Page text:
-${body.text.slice(0, 20000)}`,
-    })
-
-    // Step 2: fill gaps with property-resolve (rent estimate, tax, rate, appreciation)
+    // Step 2: Build DealInputs from extracted data
     const inputs: Partial<DealInputs> = {}
     const notes: string[] = []
     const warnings: string[] = []
@@ -108,10 +214,12 @@ ${body.text.slice(0, 20000)}`,
     if (extracted.yearBuilt)           facts.yearBuilt          = extracted.yearBuilt
     if (extracted.propertyType)        facts.propertyType       = extracted.propertyType
 
+    const modelLabel = bundle.provider === "anthropic" ? "Claude" : "GPT-4o-mini"
     notes.push(
-      `Read directly from ${extracted.siteName ?? new URL(body.url ?? "https://unknown").hostname} · confidence: ${extracted.confidence}`
+      `Read from ${extracted.siteName ?? new URL(body.url ?? "https://unknown").hostname} via ${modelLabel} · confidence: ${extracted.confidence}`
     )
 
+    // Step 3: Fill gaps via property-resolve
     if (extracted.address) {
       try {
         const origin = new URL(req.url).origin
@@ -142,16 +250,27 @@ ${body.text.slice(0, 20000)}`,
       }
     }
 
+    // Surface high-severity signals as warnings so they appear in the UI
+    for (const sig of extracted.negativeSignals) {
+      if (sig.severity === "high") {
+        warnings.push(`⚠ ${sig.signal}: "${sig.excerpt}"`)
+      }
+    }
+
     return Response.json(
       {
-        address:    extracted.address ?? undefined,
+        address:         extracted.address ?? undefined,
         inputs,
         facts,
         notes,
         warnings,
-        provenance: {},
-        siteName:   extracted.siteName,
-        confidence: extracted.confidence,
+        provenance:      {},
+        siteName:        extracted.siteName,
+        confidence:      extracted.confidence,
+        negativeSignals: extracted.negativeSignals,
+        arvEstimate:     extracted.arvEstimate ?? undefined,
+        rehabCostEstimate: extracted.estimatedRehabCost ?? undefined,
+        modelUsed:       bundle.provider,
       },
       { headers: cors },
     )

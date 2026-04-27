@@ -9,6 +9,62 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useState, useEffect } from "react"
 
+function AnthropicKeySection() {
+  const [key, setKey] = useState("")
+  const [saved, setSaved] = useState(false)
+  const [hasSaved, setHasSaved] = useState(false)
+  const api = typeof window !== "undefined" ? (window as any).electronAPI : null
+
+  useEffect(() => {
+    if (!api) return
+    api.getConfig().then((cfg: any) => {
+      if (cfg?.anthropicApiKey) { setKey(cfg.anthropicApiKey); setHasSaved(true) }
+    })
+  }, [])
+
+  if (!api) return null
+
+  const save = async () => {
+    await api.setAnthropicKey(key.trim())
+    setHasSaved(true)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 3000)
+  }
+
+  return (
+    <Card className="bg-card/50 border-violet-500/30">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Key className="h-4 w-4 text-violet-400" />
+          <CardTitle className="text-base">Anthropic API Key</CardTitle>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-400 font-medium">Recommended</span>
+        </div>
+        <CardDescription>
+          Powers analysis with Claude — Anthropic&apos;s most capable model for financial reasoning. If set, this takes priority over OpenAI.
+          {" "}<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline text-foreground">Get a key →</a>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-2">
+          <Input
+            type="password"
+            placeholder="sk-ant-..."
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            className="font-mono text-sm"
+          />
+          <Button onClick={save} disabled={!key.trim()} size="sm">
+            {saved ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Saved</> : "Save"}
+          </Button>
+        </div>
+        {hasSaved && !saved && (
+          <p className="text-xs text-muted-foreground">Key saved. Restart the app for it to take effect.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function OpenAIKeySection() {
   const [key, setKey] = useState("")
   const [saved, setSaved] = useState(false)
@@ -22,7 +78,7 @@ function OpenAIKeySection() {
     })
   }, [])
 
-  if (!api) return null // only show in desktop app
+  if (!api) return null
 
   const save = async () => {
     await api.setOpenAIKey(key.trim())
@@ -37,9 +93,10 @@ function OpenAIKeySection() {
         <div className="flex items-center gap-2">
           <Key className="h-4 w-4 text-amber-500" />
           <CardTitle className="text-base">OpenAI API Key</CardTitle>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Fallback</span>
         </div>
         <CardDescription>
-          Required for AI-powered property analysis. Your key is stored locally on this Mac and never sent to our servers.
+          Used for analysis when no Anthropic key is set. Your key is stored locally on this Mac and never sent to our servers.
           {" "}<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline text-foreground">Get a key →</a>
         </CardDescription>
       </CardHeader>
@@ -116,6 +173,10 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* AI Keys */}
+        <AnthropicKeySection />
+        <OpenAIKeySection />
+
         {/* Notifications */}
         <Card className="bg-card/50">
           <CardHeader>
@@ -155,9 +216,6 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
-
-        {/* OpenAI key — desktop only */}
-        <OpenAIKeySection />
 
         {/* API Keys */}
         <Card className="bg-card/50">

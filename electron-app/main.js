@@ -126,7 +126,8 @@ function startNextServer(port) {
       NODE_ENV: "production",
       NEXT_SHARP_PATH: "",
       USER_DATA_PATH: app.getPath("userData"),
-      ...(config.openaiApiKey ? { OPENAI_API_KEY: config.openaiApiKey } : {}),
+      ...(config.openaiApiKey    ? { OPENAI_API_KEY:    config.openaiApiKey    } : {}),
+      ...(config.anthropicApiKey ? { ANTHROPIC_API_KEY: config.anthropicApiKey } : {}),
     },
     stdio: "pipe",
   })
@@ -420,6 +421,16 @@ ipcMain.handle("config:set-openai-key", (_e, key) => {
 ipcMain.handle("config:has-openai-key", () => {
   const config = readConfig()
   return !!(config.openaiApiKey || process.env.OPENAI_API_KEY)
+})
+ipcMain.handle("config:set-anthropic-key", (_e, key) => {
+  const config = readConfig()
+  config.anthropicApiKey = key
+  writeConfig(config)
+  return { ok: true }
+})
+ipcMain.handle("config:has-anthropic-key", () => {
+  const config = readConfig()
+  return !!(config.anthropicApiKey || process.env.ANTHROPIC_API_KEY)
 })
 
 // ---------------------------------------------------------------------------

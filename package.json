@@ -14,6 +14,7 @@
     "calibrate": "node scripts/calibrate.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.71",
     "@ai-sdk/openai": "^3.0.53",
     "@ai-sdk/react": "^3.0.170",
     "@base-ui/react": "^1.4.1",
@@ -69,7 +70,7 @@
     "react-dom": "19.2.4",
     "react-hook-form": "^7.54.1",
     "react-resizable-panels": "^2.1.7",
-    "recharts": "^2.15.0",
+    "recharts": "^2.15.4",
     "shadcn": "^4.5.0",
     "sonner": "^1.7.1",
     "stripe": "^17.7.0",

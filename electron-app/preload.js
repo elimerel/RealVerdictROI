@@ -47,4 +47,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getConfig: () => ipcRenderer.invoke("config:get"),
   setOpenAIKey: (key) => ipcRenderer.invoke("config:set-openai-key", key),
   hasOpenAIKey: () => ipcRenderer.invoke("config:has-openai-key"),
+  setAnthropicKey: (key) => ipcRenderer.invoke("config:set-anthropic-key", key),
+  hasAnthropicKey: () => ipcRenderer.invoke("config:has-anthropic-key"),
 })

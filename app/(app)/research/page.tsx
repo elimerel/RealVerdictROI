@@ -29,13 +29,26 @@ import "@/lib/electron" // global Window type augmentation
 // Types
 // ---------------------------------------------------------------------------
 
+type NegativeSignal = {
+  signal: string
+  excerpt: string
+  severity: "high" | "medium" | "low"
+}
+
 type AnalysisResult = {
   address?: string
   inputs: Partial<DealInputs>
   analysis: DealAnalysis
+  // Rental walk-away: max price where the deal still clears the hurdle rate
   walkAway: number | null
+  // Flip walk-away: ARV - rehab - 15% margin (wholesaler formula)
+  flipWalkAway: number | null
+  arvEstimate: number | null
+  rehabCostEstimate: number | null
+  negativeSignals: NegativeSignal[]
   siteName: string | null
   confidence: string
+  modelUsed?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +67,220 @@ function hostnameOf(url: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Analysis sidebar panel — used only in the Web/Browserbase mode
+// VerdictGauge — the centerpiece: Green/Yellow/Red based on price vs ceiling
+// ---------------------------------------------------------------------------
+
+function VerdictGauge({
+  listPrice,
+  walkAway,
+  flipWalkAway,
+}: {
+  listPrice: number | null
+  walkAway: number | null
+  flipWalkAway: number | null
+}) {
+  // Prefer flip walk-away when available (wholesaler/flipper is the target user)
+  const ceiling = flipWalkAway ?? walkAway
+  if (!ceiling || !listPrice) return null
+
+  const diff = ceiling - listPrice
+  const pct = (diff / listPrice) * 100
+
+  type GaugeStatus = "green" | "yellow" | "red"
+  let status: GaugeStatus
+  let headline: string
+  let subtext: string
+
+  if (diff >= 0) {
+    status = "green"
+    headline = "GO — Price is Under Walk-Away"
+    subtext = `${formatCurrency(listPrice, 0)} asking · ${formatCurrency(diff, 0)} under ceiling`
+  } else if (pct > -5) {
+    status = "yellow"
+    headline = "NEGOTIATE — Within 5% of Walk-Away"
+    subtext = `${Math.abs(pct).toFixed(1)}% over ceiling · negotiate or walk`
+  } else {
+    status = "red"
+    headline = "WALK AWAY"
+    subtext = `Asking is ${formatCurrency(-diff, 0)} over your ceiling`
+  }
+
+  const palette: Record<GaugeStatus, { bg: string; border: string; text: string; sub: string }> = {
+    green:  { bg: "rgba(34,197,94,0.12)",  border: "rgba(34,197,94,0.5)",  text: "#4ade80", sub: "#86efac" },
+    yellow: { bg: "rgba(234,179,8,0.12)",  border: "rgba(234,179,8,0.5)",  text: "#facc15", sub: "#fde68a" },
+    red:    { bg: "rgba(239,68,68,0.12)",  border: "rgba(239,68,68,0.5)",  text: "#f87171", sub: "#fca5a5" },
+  }
+  const c = palette[status]
+
+  return (
+    <div
+      className="rounded-xl px-5 py-4 space-y-2"
+      style={{ backgroundColor: c.bg, borderColor: c.border, borderWidth: 1 }}
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: c.text }}>
+          {status === "green" ? "✓" : status === "yellow" ? "⚡" : "✗"} {headline}
+        </p>
+        <span
+          className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full"
+          style={{ backgroundColor: c.border, color: c.text }}
+        >
+          {pct > 0 ? "+" : ""}{pct.toFixed(1)}%
+        </span>
+      </div>
+      <p className="text-xs" style={{ color: c.sub }}>{subtext}</p>
+
+      {/* Visual bar */}
+      <div className="relative h-2 rounded-full bg-muted/30 overflow-hidden mt-1">
+        {diff >= 0 ? (
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${Math.min(100, (listPrice / ceiling) * 100)}%`, backgroundColor: c.text }}
+          />
+        ) : (
+          <div
+            className="h-full rounded-full w-full transition-all"
+            style={{ backgroundColor: c.text }}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TranslucentMath — shows the walk-away calculation so investors trust the number
+// ---------------------------------------------------------------------------
+
+function TranslucentMath({
+  walkAway,
+  flipWalkAway,
+  arvEstimate,
+  rehabCostEstimate,
+  listPrice,
+}: {
+  walkAway: number | null
+  flipWalkAway: number | null
+  arvEstimate: number | null
+  rehabCostEstimate: number | null
+  listPrice: number | null
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+        <ShieldCheck className="h-3 w-3" /> Walk-Away Math
+      </p>
+
+      {flipWalkAway != null && arvEstimate != null ? (
+        // Full flip formula with ARV
+        <div className="space-y-0.5">
+          <p className="text-lg font-bold font-mono">{formatCurrency(flipWalkAway, 0)}</p>
+          <div className="space-y-1 text-[11px] font-mono mt-1">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">ARV (after repair)</span>
+              <span className="text-foreground">{formatCurrency(arvEstimate, 0)}</span>
+            </div>
+            {rehabCostEstimate != null && (
+              <div className="flex items-center justify-between text-red-400">
+                <span>− Estimated rehab</span>
+                <span>({formatCurrency(rehabCostEstimate, 0)})</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-amber-400">
+              <span>− 15% profit margin</span>
+              <span>({formatCurrency(arvEstimate * 0.15, 0)})</span>
+            </div>
+            <div className="border-t border-border/50 pt-1 mt-0.5 flex items-center justify-between font-semibold text-foreground">
+              <span>= Flip walk-away</span>
+              <span>{formatCurrency(flipWalkAway, 0)}</span>
+            </div>
+          </div>
+        </div>
+      ) : walkAway != null ? (
+        // Rental formula fallback
+        <div className="space-y-0.5">
+          <p className="text-lg font-bold font-mono">{formatCurrency(walkAway, 0)}</p>
+          <div className="space-y-1 text-[11px] font-mono mt-1">
+            {listPrice && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Asking price</span>
+                <span className="text-foreground">{formatCurrency(listPrice, 0)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-muted-foreground/70">
+              <span>Ceiling (rental rubric)</span>
+              <span className="text-foreground">{formatCurrency(walkAway, 0)}</span>
+            </div>
+            {listPrice && (
+              <div className={cn(
+                "border-t border-border/50 pt-1 mt-0.5 flex items-center justify-between font-semibold",
+                walkAway >= listPrice ? "text-emerald-400" : "text-red-400"
+              )}>
+                <span>{walkAway >= listPrice ? "Deal works at ask" : "Over ceiling by"}</span>
+                <span>
+                  {walkAway >= listPrice
+                    ? formatCurrency(walkAway - listPrice, 0) + " room"
+                    : formatCurrency(listPrice - walkAway, 0)}
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground pt-1">
+            No ARV data found — showing rental yield ceiling
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// RiskSignals — surfaces negative signals the AI found in the listing text
+// ---------------------------------------------------------------------------
+
+function RiskSignals({ signals }: { signals: NegativeSignal[] }) {
+  if (!signals?.length) return null
+
+  const highCount = signals.filter(s => s.severity === "high").length
+  const borderColor = highCount > 0 ? "rgba(239,68,68,0.4)" : "rgba(234,179,8,0.3)"
+  const bgColor     = highCount > 0 ? "rgba(239,68,68,0.08)" : "rgba(234,179,8,0.08)"
+  const labelColor  = highCount > 0 ? "#f87171" : "#facc15"
+
+  return (
+    <div
+      className="rounded-lg px-4 py-3 space-y-2"
+      style={{ backgroundColor: bgColor, borderColor, borderWidth: 1 }}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: labelColor }}>
+        <AlertTriangle className="h-3 w-3" />
+        {signals.length} Risk Signal{signals.length !== 1 ? "s" : ""} Detected
+      </p>
+      <div className="space-y-2">
+        {signals.map((s, i) => (
+          <div key={i} className="space-y-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className={cn(
+                "text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide",
+                s.severity === "high"   ? "bg-red-500/20 text-red-300"    :
+                s.severity === "medium" ? "bg-amber-500/20 text-amber-300" :
+                                          "bg-zinc-500/20 text-zinc-400"
+              )}>
+                {s.severity}
+              </span>
+              <span className="text-xs text-foreground/90 font-medium">{s.signal}</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground italic pl-10 truncate">
+              &quot;{s.excerpt}&quot;
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Analysis sidebar panel — compact version for Electron right panel
 // ---------------------------------------------------------------------------
 
 function AnalysisPanel({
@@ -66,10 +292,12 @@ function AnalysisPanel({
   onClose: () => void
   onViewFull: () => void
 }) {
-  const { analysis, walkAway } = result
+  const { analysis, walkAway, flipWalkAway } = result
   const tier = analysis.verdict.tier
   const accentColor = TIER_ACCENT[tier]
   const tierLabel = TIER_LABEL[tier]
+  const listPrice = result.inputs.purchasePrice ?? null
+  const ceiling = flipWalkAway ?? walkAway
 
   const metrics = [
     { label: "Monthly cash flow",  value: formatCurrency(analysis.monthlyCashFlow, 0),      accent: analysis.monthlyCashFlow >= 0 },
@@ -98,7 +326,11 @@ function AnalysisPanel({
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-5">
+        <div className="p-4 space-y-4">
+          {/* Verdict Gauge */}
+          <VerdictGauge listPrice={listPrice} walkAway={walkAway} flipWalkAway={flipWalkAway} />
+
+          {/* Verdict summary */}
           <div
             className="rounded-lg px-4 py-3 space-y-1"
             style={{ backgroundColor: `${accentColor}15`, borderColor: `${accentColor}30`, borderWidth: 1 }}
@@ -108,14 +340,21 @@ function AnalysisPanel({
             <p className="text-xs text-muted-foreground">{analysis.verdict.summary}</p>
           </div>
 
-          {walkAway != null && (
-            <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-1">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Walk-away price</p>
-              <p className="text-xl font-semibold font-mono">{formatCurrency(walkAway, 0)}</p>
-              <p className="text-xs text-muted-foreground">Max offer where the deal still clears</p>
-            </div>
+          {/* Walk-away math */}
+          {ceiling != null && (
+            <TranslucentMath
+              walkAway={walkAway}
+              flipWalkAway={flipWalkAway}
+              arvEstimate={result.arvEstimate}
+              rehabCostEstimate={result.rehabCostEstimate}
+              listPrice={listPrice}
+            />
           )}
 
+          {/* Risk signals */}
+          <RiskSignals signals={result.negativeSignals} />
+
+          {/* Metric grid */}
           <div className="grid grid-cols-2 gap-2">
             {metrics.map((m) => (
               <div key={m.label} className="rounded-md border border-border bg-muted/10 px-3 py-2 space-y-0.5">
@@ -125,6 +364,7 @@ function AnalysisPanel({
             ))}
           </div>
 
+          {/* Score breakdown */}
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground">Score breakdown</p>
             {analysis.verdict.breakdown.map((b) => (
@@ -138,7 +378,7 @@ function AnalysisPanel({
           </div>
 
           <p className="text-[10px] text-muted-foreground">
-            Data read from {result.siteName ?? "listing page"} · confidence: {result.confidence}
+            {result.siteName ?? "listing page"} · {result.modelUsed === "anthropic" ? "Claude" : "GPT-4o-mini"} · {result.confidence} confidence
           </p>
 
           <Button size="sm" className="w-full gap-1.5" onClick={onViewFull}>
@@ -152,8 +392,7 @@ function AnalysisPanel({
 }
 
 // ---------------------------------------------------------------------------
-// Electron-only: full-screen results view (replaces the browser panel)
-// No WebContentsView overlap possible — the native view is hidden before this renders.
+// Electron full-screen results view (replaces browser panel)
 // ---------------------------------------------------------------------------
 
 function ElectronResultsView({
@@ -165,10 +404,11 @@ function ElectronResultsView({
   onBack: () => void
   onViewFull: () => void
 }) {
-  const { analysis, walkAway } = result
+  const { analysis, walkAway, flipWalkAway } = result
   const tier = analysis.verdict.tier
   const accentColor = TIER_ACCENT[tier]
   const tierLabel = TIER_LABEL[tier]
+  const listPrice = result.inputs.purchasePrice ?? null
 
   const metrics = [
     { icon: DollarSign, label: "Monthly cash flow",  value: formatCurrency(analysis.monthlyCashFlow, 0),   good: analysis.monthlyCashFlow >= 0,   neutral: false },
@@ -182,7 +422,7 @@ function ElectronResultsView({
   return (
     <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
       <ScrollArea className="flex-1">
-        <div className="max-w-3xl mx-auto p-8 space-y-8">
+        <div className="max-w-3xl mx-auto p-8 space-y-6">
 
           {/* Address + source */}
           <div className="space-y-1">
@@ -190,9 +430,17 @@ function ElectronResultsView({
               {result.address ?? "Property Analysis"}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Read from {result.siteName ?? "listing page"} · confidence: {result.confidence}
+              {result.siteName ?? "listing page"} · {result.modelUsed === "anthropic" ? "Claude" : "GPT-4o-mini"} · {result.confidence} confidence
             </p>
           </div>
+
+          {/* Verdict Gauge — top of panel, first thing investor sees */}
+          <VerdictGauge listPrice={listPrice} walkAway={walkAway} flipWalkAway={flipWalkAway} />
+
+          {/* Risk signals — surface immediately after gauge */}
+          {result.negativeSignals.length > 0 && (
+            <RiskSignals signals={result.negativeSignals} />
+          )}
 
           {/* Verdict card */}
           <div
@@ -208,19 +456,21 @@ function ElectronResultsView({
             </p>
           </div>
 
-          {/* Walk-away + metrics row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {walkAway != null && (
-              <div className="rounded-xl border border-border bg-card/40 p-5 space-y-1 sm:col-span-2">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Walk-away price</p>
-                </div>
-                <p className="text-4xl font-bold font-mono">{formatCurrency(walkAway, 0)}</p>
-                <p className="text-xs text-muted-foreground">Maximum offer price where this deal still clears your hurdle rate</p>
-              </div>
-            )}
+          {/* Walk-away math — transparent, investor-first */}
+          {(walkAway != null || flipWalkAway != null) && (
+            <div className="rounded-xl border border-border bg-card/40 p-5">
+              <TranslucentMath
+                walkAway={walkAway}
+                flipWalkAway={flipWalkAway}
+                arvEstimate={result.arvEstimate}
+                rehabCostEstimate={result.rehabCostEstimate}
+                listPrice={listPrice}
+              />
+            </div>
+          )}
 
+          {/* Metric grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {metrics.map((m) => (
               <div key={m.label} className="rounded-xl border border-border bg-card/40 p-4 space-y-2">
                 <div className="flex items-center gap-1.5">
@@ -287,7 +537,7 @@ function ElectronResultsView({
 }
 
 // ---------------------------------------------------------------------------
-// Shared: build AnalysisResult from extract/browse API response
+// Build AnalysisResult from extract/browse API response
 // ---------------------------------------------------------------------------
 
 type ExtractPayload = {
@@ -296,19 +546,39 @@ type ExtractPayload = {
   siteName?: string | null
   confidence?: string
   error?: string
+  negativeSignals?: NegativeSignal[]
+  arvEstimate?: number
+  rehabCostEstimate?: number
+  modelUsed?: string
 }
 
 function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
   const sanitized = sanitiseInputs(data.inputs as DealInputs)
   const analysis = analyseDeal(sanitized)
   const ceiling = findOfferCeiling(sanitized)
+
+  // Flip walk-away = ARV - Rehab - 15% of ARV
+  let flipWalkAway: number | null = null
+  if (data.arvEstimate) {
+    const arv = data.arvEstimate
+    const rehab = data.rehabCostEstimate ?? 0
+    const margin = arv * 0.15
+    flipWalkAway = Math.round((arv - rehab - margin) / 500) * 500
+    if (flipWalkAway <= 0) flipWalkAway = null
+  }
+
   return {
     address: data.address,
     inputs: data.inputs,
     analysis,
     walkAway: ceiling.primaryTarget?.price ?? null,
+    flipWalkAway,
+    arvEstimate: data.arvEstimate ?? null,
+    rehabCostEstimate: data.rehabCostEstimate ?? null,
+    negativeSignals: data.negativeSignals ?? [],
     siteName: data.siteName ?? null,
     confidence: data.confidence ?? "medium",
+    modelUsed: data.modelUsed,
   }
 }
 
@@ -330,23 +600,16 @@ function buildViewFullUrl(result: AnalysisResult): string {
 // ELECTRON MODE — WebContentsView via IPC
 // ---------------------------------------------------------------------------
 
-// Known layout constants (CSS pixels)
-const TITLEBAR_H = 28      // Electron hiddenInset strip (body padding-top in globals.css)
-const HEADER_H = 56        // h-14
-const ANALYSIS_W = 360     // right panel width
+const TITLEBAR_H = 28
+const HEADER_H = 56
+const ANALYSIS_W = 400  // wider to accommodate the new panels
 
-// Sidebar widths match the shadcn/ui sidebar CSS variables
 const SIDEBAR_OPEN_W = 256
-const SIDEBAR_ICON_W = 48  // icon-only collapsed state
+const SIDEBAR_ICON_W = 48
 
-/**
- * Calculates the browser panel bounds from first principles so we never
- * depend on getBoundingClientRect(), which returns height: 0 in Electron
- * due to how the flex chain resolves against the window chrome.
- */
 function calcBounds(sidebarOpen: boolean, analysisOpen: boolean) {
   const x = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
-  const y = TITLEBAR_H + HEADER_H   // 28px Electron strip + 56px app header
+  const y = TITLEBAR_H + HEADER_H
   const width = Math.max(0, window.innerWidth - x - (analysisOpen ? ANALYSIS_W : 0))
   const height = Math.max(0, window.innerHeight - y)
   return { x, y, width, height }
@@ -362,7 +625,6 @@ function useElectronBounds(
     window.electronAPI.updateBounds(calcBounds(sidebarOpen, analysisOpen))
   }, [sidebarOpen, analysisOpen])
 
-  // Re-send on window resize
   useEffect(() => {
     if (!active) return
     sendBounds()
@@ -370,24 +632,20 @@ function useElectronBounds(
     return () => window.removeEventListener("resize", sendBounds)
   }, [active, sendBounds])
 
-  // Re-send after sidebar transition completes (~250 ms CSS animation)
   useEffect(() => {
     if (!active) return
     const t = setTimeout(sendBounds, 300)
     return () => clearTimeout(t)
   }, [sidebarOpen, active, sendBounds])
 
-  // Re-send immediately when analysis panel opens/closes
   useEffect(() => {
     if (active) sendBounds()
   }, [analysisOpen, active, sendBounds])
-
 }
 
 function ElectronResearchPage() {
   const { open: sidebarOpen } = useSidebar()
 
-  // Browser panel state
   const [browserActive, setBrowserActive] = useState(false)
   const [currentUrl, setCurrentUrl] = useState("")
   const [currentTitle, setCurrentTitle] = useState("")
@@ -395,16 +653,13 @@ function ElectronResearchPage() {
   const [browserLoading, setBrowserLoading] = useState(false)
   const [urlInput, setUrlInput] = useState("https://zillow.com")
 
-  // Analysis right panel — persists alongside the browser
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Keep WebContentsView bounds in sync with sidebar + right panel state
   useElectronBounds(browserActive, sidebarOpen, analysisOpen)
 
-  // On mount: check if a browser view already exists from a previous visit
   useEffect(() => {
     const api = window.electronAPI
     if (!api) return
@@ -420,12 +675,10 @@ function ElectronResearchPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // On unmount: hide (not destroy) so the session survives navigation
   useEffect(() => {
     return () => { window.electronAPI?.hideBrowser() }
   }, [])
 
-  // Subscribe to nav-update events from main process
   useEffect(() => {
     const api = window.electronAPI
     if (!api) return
@@ -471,7 +724,7 @@ function ElectronResearchPage() {
       if (result.error) throw new Error(result.error)
       const built = buildAnalysisResult({ ...result, inputs: result.inputs as Partial<DealInputs> })
       setAnalysisResult(built)
-      setAnalysisOpen(true)  // open right panel (browser shrinks to make room)
+      setAnalysisOpen(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed.")
     } finally {
@@ -526,7 +779,6 @@ function ElectronResearchPage() {
           </Button>
         )}
 
-        {/* Toggle analysis panel when there's a result */}
         {analysisResult && (
           <button onClick={() => setAnalysisOpen(o => !o)}
             className={cn("h-7 w-7 rounded flex items-center justify-center transition-colors shrink-0",
@@ -544,10 +796,10 @@ function ElectronResearchPage() {
         )}
       </header>
 
-      {/* Body: browser pane (left) + analysis panel (right, persistent) */}
+      {/* Body: browser pane (left) + analysis panel (right) */}
       <div className="flex flex-1 overflow-hidden" style={{ height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}>
 
-        {/* Browser pane — WebContentsView is layered on top by Electron; this is just a placeholder */}
+        {/* Browser pane — WebContentsView layered on top by Electron */}
         <div className="flex-1 overflow-hidden relative bg-zinc-950 flex flex-col min-w-0">
           {!browserActive && (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
@@ -582,18 +834,22 @@ function ElectronResearchPage() {
           )}
         </div>
 
-        {/* Right analysis panel — slides in when analysisOpen */}
+        {/* Right analysis panel */}
         {analysisOpen && analysisResult && (
           <div
             className="flex flex-col border-l border-border bg-background overflow-hidden shrink-0"
             style={{ width: ANALYSIS_W }}
           >
-            {/* Panel header */}
             <div className="h-10 flex items-center gap-2 px-3 border-b border-border shrink-0">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
               <span className="text-xs font-medium truncate flex-1">
                 {analysisResult.address ?? "Analysis"}
               </span>
+              {analysisResult.negativeSignals.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium shrink-0">
+                  {analysisResult.negativeSignals.length} risk{analysisResult.negativeSignals.length !== 1 ? "s" : ""}
+                </span>
+              )}
               <button onClick={handleViewFull}
                 className="text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0 flex items-center gap-1">
                 <ExternalLink className="h-3 w-3" /> Full report
@@ -603,7 +859,6 @@ function ElectronResearchPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-            {/* Scrollable results */}
             <div className="flex-1 overflow-y-auto">
               <ElectronResultsView result={analysisResult} onBack={() => setAnalysisOpen(false)} onViewFull={handleViewFull} />
             </div>
@@ -616,8 +871,6 @@ function ElectronResearchPage() {
 
 // ---------------------------------------------------------------------------
 // WEB MODE — desktop-only gate
-// The Browserbase screenshot approach is removed. Web users see a clear
-// upgrade prompt; the native browser experience requires the desktop app.
 // ---------------------------------------------------------------------------
 
 function WebResearchPage() {
@@ -633,12 +886,10 @@ function WebResearchPage() {
 
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="max-w-md w-full space-y-6 text-center">
-          {/* Icon */}
           <div className="mx-auto h-16 w-16 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
             <Globe className="h-8 w-8 text-muted-foreground opacity-60" />
           </div>
 
-          {/* Heading */}
           <div className="space-y-2">
             <h2 className="text-xl font-semibold tracking-tight">
               Browser research is desktop-only
@@ -648,7 +899,6 @@ function WebResearchPage() {
             </p>
           </div>
 
-          {/* Feature list */}
           <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-2.5 text-left">
             {[
               "Browse any listing site natively",
@@ -663,7 +913,6 @@ function WebResearchPage() {
             ))}
           </div>
 
-          {/* CTAs */}
           <div className="flex flex-col gap-2.5">
             <a
               href="/download"
@@ -691,7 +940,7 @@ function WebResearchPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Root export — picks the right implementation at runtime
+// Root export
 // ---------------------------------------------------------------------------
 
 export default function ResearchPage() {

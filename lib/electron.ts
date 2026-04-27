@@ -44,6 +44,12 @@ export interface ElectronAPI {
   analyze: () => Promise<Record<string, unknown>>
   /** Registers a nav-update listener. Returns a cleanup function. */
   onNavUpdate: (cb: (payload: ElectronNavUpdate) => void) => () => void
+  // Config / API keys
+  getConfig: () => Promise<Record<string, unknown>>
+  setOpenAIKey: (key: string) => Promise<{ ok: boolean }>
+  hasOpenAIKey: () => Promise<boolean>
+  setAnthropicKey: (key: string) => Promise<{ ok: boolean }>
+  hasAnthropicKey: () => Promise<boolean>
 }
 
 declare global {
