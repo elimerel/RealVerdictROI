@@ -2,6 +2,12 @@
 
 const { contextBridge, ipcRenderer } = require("electron")
 
+// Mark the document as running inside Electron before the page loads.
+// This lets CSS and JS avoid flash-of-wrong-layout without needing IPC.
+if (typeof document !== "undefined") {
+  document.documentElement.classList.add("electron")
+}
+
 // Expose a typed, locked-down API to the renderer process.
 // Nothing from Node/Electron leaks through — only these explicit channels.
 contextBridge.exposeInMainWorld("electronAPI", {

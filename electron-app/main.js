@@ -230,9 +230,11 @@ function createMainWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#09090b",
-    // Integrated title bar: traffic lights float over the sidebar header
+    // Integrated title bar: 28px transparent drag strip at top, traffic
+    // lights sit in it at y=8. CSS in globals.css shifts body down 28px
+    // so content never underlaps the traffic lights.
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    trafficLightPosition: { x: 16, y: 8 },
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

@@ -56,12 +56,11 @@ export function AppSidebar({ userEmail, isPro, dealCount }: Props) {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      {/* Header — serves as the macOS drag region in Electron (drag-region CSS class) */}
-      <SidebarHeader className="h-14 flex items-center px-4 border-b border-sidebar-border select-none drag-region">
-        {/* pl-[76px] pushes content past the macOS traffic lights (≈68px wide from left edge) */}
+      {/* Header — also a drag region so the window is draggable from the sidebar */}
+      <SidebarHeader className="h-14 flex items-center px-3 border-b border-sidebar-border select-none drag-region">
         <Link
           href="/search"
-          className="no-drag-region flex items-center gap-2 pl-[76px] group-data-[collapsible=icon]:pl-0 group-data-[collapsible=icon]:justify-center"
+          className="no-drag-region flex items-center gap-2 group-data-[collapsible=icon]:justify-center"
         >
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground shrink-0">
             <TrendingUp className="h-4 w-4 text-background" />

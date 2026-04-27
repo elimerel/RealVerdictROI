@@ -331,8 +331,9 @@ function buildViewFullUrl(result: AnalysisResult): string {
 // ---------------------------------------------------------------------------
 
 // Known layout constants (CSS pixels)
+const TITLEBAR_H = 28      // Electron hiddenInset strip (body padding-top in globals.css)
 const HEADER_H = 56        // h-14
-const ANALYSIS_W = 320     // w-80
+const ANALYSIS_W = 360     // right panel width
 
 // Sidebar widths match the shadcn/ui sidebar CSS variables
 const SIDEBAR_OPEN_W = 256
@@ -345,7 +346,7 @@ const SIDEBAR_ICON_W = 48  // icon-only collapsed state
  */
 function calcBounds(sidebarOpen: boolean, analysisOpen: boolean) {
   const x = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
-  const y = HEADER_H
+  const y = TITLEBAR_H + HEADER_H   // 28px Electron strip + 56px app header
   const width = Math.max(0, window.innerWidth - x - (analysisOpen ? ANALYSIS_W : 0))
   const height = Math.max(0, window.innerHeight - y)
   return { x, y, width, height }
@@ -392,28 +393,22 @@ function ElectronResearchPage() {
   const [currentTitle, setCurrentTitle] = useState("")
   const [isListingPage, setIsListingPage] = useState(false)
   const [browserLoading, setBrowserLoading] = useState(false)
-
-  // URL bar (can differ from currentUrl while user is typing)
   const [urlInput, setUrlInput] = useState("https://zillow.com")
 
-  // Analysis
+  // Analysis right panel — persists alongside the browser
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
+  const [analysisOpen, setAnalysisOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // When true: WebContentsView is hidden and we show the results view full-width.
-  // This completely eliminates any overlap between the native browser layer and React UI.
-  const [showingResults, setShowingResults] = useState(false)
-
-  // Keep WebContentsView bounds in sync with layout.
-  // Disable (pass active=false) when showing results so bounds don't fight our hide call.
-  useElectronBounds(browserActive && !showingResults, sidebarOpen, false)
+  // Keep WebContentsView bounds in sync with sidebar + right panel state
+  useElectronBounds(browserActive, sidebarOpen, analysisOpen)
 
   // On mount: check if a browser view already exists from a previous visit
   useEffect(() => {
     const api = window.electronAPI
     if (!api) return
-    api.showBrowser(calcBounds(sidebarOpen, false)).then((state) => {
+    api.showBrowser(calcBounds(sidebarOpen, analysisOpen)).then((state) => {
       if (state?.exists && state.url) {
         setBrowserActive(true)
         setCurrentUrl(state.url)
@@ -422,7 +417,6 @@ function ElectronResearchPage() {
         setIsListingPage(state.isListing ?? false)
       }
     })
-  // sidebarOpen intentionally excluded — only want to run on mount
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -448,14 +442,12 @@ function ElectronResearchPage() {
     const api = window.electronAPI!
     setBrowserLoading(true)
     setError(null)
-    setAnalysisResult(null)
-    setShowingResults(false)
-    await api.createBrowser(calcBounds(sidebarOpen, false))
+    await api.createBrowser(calcBounds(sidebarOpen, analysisOpen))
     await api.navigate(url)
     setBrowserActive(true)
     setCurrentUrl(url)
     setUrlInput(url)
-  }, [sidebarOpen])
+  }, [sidebarOpen, analysisOpen])
 
   const handleNavigate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -464,12 +456,6 @@ function ElectronResearchPage() {
     if (!browserActive) {
       await launchBrowser(url)
     } else {
-      // If we were showing results, go back to browser first
-      if (showingResults) {
-        setShowingResults(false)
-        setAnalysisResult(null)
-        await window.electronAPI?.showBrowser(calcBounds(sidebarOpen, false))
-      }
       setBrowserLoading(true)
       setError(null)
       await window.electronAPI?.navigate(url)
@@ -484,11 +470,8 @@ function ElectronResearchPage() {
       const result = await window.electronAPI!.analyze() as ExtractPayload
       if (result.error) throw new Error(result.error)
       const built = buildAnalysisResult({ ...result, inputs: result.inputs as Partial<DealInputs> })
-      // Hide the native browser layer BEFORE setting results, so there's never a moment
-      // where both are visible and overlapping.
-      await window.electronAPI?.hideBrowser()
       setAnalysisResult(built)
-      setShowingResults(true)
+      setAnalysisOpen(true)  // open right panel (browser shrinks to make room)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed.")
     } finally {
@@ -496,45 +479,9 @@ function ElectronResearchPage() {
     }
   }
 
-  // Restore the browser session after viewing results
-  const handleBackToBrowser = useCallback(async () => {
-    setShowingResults(false)
-    setAnalysisResult(null)
-    const bounds = calcBounds(sidebarOpen, false)
-    await window.electronAPI?.showBrowser(bounds)
-  }, [sidebarOpen])
-
   const handleViewFull = () => {
     if (!analysisResult) return
     window.location.href = buildViewFullUrl(analysisResult)
-  }
-
-  // When in results-view mode, render the full-width panel (no browser overlap possible)
-  if (showingResults && analysisResult) {
-    return (
-      <SidebarInset>
-        <header className="h-14 flex items-center gap-2 border-b border-border px-4 shrink-0">
-          <SidebarTrigger className="-ml-1" />
-          <button
-            onClick={handleBackToBrowser}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Back to listing
-          </button>
-          <div className="flex-1" />
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-            <span className="truncate max-w-xs">{analysisResult.address ?? hostnameOf(currentUrl)}</span>
-          </div>
-        </header>
-        <ElectronResultsView
-          result={analysisResult}
-          onBack={handleBackToBrowser}
-          onViewFull={handleViewFull}
-        />
-      </SidebarInset>
-    )
   }
 
   return (
@@ -544,25 +491,16 @@ function ElectronResearchPage() {
         <SidebarTrigger className="-ml-1" />
 
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => window.electronAPI?.back()}
-            disabled={!browserActive || browserLoading}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-          >
+          <button onClick={() => window.electronAPI?.back()} disabled={!browserActive || browserLoading}
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground">
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <button
-            onClick={() => window.electronAPI?.forward()}
-            disabled={!browserActive || browserLoading}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-          >
+          <button onClick={() => window.electronAPI?.forward()} disabled={!browserActive || browserLoading}
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground">
             <ArrowRight className="h-4 w-4" />
           </button>
-          <button
-            onClick={() => window.electronAPI?.reload()}
-            disabled={!browserActive}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-          >
+          <button onClick={() => window.electronAPI?.reload()} disabled={!browserActive}
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground">
             <RotateCw className={cn("h-3.5 w-3.5", browserLoading && "animate-spin")} />
           </button>
         </div>
@@ -570,12 +508,9 @@ function ElectronResearchPage() {
         <form onSubmit={handleNavigate} className="flex-1 flex items-center gap-2">
           <div className="flex-1 flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-muted/30 text-sm">
             <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <Input
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
+            <Input value={urlInput} onChange={(e) => setUrlInput(e.target.value)}
               placeholder="https://zillow.com"
-              className="border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
+              className="border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0" />
           </div>
           <Button type="submit" size="sm" disabled={browserLoading}>
             {browserLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Go"}
@@ -583,45 +518,37 @@ function ElectronResearchPage() {
         </form>
 
         {browserActive && (
-          <Button
-            size="sm"
-            variant={isListingPage ? "default" : "outline"}
-            disabled={analysisLoading}
-            onClick={handleAnalyze}
-            className={cn(
-              "gap-1.5 shrink-0",
-              isListingPage && "bg-emerald-600 hover:bg-emerald-500 text-white border-0"
-            )}
-          >
-            {analysisLoading
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : <TrendingUp className="h-3.5 w-3.5" />
-            }
-            {analysisLoading ? "Analyzing…" : "Analyze this property"}
+          <Button size="sm" variant={isListingPage ? "default" : "outline"}
+            disabled={analysisLoading} onClick={handleAnalyze}
+            className={cn("gap-1.5 shrink-0", isListingPage && "bg-emerald-600 hover:bg-emerald-500 text-white border-0")}>
+            {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TrendingUp className="h-3.5 w-3.5" />}
+            {analysisLoading ? "Analyzing…" : "Analyze"}
           </Button>
         )}
 
-        {/* Error in header — never covered by the native WebContentsView */}
+        {/* Toggle analysis panel when there's a result */}
+        {analysisResult && (
+          <button onClick={() => setAnalysisOpen(o => !o)}
+            className={cn("h-7 w-7 rounded flex items-center justify-center transition-colors shrink-0",
+              analysisOpen ? "bg-emerald-500/20 text-emerald-400" : "hover:bg-muted/60 text-muted-foreground")}>
+            <BarChart3 className="h-4 w-4" />
+          </button>
+        )}
+
         {error && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-400 shrink-0 max-w-xs">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-400 shrink-0 max-w-[200px]">
             <AlertTriangle className="h-3 w-3 shrink-0" />
             <span className="truncate">{error}</span>
             <button onClick={() => setError(null)} className="shrink-0 ml-1"><X className="h-3 w-3" /></button>
           </div>
         )}
-
-        {/* Analyzing… spinner also in header so it's above the native layer */}
-        {analysisLoading && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/40 border border-border text-xs text-muted-foreground shrink-0">
-            <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-            <span>Reading listing…</span>
-          </div>
-        )}
       </header>
 
-      <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
-        {/* Browser pane — transparent placeholder; WebContentsView is layered on top by Electron */}
-        <div className="flex-1 overflow-hidden relative bg-zinc-950 flex flex-col">
+      {/* Body: browser pane (left) + analysis panel (right, persistent) */}
+      <div className="flex flex-1 overflow-hidden" style={{ height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}>
+
+        {/* Browser pane — WebContentsView is layered on top by Electron; this is just a placeholder */}
+        <div className="flex-1 overflow-hidden relative bg-zinc-950 flex flex-col min-w-0">
           {!browserActive && (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
               <Globe className="h-10 w-10 opacity-20" />
@@ -631,11 +558,9 @@ function ElectronResearchPage() {
               </div>
               <div className="flex flex-wrap gap-2 justify-center max-w-sm">
                 {["zillow.com", "redfin.com", "realtor.com"].map((site) => (
-                  <button
-                    key={site}
+                  <button key={site}
                     onClick={() => { setUrlInput(`https://${site}`); void launchBrowser(`https://${site}`) }}
-                    className="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50 transition-colors"
-                  >
+                    className="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50 transition-colors">
                     {site}
                   </button>
                 ))}
@@ -643,22 +568,47 @@ function ElectronResearchPage() {
             </div>
           )}
 
-          {/* Listing badge floats over the WebContentsView */}
           {isListingPage && browserActive && (
             <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-xs font-medium shadow-lg pointer-events-none">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              Listing detected — click &quot;Analyze this property&quot;
+              Listing detected — click Analyze
             </div>
           )}
 
-          {/* URL chip at bottom */}
           {browserActive && currentUrl && (
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-background/80 backdrop-blur-sm border border-border/50 text-[10px] text-muted-foreground font-mono pointer-events-none">
-              {hostnameOf(currentUrl)}
-              {currentTitle ? ` — ${currentTitle.slice(0, 40)}` : ""}
+              {hostnameOf(currentUrl)}{currentTitle ? ` — ${currentTitle.slice(0, 40)}` : ""}
             </div>
           )}
         </div>
+
+        {/* Right analysis panel — slides in when analysisOpen */}
+        {analysisOpen && analysisResult && (
+          <div
+            className="flex flex-col border-l border-border bg-background overflow-hidden shrink-0"
+            style={{ width: ANALYSIS_W }}
+          >
+            {/* Panel header */}
+            <div className="h-10 flex items-center gap-2 px-3 border-b border-border shrink-0">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <span className="text-xs font-medium truncate flex-1">
+                {analysisResult.address ?? "Analysis"}
+              </span>
+              <button onClick={handleViewFull}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0 flex items-center gap-1">
+                <ExternalLink className="h-3 w-3" /> Full report
+              </button>
+              <button onClick={() => setAnalysisOpen(false)}
+                className="h-6 w-6 rounded flex items-center justify-center hover:bg-muted/60 text-muted-foreground shrink-0">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {/* Scrollable results */}
+            <div className="flex-1 overflow-y-auto">
+              <ElectronResultsView result={analysisResult} onBack={() => setAnalysisOpen(false)} onViewFull={handleViewFull} />
+            </div>
+          </div>
+        )}
       </div>
     </SidebarInset>
   )

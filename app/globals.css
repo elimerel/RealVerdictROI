@@ -154,8 +154,16 @@ input[type="number"] {
   }
 }
 
-/* Electron window drag region — sidebar header is draggable,
-   links/buttons inside it must opt out with .no-drag-region */
+/* Electron window chrome
+   -------------------------------------------------------------------
+   The 28px top strip is the native drag + traffic-light area.
+   Shifting body down by 28px keeps all content below it.
+   The strip itself is transparent — macOS renders traffic lights on top. */
+html.electron body {
+  padding-top: 28px;
+}
+
+/* Named so any element can opt into being a drag handle */
 .drag-region {
   -webkit-app-region: drag;
 }
