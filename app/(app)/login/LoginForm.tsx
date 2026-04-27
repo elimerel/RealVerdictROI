@@ -40,11 +40,6 @@ export default function LoginForm({
     | { state: "needs_confirmation" }
   >({ state: "idle" });
 
-  // In compact (Electron) mode we show a spinner while checking for an existing
-  // session.  Once INITIAL_SESSION fires (or after a short timeout) we either
-  // signal the main process (already signed in) or reveal the login form.
-  const [sessionChecked, setSessionChecked] = useState(!compact);
-
   // In Electron, use explicit IPC rather than router navigation —
   // URL-watching via did-navigate-in-page is unreliable for auth state changes.
   const api = typeof window !== "undefined" ? (window as any).electronAPI : null;
@@ -61,28 +56,16 @@ export default function LoginForm({
     }
   }, [api, redirectTo, router]);
 
-  // Listen for Supabase auth state changes.
-  // - INITIAL_SESSION: fires on subscribe if a session already exists (handles app restart)
+  // Listen for Supabase auth state changes — handles:
+  // - INITIAL_SESSION: fires on subscribe if a session already exists (app restart flow)
   // - SIGNED_IN: fires after email/password login or Google OAuth callback
   useEffect(() => {
     if (!api?.signedIn) return;  // only needed in Electron
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "INITIAL_SESSION") {
-        if (session) {
-          afterSignIn();
-        } else {
-          // No existing session — show the login form
-          setSessionChecked(true);
-        }
-      } else if (event === "SIGNED_IN" && session) {
-        afterSignIn();
-      }
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session) afterSignIn();
     });
-    // Safety fallback: if INITIAL_SESSION never fires (shouldn't happen but be safe),
-    // reveal the login form after 1.5 s so the user is never stuck on a spinner.
-    const fallback = setTimeout(() => setSessionChecked(true), 1500);
-    return () => { subscription.unsubscribe(); clearTimeout(fallback); };
+    return () => subscription.unsubscribe();
   }, [afterSignIn, api]);
 
   const signInWithGoogle = async () => {
@@ -158,21 +141,6 @@ export default function LoginForm({
 
   // Compact (Electron) — flat dark form, no card, no scroll
   if (compact) {
-    // While we wait for the INITIAL_SESSION check, show a subtle spinner so
-    // the user doesn't see the login form flash and then immediately disappear
-    // if they're already authenticated.
-    if (!sessionChecked) {
-      return (
-        <div className="flex flex-col items-center gap-3 text-zinc-600">
-          <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-          </svg>
-          <span className="text-xs">Checking session…</span>
-        </div>
-      );
-    }
-
     return (
       <div className="w-full max-w-xs">
         <p className="mb-3 text-center text-xs text-zinc-500">
