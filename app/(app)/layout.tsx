@@ -3,6 +3,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar"
 import { createClient } from "@/lib/supabase/server"
 import { supabaseEnv } from "@/lib/supabase/config"
 import { getProStatus } from "@/lib/pro"
+import { ElectronExpand } from "@/app/(app)/components/electron-expand"
 
 export default async function AppLayout({
   children,
@@ -33,6 +34,7 @@ export default async function AppLayout({
 
   return (
     <SidebarProvider>
+      <ElectronExpand />
       <AppSidebar userEmail={userEmail} isPro={isPro} dealCount={dealCount} />
       <main className="flex-1 overflow-auto">{children}</main>
     </SidebarProvider>

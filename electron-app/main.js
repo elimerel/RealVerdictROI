@@ -238,7 +238,7 @@ function createAppWindow() {
       const isAppPage   = !u.pathname.startsWith("/login") &&
                           !u.pathname.startsWith("/auth")
       if (isOurServer && isAppPage) {
-        expandToMainApp(/* alreadyOnSearchPage */ true)
+        expandToMainApp()
       }
     } catch { /* ignore unparseable URLs */ }
   })
@@ -246,14 +246,9 @@ function createAppWindow() {
 
 /**
  * Expand the window into full main-app mode after a successful sign-in.
- * The window animates to 1400×900, then navigates to /search.
- *
- * @param {boolean} [alreadyOnSearchPage=false]
- *   Pass true when the window has already navigated to /search on its own
- *   (e.g. after an OAuth callback redirect) so we only resize without a
- *   duplicate loadURL call.
+ * Resizes to 1400×900 then navigates to /search.
  */
-function expandToMainApp(alreadyOnSearchPage = false) {
+function expandToMainApp() {
   if (!appWindow || appWindow.isDestroyed()) return
   if (isMainMode) { appWindow.focus(); return }
   isMainMode = true
@@ -264,21 +259,11 @@ function expandToMainApp(alreadyOnSearchPage = false) {
 
   appWindow.setResizable(true)
   appWindow.setMinimumSize(900, 600)
-  // Animate the window expansion.  loadURL must be delayed until after the
-  // ~300 ms macOS animation — if called immediately the page renders inside
-  // the still-small window before the resize completes.
-  appWindow.setBounds(centeredBounds(w, h), true)
+  // Resize first (no animation — keep it simple and reliable), then load.
+  appWindow.setBounds(centeredBounds(w, h))
+  appWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
 
-  if (!alreadyOnSearchPage) {
-    setTimeout(() => {
-      if (appWindow && !appWindow.isDestroyed()) {
-        appWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
-        if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
-      }
-    }, 320)
-  } else {
-    if (DEV) setTimeout(() => appWindow?.webContents.openDevTools({ mode: "detach" }), 320)
-  }
+  if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
 }
 
 /**
