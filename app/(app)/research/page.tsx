@@ -1,13 +1,13 @@
 "use client"
 
 import {
-  useState, useRef, useCallback, useEffect,
+  useState, useCallback, useEffect,
 } from "react"
 import {
   ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X,
   ExternalLink, AlertTriangle, CheckCircle2, TrendingUp,
-  ChevronDown, ChevronUp, ChevronLeft, BarChart3, DollarSign,
-  Home, Percent, ShieldCheck,
+  ChevronLeft, BarChart3, DollarSign,
+  Percent, ShieldCheck,
 } from "lucide-react"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
@@ -23,7 +23,6 @@ import {
 } from "@/lib/calculations"
 import { TIER_LABEL, TIER_ACCENT } from "@/lib/tier-constants"
 import type { DealInputs, DealAnalysis } from "@/lib/calculations"
-import type { BrowseResponse } from "@/app/api/browse/route"
 import "@/lib/electron" // global Window type augmentation
 
 // ---------------------------------------------------------------------------
@@ -37,16 +36,6 @@ type AnalysisResult = {
   walkAway: number | null
   siteName: string | null
   confidence: string
-}
-
-// Session used only in the web/Browserbase path
-type BrowserbaseSession = {
-  sessionId: string
-  screenshot: string
-  url: string
-  title: string
-  isListingPage: boolean
-  pageText: string
 }
 
 // ---------------------------------------------------------------------------
@@ -301,12 +290,15 @@ function ElectronResultsView({
 // Shared: build AnalysisResult from extract/browse API response
 // ---------------------------------------------------------------------------
 
-function buildAnalysisResult(
-  data: Omit<BrowseResponse, "screenshot" | "facts" | "notes" | "warnings" | "provenance"> & {
-    screenshot?: string
-    inputs: Partial<DealInputs>
-  }
-): AnalysisResult {
+type ExtractPayload = {
+  address?: string
+  inputs: Partial<DealInputs>
+  siteName?: string | null
+  confidence?: string
+  error?: string
+}
+
+function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
   const sanitized = sanitiseInputs(data.inputs as DealInputs)
   const analysis = analyseDeal(sanitized)
   const ceiling = findOfferCeiling(sanitized)
@@ -489,7 +481,7 @@ function ElectronResearchPage() {
     setAnalysisLoading(true)
     setError(null)
     try {
-      const result = await window.electronAPI!.analyze() as { error?: string } & Omit<BrowseResponse, "screenshot" | "facts" | "notes" | "warnings" | "provenance">
+      const result = await window.electronAPI!.analyze() as ExtractPayload
       if (result.error) throw new Error(result.error)
       const built = buildAnalysisResult({ ...result, inputs: result.inputs as Partial<DealInputs> })
       // Hide the native browser layer BEFORE setting results, so there's never a moment
@@ -673,299 +665,76 @@ function ElectronResearchPage() {
 }
 
 // ---------------------------------------------------------------------------
-// WEB/BROWSERBASE MODE — original screenshot-based flow (unchanged)
+// WEB MODE — desktop-only gate
+// The Browserbase screenshot approach is removed. Web users see a clear
+// upgrade prompt; the native browser experience requires the desktop app.
 // ---------------------------------------------------------------------------
 
 function WebResearchPage() {
-  const [urlInput, setUrlInput] = useState("https://zillow.com")
-  const [session, setSession] = useState<BrowserbaseSession | null>(null)
-  const [sessionLoading, setSessionLoading] = useState(false)
-  const [actionLoading, setActionLoading] = useState(false)
-  const [analysisLoading, setAnalysisLoading] = useState(false)
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
-
-  useEffect(() => {
-    return () => {
-      if (session?.sessionId) {
-        fetch("/api/browse/session", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId: session.sessionId }),
-          keepalive: true,
-        }).catch(() => {})
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.sessionId])
-
-  const startSession = useCallback(async (url: string) => {
-    setSessionLoading(true)
-    setError(null)
-    setAnalysisResult(null)
-    try {
-      const res = await fetch("/api/browse/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      })
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({})) as { error?: string }
-        throw new Error(e.error ?? "Failed to start browser session.")
-      }
-      const data = await res.json() as BrowserbaseSession
-      setSession(data)
-      setUrlInput(data.url)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start browser.")
-    } finally {
-      setSessionLoading(false)
-    }
-  }, [])
-
-  const act = useCallback(async (action: unknown) => {
-    if (!session || actionLoading) return
-    setActionLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/browse/act", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: session.sessionId, action }),
-      })
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({})) as { error?: string }
-        throw new Error(e.error ?? "Action failed.")
-      }
-      const data = await res.json() as Omit<BrowserbaseSession, "sessionId">
-      setSession((prev) => prev ? { ...prev, ...data } : null)
-      setUrlInput(data.url)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.")
-    } finally {
-      setActionLoading(false)
-    }
-  }, [session, actionLoading])
-
-  const handleNavigate = (e: React.FormEvent) => {
-    e.preventDefault()
-    const url = normalizeUrl(urlInput)
-    if (!url) return
-    if (!session) startSession(url)
-    else act({ type: "navigate", url })
-  }
-
-  const handleScreenshotClick = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!session || !imgRef.current) return
-    const rect = imgRef.current.getBoundingClientRect()
-    const x = Math.round(((e.clientX - rect.left) / rect.width) * 1280)
-    const y = Math.round(((e.clientY - rect.top) / rect.height) * 800)
-    act({ type: "click", x, y })
-  }
-
-  const handleAnalyze = async () => {
-    if (!session) return
-    setAnalysisLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/browse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: session.url }),
-      })
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({})) as { error?: string }
-        throw new Error(e.error ?? "Analysis failed.")
-      }
-      const data = await res.json() as BrowseResponse
-      setAnalysisResult(buildAnalysisResult({ ...data, inputs: data.inputs as Partial<DealInputs> }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Analysis failed.")
-    } finally {
-      setAnalysisLoading(false)
-    }
-  }
-
-  const handleViewFull = () => {
-    if (!analysisResult) return
-    window.open(buildViewFullUrl(analysisResult), "_blank")
-  }
-
   return (
     <SidebarInset>
       <header className="h-14 flex items-center gap-2 border-b border-border px-4 shrink-0">
         <SidebarTrigger className="-ml-1" />
-
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => act({ type: "back" })}
-            disabled={!session || actionLoading}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => act({ type: "forward" })}
-            disabled={!session || actionLoading}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-          >
-            <ArrowRight className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => act({ type: "reload" })}
-            disabled={!session || actionLoading}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-          >
-            <RotateCw className={cn("h-3.5 w-3.5", actionLoading && "animate-spin")} />
-          </button>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Globe className="h-4 w-4" />
+          <span>Research</span>
         </div>
-
-        <form onSubmit={handleNavigate} className="flex-1 flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-muted/30 text-sm">
-            <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <Input
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              placeholder="https://zillow.com"
-              className="border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-          </div>
-          <Button type="submit" size="sm" disabled={sessionLoading || actionLoading}>
-            {sessionLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Go"}
-          </Button>
-        </form>
-
-        {session && (
-          <Button
-            size="sm"
-            variant={session.isListingPage ? "default" : "outline"}
-            disabled={analysisLoading}
-            onClick={handleAnalyze}
-            className={cn(
-              "gap-1.5 shrink-0",
-              session.isListingPage && "bg-emerald-600 hover:bg-emerald-500 text-white border-0"
-            )}
-          >
-            {analysisLoading
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : <TrendingUp className="h-3.5 w-3.5" />
-            }
-            {analysisLoading ? "Analyzing…" : "Analyze this property"}
-          </Button>
-        )}
       </header>
 
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-400">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          {error}
-          <button onClick={() => setError(null)} className="ml-auto"><X className="h-3.5 w-3.5" /></button>
-        </div>
-      )}
-
-      <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
-        <div className="flex-1 overflow-hidden relative bg-zinc-950 flex flex-col">
-          {!session && !sessionLoading && (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
-              <Globe className="h-10 w-10 opacity-20" />
-              <div className="text-center space-y-1">
-                <p className="text-sm font-medium">Research browser</p>
-                <p className="text-xs opacity-60">Type a URL above and click Go to start browsing</p>
-              </div>
-              <div className="flex flex-wrap gap-2 justify-center max-w-sm">
-                {["zillow.com", "redfin.com", "realtor.com"].map((site) => (
-                  <button
-                    key={site}
-                    onClick={() => { setUrlInput(`https://${site}`); startSession(`https://${site}`) }}
-                    className="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50 transition-colors"
-                  >
-                    {site}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {sessionLoading && (
-            <div className="flex-1 flex items-center justify-center gap-3 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="text-sm">Launching browser…</span>
-            </div>
-          )}
-
-          {session && (
-            <>
-              <div className="flex-1 overflow-hidden relative">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  ref={imgRef}
-                  src={`data:image/jpeg;base64,${session.screenshot}`}
-                  alt="Browser viewport"
-                  onClick={handleScreenshotClick}
-                  className={cn(
-                    "w-full h-full object-cover object-top",
-                    actionLoading ? "opacity-60 cursor-wait" : "cursor-crosshair"
-                  )}
-                  draggable={false}
-                />
-                {actionLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="bg-background/80 backdrop-blur-sm rounded-full p-3">
-                      <Loader2 className="h-5 w-5 animate-spin text-foreground" />
-                    </div>
-                  </div>
-                )}
-                {session.isListingPage && !analysisResult && (
-                  <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-xs font-medium shadow-lg">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Listing detected — click &quot;Analyze this property&quot;
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-center gap-2 p-2 border-t border-border/50 bg-background/50 shrink-0">
-                <button
-                  onClick={() => act({ type: "scroll", direction: "up" })}
-                  disabled={actionLoading}
-                  className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-                >
-                  <ChevronUp className="h-4 w-4" />
-                </button>
-                <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[200px]">
-                  {hostnameOf(session.url)}
-                </span>
-                <button
-                  onClick={() => act({ type: "scroll", direction: "down" })}
-                  disabled={actionLoading}
-                  className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        {(analysisResult || analysisLoading) && (
-          <div className="w-80 shrink-0 flex flex-col overflow-hidden">
-            {analysisLoading ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground border-l border-border">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                <div className="text-center space-y-1">
-                  <p className="text-sm font-medium">Analyzing…</p>
-                  <p className="text-xs opacity-60">Reading property data</p>
-                </div>
-              </div>
-            ) : analysisResult ? (
-              <AnalysisPanel
-                result={analysisResult}
-                onClose={() => setAnalysisResult(null)}
-                onViewFull={handleViewFull}
-              />
-            ) : null}
+      <div className="flex flex-1 items-center justify-center p-8">
+        <div className="max-w-md w-full space-y-6 text-center">
+          {/* Icon */}
+          <div className="mx-auto h-16 w-16 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
+            <Globe className="h-8 w-8 text-muted-foreground opacity-60" />
           </div>
-        )}
+
+          {/* Heading */}
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold tracking-tight">
+              Browser research is desktop-only
+            </h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              The Research tab lets you browse Zillow, Redfin, and Realtor.com directly inside the app and analyze any listing in one click. This feature requires the desktop app.
+            </p>
+          </div>
+
+          {/* Feature list */}
+          <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-2.5 text-left">
+            {[
+              "Browse any listing site natively",
+              "One-click analysis from the page",
+              "Session persists as you browse",
+              "No copy-pasting URLs",
+            ].map((f) => (
+              <div key={f} className="flex items-center gap-2.5 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                <span className="text-muted-foreground">{f}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* CTAs */}
+          <div className="flex flex-col gap-2.5">
+            <a
+              href="/download"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-semibold text-background transition hover:opacity-90"
+            >
+              Download the desktop app — Free
+            </a>
+            <a
+              href="/search"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-muted/40"
+            >
+              Analyze by URL or address instead
+            </a>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            macOS 12+ · Apple Silicon &amp; Intel · Free download
+          </p>
+        </div>
       </div>
     </SidebarInset>
   )
@@ -982,8 +751,6 @@ export default function ResearchPage() {
     setIsElectron(typeof window !== "undefined" && !!window.electronAPI)
   }, [])
 
-  // Avoid hydration mismatch by deferring until after mount
   if (isElectron === null) return null
-
   return isElectron ? <ElectronResearchPage /> : <WebResearchPage />
 }
