@@ -1,0 +1,50 @@
+{
+  "name": "realverdict-desktop",
+  "version": "1.0.0",
+  "description": "RealVerdict — Desktop App",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron . --dev",
+    "build:next": "cd .. && ELECTRON_BUILD=1 npx next build",
+    "build:copy": "node scripts/copy-next.js",
+    "build": "npm run build:next && npm run build:copy && electron-builder --mac",
+    "dist": "npm run build"
+  },
+  "build": {
+    "appId": "com.realverdict.desktop",
+    "productName": "RealVerdict",
+    "copyright": "Copyright © 2025",
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "RealVerdict",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/nextapp",
+        "to": "nextapp",
+        "filter": ["**/*"]
+      }
+    ],
+    "asar": true
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  }
+}

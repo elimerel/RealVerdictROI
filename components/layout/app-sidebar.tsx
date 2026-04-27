@@ -19,9 +19,9 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 const navItems = [
-  { title: "Search",          icon: Search,   href: "/" },
-  { title: "Research",        icon: Globe,    href: "/research" },
-  { title: "Leads Inbox",     icon: Inbox,    href: "/leads",    badge: null },
+  { title: "Search",          icon: Search,    href: "/search" },
+  { title: "Research",        icon: Globe,     href: "/research" },
+  { title: "Leads Inbox",     icon: Inbox,     href: "/leads",    badge: null },
   { title: "Market Insights", icon: BarChart3, href: "/insights" },
   { title: "Settings",        icon: Settings,  href: "/settings" },
 ]
