@@ -45,13 +45,15 @@ function MarketingNav() {
             <Download className="h-3.5 w-3.5" />
             Mac App
           </Link>
-          <Link
+          <a
             href="/search"
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Use web app
+            Open web app
             <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+          </a>
         </nav>
       </div>
     </header>
@@ -135,13 +137,15 @@ export default function LandingPage() {
               Download for Mac
               <span className="ml-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white">FREE</span>
             </a>
-            <Link
+            <a
               href="/search"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-6 py-3.5 text-base font-semibold text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:bg-zinc-800 w-full sm:w-auto justify-center"
             >
               <Globe className="h-5 w-5" />
               Use web app
-            </Link>
+            </a>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-500">
             macOS 12+ · Apple Silicon &amp; Intel ·{" "}
@@ -228,13 +232,15 @@ export default function LandingPage() {
                     Browser research (desktop only)
                   </li>
                 </ul>
-                <Link
+                <a
                   href="/search"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-2.5 text-sm font-semibold text-zinc-900 dark:text-zinc-50 transition hover:bg-zinc-50 dark:hover:bg-zinc-800"
                 >
                   <Search className="h-4 w-4" />
                   Open web app
-                </Link>
+                </a>
               </div>
 
               {/* Desktop card */}
@@ -293,13 +299,15 @@ export default function LandingPage() {
               <Download className="h-5 w-5" />
               Download for Mac
             </Link>
-            <Link
+            <a
               href="/search"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-6 py-3.5 text-base font-semibold text-zinc-900 shadow-sm transition hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:bg-zinc-800 w-full sm:w-auto justify-center"
             >
               <Globe className="h-5 w-5" />
               Try the web app
-            </Link>
+            </a>
           </div>
         </section>
 

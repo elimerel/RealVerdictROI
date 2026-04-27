@@ -119,6 +119,8 @@ export default function DownloadPage() {
             </a>
             <Link
               href="/search"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-7 py-4 text-base font-semibold text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:bg-zinc-800"
             >
               <Search className="h-5 w-5" />
@@ -301,6 +303,8 @@ export default function DownloadPage() {
             </a>
             <Link
               href="/search"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-7 py-4 text-base font-semibold text-zinc-700 shadow-sm transition hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               <ArrowRight className="h-4 w-4" />
