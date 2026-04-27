@@ -82,52 +82,8 @@ async function findFreePort(start = 3000) {
   return port
 }
 
-// ---------------------------------------------------------------------------
-// Loading screen HTML (shown immediately while Next.js boots)
-// ---------------------------------------------------------------------------
-
-const LOADING_HTML = `data:text/html,<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>RealVerdict</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{
-    background:#09090b;color:#fff;
-    display:flex;flex-direction:column;
-    align-items:center;justify-content:center;
-    height:100vh;font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-    gap:20px;
-  }
-  .logo{
-    width:48px;height:48px;background:#18181b;
-    border-radius:12px;display:flex;align-items:center;justify-content:center;
-    border:1px solid #27272a;
-  }
-  .logo svg{width:24px;height:24px}
-  h1{font-size:18px;font-weight:600;letter-spacing:-0.02em;color:#fafafa}
-  p{font-size:13px;color:#71717a}
-  .spinner{
-    width:20px;height:20px;border:2px solid #27272a;
-    border-top-color:#52525b;border-radius:50%;
-    animation:spin .8s linear infinite;
-  }
-  @keyframes spin{to{transform:rotate(360deg)}}
-</style>
-</head>
-<body>
-  <div class="logo">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
-      <polyline points="16 7 22 7 22 13"/>
-    </svg>
-  </div>
-  <h1>RealVerdict</h1>
-  <div class="spinner"></div>
-  <p>Starting up…</p>
-</body>
-</html>`
+// Path to the bundled loading screen HTML file
+const LOADING_FILE = path.join(__dirname, "loading.html")
 
 // ---------------------------------------------------------------------------
 // Next.js server
@@ -142,6 +98,9 @@ function startNextServer(port) {
       cwd: nextRoot,
       env: {
         ...process.env,
+        // ELECTRON_RUN_AS_NODE makes the Electron binary behave like plain Node.js
+        // so it can run the Next.js standalone server.js without Electron overhead
+        ELECTRON_RUN_AS_NODE: "1",
         PORT: String(port),
         HOSTNAME: "127.0.0.1",
         NODE_ENV: "production",
@@ -204,7 +163,7 @@ function createWindow() {
   })
 
   // Show loading screen immediately — no blank window while server boots
-  mainWindow.loadURL(LOADING_HTML)
+  mainWindow.loadFile(LOADING_FILE)
 
   if (DEV) mainWindow.webContents.openDevTools({ mode: "detach" })
 
@@ -426,22 +385,9 @@ app.whenReady().then(async () => {
     if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${PORT}`)
   }).catch((err) => {
     console.error("[electron]", err.message)
-    // Show a user-friendly error page
-    if (mainWindow) {
-      mainWindow.loadURL(`data:text/html,<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>RealVerdict</title>
-<style>
-  body{background:#09090b;color:#fafafa;font-family:-apple-system,sans-serif;
-       display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-  .box{text-align:center;max-width:400px;padding:40px}
-  h1{font-size:18px;font-weight:600;margin-bottom:12px}
-  p{font-size:13px;color:#71717a;line-height:1.6}
-</style></head>
-<body><div class="box">
-  <h1>Could not start RealVerdict</h1>
-  <p>The app server failed to start. Try quitting and reopening. If the problem persists, restart your Mac.</p>
-</div></body></html>`)
-    }
+    // Fall back to the loading screen; it will show "Starting up…" which is
+    // better than a black window. The user can quit and reopen.
+    if (mainWindow) mainWindow.loadFile(LOADING_FILE)
   })
 
   app.on("activate", () => {
