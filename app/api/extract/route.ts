@@ -3,7 +3,6 @@ import { openai } from "@ai-sdk/openai"
 import { z } from "zod"
 import type { NextRequest } from "next/server"
 import type { DealInputs } from "@/lib/calculations"
-import { withErrorReporting } from "@/lib/observability"
 
 // ---------------------------------------------------------------------------
 // This endpoint is called by the Chrome extension.
@@ -40,9 +39,12 @@ const PagePropertySchema = z.object({
   siteName:             z.string().nullable(),
 })
 
-export const POST = withErrorReporting(
-  "api.extract",
-  async (req: NextRequest) => {
+export async function POST(req: NextRequest) {
+  // CORS headers go on EVERY response — including errors — so the extension
+  // never sees a bare network failure instead of the real error message.
+  const cors = CORS_HEADERS
+
+  try {
     const body = await req.json().catch(() => ({})) as {
       url?: string
       text?: string
@@ -50,9 +52,13 @@ export const POST = withErrorReporting(
     }
 
     if (!body.text || body.text.length < 50) {
+      return Response.json({ error: "No page text provided." }, { status: 400, headers: cors })
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
       return Response.json(
-        { error: "No page text provided." },
-        { status: 400, headers: CORS_HEADERS },
+        { error: "OPENAI_API_KEY is not configured on the server." },
+        { status: 503, headers: cors },
       )
     }
 
@@ -76,16 +82,16 @@ ${body.text.slice(0, 20000)}`,
     const warnings: string[] = []
     const facts: Record<string, unknown> = {}
 
-    if (extracted.listPrice)          inputs.purchasePrice      = extracted.listPrice
+    if (extracted.listPrice)           inputs.purchasePrice     = extracted.listPrice
     if (extracted.monthlyRentEstimate) inputs.monthlyRent       = extracted.monthlyRentEstimate
-    if (extracted.monthlyHOA)         inputs.monthlyHOA         = extracted.monthlyHOA
-    if (extracted.annualPropertyTax)  inputs.annualPropertyTax  = extracted.annualPropertyTax
-    if (extracted.annualInsurance)    inputs.annualInsurance     = extracted.annualInsurance
-    if (extracted.beds)               facts.bedrooms             = extracted.beds
-    if (extracted.baths)              facts.bathrooms            = extracted.baths
-    if (extracted.sqft)               facts.squareFeet           = extracted.sqft
-    if (extracted.yearBuilt)          facts.yearBuilt            = extracted.yearBuilt
-    if (extracted.propertyType)       facts.propertyType         = extracted.propertyType
+    if (extracted.monthlyHOA)          inputs.monthlyHOA        = extracted.monthlyHOA
+    if (extracted.annualPropertyTax)   inputs.annualPropertyTax = extracted.annualPropertyTax
+    if (extracted.annualInsurance)     inputs.annualInsurance   = extracted.annualInsurance
+    if (extracted.beds)                facts.bedrooms           = extracted.beds
+    if (extracted.baths)               facts.bathrooms          = extracted.baths
+    if (extracted.sqft)                facts.squareFeet         = extracted.sqft
+    if (extracted.yearBuilt)           facts.yearBuilt          = extracted.yearBuilt
+    if (extracted.propertyType)        facts.propertyType       = extracted.propertyType
 
     notes.push(
       `Read directly from ${extracted.siteName ?? new URL(body.url ?? "https://unknown").hostname} · confidence: ${extracted.confidence}`
@@ -105,7 +111,6 @@ ${body.text.slice(0, 20000)}`,
             warnings?: string[]
             facts?: Record<string, unknown>
           }
-          // Merge — page data wins, resolve fills gaps
           for (const [k, v] of Object.entries(resolved.inputs ?? {})) {
             const key = k as keyof DealInputs
             if (inputs[key] == null && v != null) {
@@ -133,7 +138,10 @@ ${body.text.slice(0, 20000)}`,
         siteName:   extracted.siteName,
         confidence: extracted.confidence,
       },
-      { headers: CORS_HEADERS },
+      { headers: cors },
     )
-  },
-)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected server error."
+    return Response.json({ error: message }, { status: 500, headers: cors })
+  }
+}
