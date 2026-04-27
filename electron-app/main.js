@@ -242,8 +242,10 @@ function createBrowserView() {
 
 function destroyBrowserView() {
   if (!browserView) return
-  if (mainWindow) mainWindow.contentView.removeChildView(browserView)
-  browserView.webContents.close()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.contentView.removeChildView(browserView)
+  }
+  try { browserView.webContents.close() } catch { /* already closed */ }
   browserView = null
   pendingBounds = null
 }
