@@ -1,10 +1,68 @@
-import { Settings, User, Bell, CreditCard, Key } from "lucide-react"
+"use client"
+
+import { Settings, User, Bell, CreditCard, Key, CheckCircle2 } from "lucide-react"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { useState, useEffect } from "react"
+
+function OpenAIKeySection() {
+  const [key, setKey] = useState("")
+  const [saved, setSaved] = useState(false)
+  const [hasSaved, setHasSaved] = useState(false)
+  const api = typeof window !== "undefined" ? (window as any).electronAPI : null
+
+  useEffect(() => {
+    if (!api) return
+    api.getConfig().then((cfg: any) => {
+      if (cfg?.openaiApiKey) { setKey(cfg.openaiApiKey); setHasSaved(true) }
+    })
+  }, [])
+
+  if (!api) return null // only show in desktop app
+
+  const save = async () => {
+    await api.setOpenAIKey(key.trim())
+    setHasSaved(true)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 3000)
+  }
+
+  return (
+    <Card className="bg-card/50 border-amber-500/30">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Key className="h-4 w-4 text-amber-500" />
+          <CardTitle className="text-base">OpenAI API Key</CardTitle>
+        </div>
+        <CardDescription>
+          Required for AI-powered property analysis. Your key is stored locally on this Mac and never sent to our servers.
+          {" "}<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline text-foreground">Get a key →</a>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-2">
+          <Input
+            type="password"
+            placeholder="sk-..."
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            className="font-mono text-sm"
+          />
+          <Button onClick={save} disabled={!key.trim()} size="sm">
+            {saved ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Saved</> : "Save"}
+          </Button>
+        </div>
+        {hasSaved && !saved && (
+          <p className="text-xs text-muted-foreground">Key saved. Restart the app for it to take effect.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 export default function SettingsPage() {
   return (
@@ -97,6 +155,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* OpenAI key — desktop only */}
+        <OpenAIKeySection />
 
         {/* API Keys */}
         <Card className="bg-card/50">

@@ -32,4 +32,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("browser:nav-update", handler)
     return () => ipcRenderer.removeListener("browser:nav-update", handler)
   },
+
+  // --- Config / API keys ---
+  getConfig: () => ipcRenderer.invoke("config:get"),
+  setOpenAIKey: (key) => ipcRenderer.invoke("config:set-openai-key", key),
+  hasOpenAIKey: () => ipcRenderer.invoke("config:has-openai-key"),
 })
