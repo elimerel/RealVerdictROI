@@ -3,6 +3,8 @@ import { createOpenAI } from "@ai-sdk/openai"
 import { z } from "zod"
 import type { NextRequest } from "next/server"
 import type { DealInputs } from "@/lib/calculations"
+import fs from "fs"
+import nodePath from "path"
 
 // ---------------------------------------------------------------------------
 // This endpoint is called by the Chrome extension.
@@ -55,19 +57,16 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "No page text provided." }, { status: 400, headers: cors })
     }
 
-    // Resolve the key: env var first, then Electron userData config (set in Settings)
-    const apiKey = process.env.OPENAI_API_KEY || (() => {
+    // Resolve the key: env var first, then Electron userData config (saved in Settings)
+    let apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey && process.env.USER_DATA_PATH) {
       try {
-        const userDataPath = process.env.USER_DATA_PATH
-        if (!userDataPath) return undefined
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const fs = require("fs") as typeof import("fs")
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const nodePath = require("path") as typeof import("path")
-        const cfg = JSON.parse(fs.readFileSync(nodePath.join(userDataPath, "config.json"), "utf8"))
-        return cfg?.openaiApiKey as string | undefined
-      } catch { return undefined }
-    })()
+        const cfg = JSON.parse(
+          fs.readFileSync(nodePath.join(process.env.USER_DATA_PATH, "config.json"), "utf8")
+        )
+        apiKey = cfg?.openaiApiKey || undefined
+      } catch { /* config not found or unreadable — leave apiKey undefined */ }
+    }
 
     if (!apiKey) {
       return Response.json(
