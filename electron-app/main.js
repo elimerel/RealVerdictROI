@@ -223,14 +223,37 @@ function createAppWindow() {
     isMainMode = false
     app.quit()
   })
+
+  // Catch OAuth callback redirects: after Google (or any provider) redirects
+  // back through /auth/callback, Next.js issues a server-side redirect to
+  // /search.  That navigation bypasses the IPC path, so the small login window
+  // would end up showing the full app crammed into 420×560.
+  // Solution: watch for the window landing on any app-page while still in
+  // login mode and call expandToMainApp(true) — resize only, no extra loadURL.
+  appWindow.webContents.on("did-navigate", (_event, url) => {
+    if (isMainMode) return
+    try {
+      const u = new URL(url)
+      const isOurServer = u.hostname === "127.0.0.1" && u.port === String(PORT)
+      const isAppPage   = !u.pathname.startsWith("/login") &&
+                          !u.pathname.startsWith("/auth")
+      if (isOurServer && isAppPage) {
+        expandToMainApp(/* alreadyOnSearchPage */ true)
+      }
+    } catch { /* ignore unparseable URLs */ }
+  })
 }
 
 /**
  * Expand the window into full main-app mode after a successful sign-in.
  * The window animates to 1400×900, then navigates to /search.
- * This matches the "window expands into the app" pattern used by Claude Desktop.
+ *
+ * @param {boolean} [alreadyOnSearchPage=false]
+ *   Pass true when the window has already navigated to /search on its own
+ *   (e.g. after an OAuth callback redirect) so we only resize without a
+ *   duplicate loadURL call.
  */
-function expandToMainApp() {
+function expandToMainApp(alreadyOnSearchPage = false) {
   if (!appWindow || appWindow.isDestroyed()) return
   if (isMainMode) { appWindow.focus(); return }
   isMainMode = true
@@ -241,10 +264,21 @@ function expandToMainApp() {
 
   appWindow.setResizable(true)
   appWindow.setMinimumSize(900, 600)
-  appWindow.setBounds(centeredBounds(w, h), true)   // true = animate on macOS
-  appWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
+  // Animate the window expansion.  loadURL must be delayed until after the
+  // ~300 ms macOS animation — if called immediately the page renders inside
+  // the still-small window before the resize completes.
+  appWindow.setBounds(centeredBounds(w, h), true)
 
-  if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
+  if (!alreadyOnSearchPage) {
+    setTimeout(() => {
+      if (appWindow && !appWindow.isDestroyed()) {
+        appWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
+        if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
+      }
+    }, 320)
+  } else {
+    if (DEV) setTimeout(() => appWindow?.webContents.openDevTools({ mode: "detach" }), 320)
+  }
 }
 
 /**
