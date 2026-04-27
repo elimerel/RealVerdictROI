@@ -159,13 +159,12 @@ function createLoginWindow() {
   }
 
   loginWindow = new BrowserWindow({
-    width: 460,
-    height: 600,
+    width: 400,
+    height: 560,
     resizable: false,
     center: true,
-    backgroundColor: "#fafafa",
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    backgroundColor: "#ffffff",
+    // Standard macOS title bar — no overlap with content, traffic lights in their own bar
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -174,19 +173,19 @@ function createLoginWindow() {
     },
   })
 
-  // Show loading screen while server boots, then switch to login
+  // Show loading screen while server boots, then switch to compact login
   if (!serverReady) {
     loginWindow.loadFile(LOADING_FILE)
     waitForServer(PORT).then(() => {
       serverReady = true
       if (loginWindow && !loginWindow.isDestroyed()) {
-        loginWindow.loadURL(`http://127.0.0.1:${PORT}/login`)
+        loginWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
       }
     }).catch(() => {
       if (loginWindow && !loginWindow.isDestroyed()) loginWindow.loadFile(LOADING_FILE)
     })
   } else {
-    loginWindow.loadURL(`http://127.0.0.1:${PORT}/login`)
+    loginWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
   }
 
   loginWindow.on("closed", () => {
@@ -418,7 +417,7 @@ app.whenReady().then(async () => {
     serverReady = true
     // If login window is open and still on loading screen, switch it to /login
     if (loginWindow && !loginWindow.isDestroyed()) {
-      loginWindow.loadURL(`http://127.0.0.1:${PORT}/login`)
+      loginWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
     }
   }).catch((err) => {
     console.error("[electron] server failed to start:", err.message)

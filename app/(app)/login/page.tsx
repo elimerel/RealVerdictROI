@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { TrendingUp } from "lucide-react";
 import LoginForm from "./LoginForm";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
@@ -7,7 +8,7 @@ import { getCurrentUser } from "@/lib/supabase/server";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redirect?: string; mode?: string; error?: string }>;
+  searchParams: Promise<{ redirect?: string; mode?: string; error?: string; source?: string }>;
 }) {
   const sp = await searchParams;
   const oauthError = sp.error === "oauth_failed"
@@ -16,19 +17,45 @@ export default async function LoginPage({
   const redirectTo =
     typeof sp.redirect === "string" && sp.redirect.startsWith("/")
       ? sp.redirect
-      : "/dashboard";
+      : "/search";
 
-  // If already signed in, skip straight to the destination.
   const user = await getCurrentUser();
   if (user) redirect(redirectTo);
 
   const initialMode: "signin" | "signup" =
     sp.mode === "signup" ? "signup" : "signin";
 
+  // Compact layout for the Electron desktop app — no header, no nav, no large padding
+  if (sp.source === "electron") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-white px-6 py-8">
+        {/* Logo */}
+        <div className="mb-5 flex flex-col items-center gap-2">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-900">
+            <TrendingUp className="h-5 w-5 text-white" />
+          </div>
+          <span className="text-base font-semibold tracking-tight text-zinc-900">RealVerdict</span>
+        </div>
+
+        {oauthError && (
+          <div className="mb-3 w-full max-w-sm rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {oauthError}
+          </div>
+        )}
+
+        {supabaseEnv().configured ? (
+          <LoginForm redirectTo={redirectTo} initialMode={initialMode} compact />
+        ) : (
+          <UnconfiguredNotice />
+        )}
+      </div>
+    );
+  }
+
+  // Standard web layout
   return (
     <div className="flex flex-1 flex-col bg-gradient-to-b from-zinc-50 via-white to-zinc-50 dark:from-zinc-950 dark:via-black dark:to-zinc-950">
-      {/* pt-7 gives breathing room for the macOS traffic-light buttons in the desktop app */}
-      <header className="pt-7 border-b border-zinc-200/70 bg-white/70 backdrop-blur-sm dark:border-zinc-800/70 dark:bg-black/40">
+      <header className="border-b border-zinc-200/70 bg-white/70 backdrop-blur-sm dark:border-zinc-800/70 dark:bg-black/40">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
           <Link
             href="/"
@@ -78,9 +105,7 @@ function UnconfiguredNotice() {
         <code className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-xs dark:bg-amber-900/60">
           NEXT_PUBLIC_SUPABASE_ANON_KEY
         </code>{" "}
-        in your <code>.env.local</code>, then run the SQL in{" "}
-        <code>supabase/migrations/001_deals.sql</code>. Restart the dev server
-        after.
+        in your <code>.env.local</code>.
       </p>
     </div>
   );

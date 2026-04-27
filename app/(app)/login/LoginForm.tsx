@@ -22,9 +22,11 @@ type Mode = "signin" | "signup";
 export default function LoginForm({
   redirectTo,
   initialMode,
+  compact = false,
 }: {
   redirectTo: string;
   initialMode: Mode;
+  compact?: boolean;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -126,17 +128,17 @@ export default function LoginForm({
   }
 
   return (
-    <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="mb-6 flex flex-col gap-1.5">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+    <div className={`w-full ${compact ? "max-w-sm" : "max-w-md"} rounded-2xl border border-zinc-200 bg-white ${compact ? "p-6" : "p-8"} shadow-sm dark:border-zinc-800 dark:bg-zinc-950`}>
+      <div className={`${compact ? "mb-4" : "mb-6"} flex flex-col gap-1`}>
+        <h1 className={`${compact ? "text-lg" : "text-2xl"} font-semibold tracking-tight text-zinc-900 dark:text-zinc-50`}>
           {mode === "signup"
-            ? "Create your RealVerdict account"
+            ? "Create your account"
             : "Welcome back"}
         </h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {mode === "signup"
-            ? "Save your deals, build a portfolio of analyses, and keep them all in one place."
-            : "Sign in to save this deal and access your dashboard."}
+            ? "Save deals and build your portfolio."
+            : "Sign in to access your dashboard."}
         </p>
       </div>
 
@@ -221,7 +223,7 @@ export default function LoginForm({
         </button>
       </form>
 
-      <div className="mt-5 flex items-center justify-between text-sm">
+      <div className="mt-4 flex items-center justify-between text-sm">
         <button
           type="button"
           onClick={() => {
@@ -234,12 +236,14 @@ export default function LoginForm({
             ? "Already have an account? Sign in"
             : "Need an account? Sign up"}
         </button>
-        <Link
-          href="/"
-          className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-        >
-          Back home
-        </Link>
+        {!compact && (
+          <Link
+            href="/"
+            className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            Back home
+          </Link>
+        )}
       </div>
     </div>
   );
