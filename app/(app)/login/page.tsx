@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { TrendingUp } from "lucide-react";
 import LoginForm from "./LoginForm";
-import ElectronAutoSignIn from "./ElectronAutoSignIn";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 
@@ -20,22 +19,19 @@ export default async function LoginPage({
       ? sp.redirect
       : "/search";
 
-  const user = await getCurrentUser();
-  if (user) {
-    // In Electron the login page loads in a small 400×520 window.
-    // A normal redirect() would show the full app crammed into that tiny window.
-    // Instead, render a client component that calls api.signedIn() via IPC so
-    // the main process opens the real mainWindow and closes this login window.
-    if (sp.source === "electron") {
-      return <ElectronAutoSignIn />;
-    }
-    redirect(redirectTo);
-  }
-
   const initialMode: "signin" | "signup" =
     sp.mode === "signup" ? "signup" : "signin";
 
-  // Compact layout for the Electron desktop app — dark, no header, no scroll
+  // Compact layout for the Electron desktop app — dark, no header, no scroll.
+  //
+  // IMPORTANT: we deliberately skip the server-side getCurrentUser() check here.
+  // If we detect an existing session on the server we'd normally redirect(), but
+  // in Electron that redirect plays out inside the small 400×520 login window,
+  // cramming the full app into it.  Instead, LoginForm's onAuthStateChange listener
+  // handles the "already signed in" case: Supabase fires INITIAL_SESSION almost
+  // immediately after subscribe if a session exists, which calls api.signedIn() via
+  // IPC so the main process opens the real 1400×900 mainWindow and closes this
+  // login window cleanly.
   if (sp.source === "electron") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#09090b] px-5 py-4">
@@ -62,7 +58,10 @@ export default async function LoginPage({
     );
   }
 
-  // Standard web layout
+  // Standard web layout — check session and redirect if already signed in.
+  const user = await getCurrentUser();
+  if (user) redirect(redirectTo);
+
   return (
     <div className="flex flex-1 flex-col bg-gradient-to-b from-zinc-50 via-white to-zinc-50 dark:from-zinc-950 dark:via-black dark:to-zinc-950">
       <header className="border-b border-zinc-200/70 bg-white/70 backdrop-blur-sm dark:border-zinc-800/70 dark:bg-black/40">

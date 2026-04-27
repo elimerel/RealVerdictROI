@@ -201,9 +201,14 @@ function createLoginWindow() {
 // Main window — full app, shown after auth
 // ---------------------------------------------------------------------------
 
-function createMainWindow() {
+// afterReady — optional callback fired once the window is visible and focused.
+// Use this to close the login window AFTER the main window is on screen,
+// preventing any gap where no window is visible.
+function createMainWindow(afterReady) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.focus(); return
+    mainWindow.focus()
+    if (afterReady) afterReady()
+    return
   }
 
   mainWindow = new BrowserWindow({
@@ -211,6 +216,7 @@ function createMainWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
+    show: false,         // revealed in ready-to-show to prevent blank flash
     backgroundColor: "#09090b",
     // Integrated title bar: 28px transparent drag strip at top, traffic
     // lights sit in it at y=8. CSS in globals.css shifts body down 28px
@@ -226,6 +232,19 @@ function createMainWindow() {
   })
 
   mainWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
+
+  // Show once the first paint is ready — no blank flash.
+  // Also fall back after 4 s in case ready-to-show is delayed.
+  let shown = false
+  const doShow = () => {
+    if (shown || !mainWindow || mainWindow.isDestroyed()) return
+    shown = true
+    mainWindow.show()
+    mainWindow.focus()
+    if (afterReady) afterReady()
+  }
+  mainWindow.once("ready-to-show", doShow)
+  setTimeout(doShow, 4000)
 
   if (DEV) mainWindow.webContents.openDevTools({ mode: "detach" })
 
@@ -382,10 +401,13 @@ ipcMain.handle("browser:analyze", async () => {
 // IPC — auth events (explicit signals, more reliable than watching URL changes)
 // ---------------------------------------------------------------------------
 
-// Called by LoginForm after a successful sign-in (email or OAuth)
+// Called by LoginForm / ElectronAutoSignIn after a successful sign-in.
+// We close the login window only AFTER the main window is ready-to-show,
+// so there is never a moment where no window is visible.
 ipcMain.handle("auth:signed-in", () => {
-  createMainWindow()
-  if (loginWindow && !loginWindow.isDestroyed()) loginWindow.close()
+  createMainWindow(() => {
+    if (loginWindow && !loginWindow.isDestroyed()) loginWindow.close()
+  })
 })
 
 // Called by the sidebar sign-out button after supabase.auth.signOut()
