@@ -74,12 +74,32 @@ export default function LoginForm({
   const signInWithGoogle = async () => {
     setStatus({ state: "oauth_loading" });
     const supabase = createClient();
+    const callbackUrl = `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`;
+
+    // Electron desktop: open a dedicated popup window for Google sign-in so
+    // the small login window never navigates away to google.com.
+    // We ask Supabase for the OAuth URL without auto-redirecting, then hand
+    // the URL to the main process which opens a proper BrowserWindow popup.
+    const electronAPI = typeof window !== "undefined" ? (window as any).electronAPI : null;
+    if (electronAPI?.openOAuth) {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: callbackUrl, skipBrowserRedirect: true },
+      });
+      if (error) { setStatus({ state: "error", message: error.message }); return; }
+      if (data?.url) {
+        // IPC opens the popup; when Google redirects back the main process
+        // loads /auth/callback in the login window and the did-navigate
+        // listener expands the window to full app mode.
+        await electronAPI.openOAuth(data.url);
+      }
+      return;
+    }
+
+    // Web browser: standard redirect flow
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: {
-        // After OAuth, the callback page calls afterSignIn via the auth state listener
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
-      },
+      options: { redirectTo: callbackUrl },
     });
     if (error) {
       setStatus({ state: "error", message: error.message });

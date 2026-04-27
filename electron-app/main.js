@@ -445,6 +445,71 @@ ipcMain.handle("browser:analyze", async () => {
 ipcMain.handle("auth:signed-in",  () => expandToMainApp())
 ipcMain.handle("auth:signed-out", () => shrinkToLogin())
 
+/**
+ * OAuth popup flow for Electron.
+ *
+ * Opens a dedicated BrowserWindow for the OAuth provider (Google, etc.).
+ * When the provider redirects back to our local /auth/callback URL, we:
+ *   1. Load that callback URL in the main window (so Next.js can exchange
+ *      the code and set the session cookie).
+ *   2. Close the popup.
+ *
+ * The main window's did-navigate listener then sees the /auth/callback →
+ * /search redirect chain and calls expandToMainApp().
+ *
+ * This keeps Google sign-in in a proper standalone window rather than
+ * navigating the small login window to google.com and back.
+ */
+ipcMain.handle("auth:open-oauth", (_e, oauthUrl) => {
+  return new Promise((resolve) => {
+    const popup = new BrowserWindow({
+      width: 520,
+      height: 680,
+      resizable: false,
+      title: "Sign in with Google",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        // No preload — this is a sandboxed auth popup only
+      },
+      parent: appWindow ?? undefined,
+      modal: false,
+    })
+
+    popup.setMenuBarVisibility(false)
+    popup.loadURL(oauthUrl)
+
+    // Watch every navigation inside the popup.
+    // When it lands on our local /auth/callback, hand the URL to the main
+    // window and close the popup.
+    popup.webContents.on("did-navigate", (_event, url) => {
+      try {
+        const u = new URL(url)
+        if (u.hostname === "127.0.0.1" && u.pathname.startsWith("/auth/callback")) {
+          // Navigate main window to the callback so the session is established
+          appWindow?.loadURL(url)
+          popup.destroy()
+          resolve({ ok: true })
+        }
+      } catch { /* non-URL */ }
+    })
+
+    // Also watch in-page redirects (some OAuth providers use hash fragments)
+    popup.webContents.on("did-navigate-in-page", (_event, url) => {
+      try {
+        const u = new URL(url)
+        if (u.hostname === "127.0.0.1" && u.pathname.startsWith("/auth/callback")) {
+          appWindow?.loadURL(url)
+          popup.destroy()
+          resolve({ ok: true })
+        }
+      } catch { /* non-URL */ }
+    })
+
+    popup.on("closed", () => resolve({ cancelled: true }))
+  })
+})
+
 // ---------------------------------------------------------------------------
 // IPC — config / API keys
 // ---------------------------------------------------------------------------

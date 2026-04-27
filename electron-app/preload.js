@@ -42,6 +42,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // --- Auth events ---
   signedIn: () => ipcRenderer.invoke("auth:signed-in"),
   signedOut: () => ipcRenderer.invoke("auth:signed-out"),
+  // Opens a dedicated popup window for OAuth (Google, etc.) so the login
+  // window never navigates away from the app to an auth provider.
+  openOAuth: (url) => ipcRenderer.invoke("auth:open-oauth", url),
 
   // --- Config / API keys ---
   getConfig: () => ipcRenderer.invoke("config:get"),
