@@ -25,20 +25,20 @@ export default async function LoginPage({
   const initialMode: "signin" | "signup" =
     sp.mode === "signup" ? "signup" : "signin";
 
-  // Compact layout for the Electron desktop app — no header, no nav, no large padding
+  // Compact layout for the Electron desktop app — dark, no header, no scroll
   if (sp.source === "electron") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-white px-6 py-8">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#09090b] px-5 py-4">
         {/* Logo */}
-        <div className="mb-5 flex flex-col items-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-900">
-            <TrendingUp className="h-5 w-5 text-white" />
+        <div className="mb-4 flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 border border-white/10">
+            <TrendingUp className="h-4 w-4 text-white" />
           </div>
-          <span className="text-base font-semibold tracking-tight text-zinc-900">RealVerdict</span>
+          <span className="text-sm font-semibold tracking-tight text-white">RealVerdict</span>
         </div>
 
         {oauthError && (
-          <div className="mb-3 w-full max-w-sm rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          <div className="mb-3 w-full max-w-xs rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-xs text-red-300">
             {oauthError}
           </div>
         )}

@@ -127,13 +127,93 @@ export default function LoginForm({
     );
   }
 
+  // Compact (Electron) — flat dark form, no card, no scroll
+  if (compact) {
+    return (
+      <div className="w-full max-w-xs">
+        <p className="mb-3 text-center text-xs text-zinc-500">
+          {mode === "signup" ? "Create your account" : "Sign in to your account"}
+        </p>
+
+        {/* Google OAuth */}
+        <button
+          type="button"
+          onClick={signInWithGoogle}
+          disabled={busy || oauthBusy}
+          className="mb-3 inline-flex w-full items-center justify-center gap-2.5 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <GoogleIcon />
+          {oauthBusy ? "Redirecting…" : "Continue with Google"}
+        </button>
+
+        {/* Divider */}
+        <div className="mb-3 flex items-center gap-3">
+          <div className="flex-1 h-px bg-zinc-800" />
+          <span className="text-xs text-zinc-600">or</span>
+          <div className="flex-1 h-px bg-zinc-800" />
+        </div>
+
+        <form onSubmit={submit} className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="email" className="text-xs font-medium text-zinc-400">Email</label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500/30"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="password" className="text-xs font-medium text-zinc-400">Password</label>
+            <input
+              id="password"
+              type="password"
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500/30"
+            />
+          </div>
+
+          {status.state === "error" && (
+            <div className="rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+              {status.message}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-1 inline-flex h-9 items-center justify-center rounded-lg bg-white text-sm font-semibold text-zinc-900 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
+          </button>
+        </form>
+
+        <div className="mt-3 text-center">
+          <button
+            type="button"
+            onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setStatus({ state: "idle" }); }}
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition"
+          >
+            {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Standard web layout (with card)
   return (
-    <div className={`w-full ${compact ? "max-w-sm" : "max-w-md"} rounded-2xl border border-zinc-200 bg-white ${compact ? "p-6" : "p-8"} shadow-sm dark:border-zinc-800 dark:bg-zinc-950`}>
-      <div className={`${compact ? "mb-4" : "mb-6"} flex flex-col gap-1`}>
-        <h1 className={`${compact ? "text-lg" : "text-2xl"} font-semibold tracking-tight text-zinc-900 dark:text-zinc-50`}>
-          {mode === "signup"
-            ? "Create your account"
-            : "Welcome back"}
+    <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mb-6 flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+          {mode === "signup" ? "Create your account" : "Welcome back"}
         </h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {mode === "signup"
@@ -162,12 +242,7 @@ export default function LoginForm({
 
       <form onSubmit={submit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <label
-            htmlFor="email"
-            className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
-          >
-            Email
-          </label>
+          <label htmlFor="email" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Email</label>
           <input
             id="email"
             type="email"
@@ -179,18 +254,11 @@ export default function LoginForm({
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label
-            htmlFor="password"
-            className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
-          >
-            Password
-          </label>
+          <label htmlFor="password" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Password</label>
           <input
             id="password"
             type="password"
-            autoComplete={
-              mode === "signup" ? "new-password" : "current-password"
-            }
+            autoComplete={mode === "signup" ? "new-password" : "current-password"}
             required
             minLength={6}
             value={password}
@@ -198,9 +266,7 @@ export default function LoginForm({
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-200 dark:focus:ring-zinc-100/10"
           />
           {mode === "signup" && (
-            <p className="text-xs text-zinc-500 dark:text-zinc-500">
-              At least 6 characters.
-            </p>
+            <p className="text-xs text-zinc-500">At least 6 characters.</p>
           )}
         </div>
 
@@ -215,35 +281,21 @@ export default function LoginForm({
           disabled={busy}
           className="mt-2 inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
-          {busy
-            ? "Please wait…"
-            : mode === "signup"
-              ? "Create account"
-              : "Sign in"}
+          {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
       </form>
 
       <div className="mt-4 flex items-center justify-between text-sm">
         <button
           type="button"
-          onClick={() => {
-            setMode(mode === "signup" ? "signin" : "signup");
-            setStatus({ state: "idle" });
-          }}
+          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setStatus({ state: "idle" }); }}
           className="font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
         >
-          {mode === "signup"
-            ? "Already have an account? Sign in"
-            : "Need an account? Sign up"}
+          {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
         </button>
-        {!compact && (
-          <Link
-            href="/"
-            className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-          >
-            Back home
-          </Link>
-        )}
+        <Link href="/" className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+          Back home
+        </Link>
       </div>
     </div>
   );

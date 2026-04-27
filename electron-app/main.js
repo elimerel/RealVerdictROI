@@ -160,10 +160,10 @@ function createLoginWindow() {
 
   loginWindow = new BrowserWindow({
     width: 400,
-    height: 560,
+    height: 520,
     resizable: false,
     center: true,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#09090b",
     // Standard macOS title bar — no overlap with content, traffic lights in their own bar
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -195,7 +195,10 @@ function createLoginWindow() {
   })
 
   // Detect successful auth: Next.js redirects away from /login & /auth/
-  loginWindow.webContents.on("did-navigate", (_e, url) => {
+  // We must listen to BOTH events:
+  //   did-navigate       → full page load (e.g. OAuth callback redirect)
+  //   did-navigate-in-page → History API pushState/replaceState used by Next.js router.replace()
+  function onAuthNav(_e, url) {
     if (
       url.startsWith(`http://127.0.0.1:${PORT}`) &&
       !url.includes("/login") &&
@@ -204,7 +207,9 @@ function createLoginWindow() {
       createMainWindow()
       if (loginWindow && !loginWindow.isDestroyed()) loginWindow.close()
     }
-  })
+  }
+  loginWindow.webContents.on("did-navigate", onAuthNav)
+  loginWindow.webContents.on("did-navigate-in-page", onAuthNav)
 }
 
 // ---------------------------------------------------------------------------
