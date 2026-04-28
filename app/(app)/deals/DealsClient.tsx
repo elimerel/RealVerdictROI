@@ -7,7 +7,6 @@ import {
   ArrowRight,
   Loader2,
   LayoutList,
-  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
@@ -183,7 +182,10 @@ export function DealsClient({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isListingUrl = LISTING_URL_RE.test(query)
-  const panelOpen = selectedId !== null
+  // Phase 2 will open the right panel with AnalysisPanel content.
+  // For Phase 1 the right zone is suppressed — clicking a card highlights
+  // it (selectedId tracks this) but no panel slides in.
+  const panelOpen = false
 
   // ── Pre-compute analysis for all saved deals ──
   const dealData = useMemo(() => {
@@ -589,33 +591,7 @@ export function DealsClient({
         )}
       </div>
 
-      {/* ═══════════════════════════════════════════════
-          RIGHT ZONE — placeholder (Phase 2: AnalysisPanel)
-      ═══════════════════════════════════════════════ */}
-      <div
-        className={cn(
-          "transition-all duration-200 overflow-hidden relative",
-          panelOpen ? "flex-1" : "w-0"
-        )}
-      >
-        {panelOpen && (
-          <>
-            {/* Close button */}
-            <button
-              onClick={() => setSelectedId(null)}
-              className="absolute top-3 right-3 z-10 flex items-center justify-center h-7 w-7 rounded-md border border-zinc-700 bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-500 transition-colors"
-              aria-label="Close panel"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-
-            {/* Phase 2 placeholder */}
-            <div className="h-full w-full">
-              {/* AnalysisPanel goes here in Phase 2 */}
-            </div>
-          </>
-        )}
-      </div>
+      {/* Phase 2: right panel with AnalysisPanel goes here */}
     </div>
   )
 }
