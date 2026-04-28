@@ -77,7 +77,7 @@ export default function DownloadPage() {
               Pricing
             </Link>
             <Link
-              href="/search"
+              href="/deals"
               className="inline-flex items-center gap-1.5 font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
             >
               <Globe className="h-3.5 w-3.5" />
@@ -129,7 +129,7 @@ export default function DownloadPage() {
               </a>
             </div>
             <Link
-              href="/search"
+              href="/deals"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-7 py-4 text-base font-semibold text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:bg-zinc-800"
@@ -313,7 +313,7 @@ export default function DownloadPage() {
               Download RealVerdict for Mac
             </a>
             <Link
-              href="/search"
+              href="/deals"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-7 py-4 text-base font-semibold text-zinc-700 shadow-sm transition hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -342,7 +342,7 @@ export default function DownloadPage() {
               <Link href="/about"       className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">About</Link>
               <Link href="/methodology" className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">Methodology</Link>
               <Link href="/pricing"     className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">Pricing</Link>
-              <Link href="/search"      className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">Web app</Link>
+              <Link href="/deals"      className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">Web app</Link>
             </nav>
           </div>
         </footer>

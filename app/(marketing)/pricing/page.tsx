@@ -40,7 +40,7 @@ export default async function PricingPage() {
             {authEnabled &&
               (user ? (
                 <Link
-                  href="/dashboard"
+                  href="/deals"
                   className="font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
                 >
                   Dashboard
