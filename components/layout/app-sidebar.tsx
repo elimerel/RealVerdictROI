@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
-import { Search, BookmarkCheck, BarChart3, Settings, TrendingUp, Globe, LogOut, ChevronUp } from "lucide-react"
+import { LayoutList, BarChart3, Settings, TrendingUp, Globe, LogOut, ChevronUp } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -22,25 +22,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 
 const navItems = [
-  { title: "Search",          icon: Search,    href: "/search" },
-  { title: "Research",        icon: Globe,     href: "/research" },
-  { title: "Saved Deals",     icon: BookmarkCheck, href: "/leads", badge: null },
-  { title: "Market Insights", icon: BarChart3, href: "/insights" },
-  { title: "Settings",        icon: Settings,  href: "/settings" },
+  { title: "Deals",    icon: LayoutList, href: "/deals" },
+  { title: "Research", icon: Globe,      href: "/research" },
+  { title: "Insights", icon: BarChart3,  href: "/insights" },
+  { title: "Settings", icon: Settings,   href: "/settings" },
 ]
 
 type Props = {
   userEmail?: string
   isPro?: boolean
-  dealCount?: number
 }
 
-export function AppSidebar({ userEmail, isPro, dealCount }: Props) {
+export function AppSidebar({ userEmail, isPro }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const initials = userEmail
@@ -65,7 +62,7 @@ export function AppSidebar({ userEmail, isPro, dealCount }: Props) {
       {/* Header — also a drag region so the window is draggable from the sidebar */}
       <SidebarHeader className="h-14 flex items-center px-3 border-b border-sidebar-border select-none drag-region">
         <Link
-          href="/search"
+          href="/deals"
           className="no-drag-region flex items-center gap-2 group-data-[collapsible=icon]:justify-center"
         >
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground shrink-0">
@@ -85,7 +82,6 @@ export function AppSidebar({ userEmail, isPro, dealCount }: Props) {
                 const isActive =
                   pathname === item.href ||
                   (item.href !== "/" && pathname.startsWith(item.href))
-                const badge = item.href === "/leads" && dealCount ? dealCount : null
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -99,14 +95,6 @@ export function AppSidebar({ userEmail, isPro, dealCount }: Props) {
                     >
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
-                      {badge != null && (
-                        <Badge
-                          variant="secondary"
-                          className="ml-auto h-5 min-w-5 px-1.5 text-[10px] font-medium bg-foreground/10 text-foreground group-data-[collapsible=icon]:hidden"
-                        >
-                          {badge}
-                        </Badge>
-                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )

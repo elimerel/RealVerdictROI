@@ -93,7 +93,7 @@ export function ResultsNav({
       </Link>
       {supabaseConfigured && (
         signedIn ? (
-          <Link href="/dashboard" className="font-medium text-zinc-400 transition hover:text-zinc-100">
+          <Link href="/deals" className="font-medium text-zinc-400 transition hover:text-zinc-100">
             Deals
           </Link>
         ) : (

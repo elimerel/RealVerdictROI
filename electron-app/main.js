@@ -176,7 +176,7 @@ function createAppWindow() {
 
 /**
  * Expand the window into full main-app mode after a successful sign-in.
- * Resizes to 1400×900 then navigates to /search.
+ * Resizes to 1400×900 then navigates to /deals.
  */
 function expandToMainApp() {
   if (!appWindow || appWindow.isDestroyed()) return
@@ -191,7 +191,7 @@ function expandToMainApp() {
   appWindow.setMinimumSize(900, 600)
   // Resize first (no animation — keep it simple and reliable), then load.
   appWindow.setBounds(centeredBounds(w, h))
-  appWindow.loadURL(`${BASE_URL}/search`)
+  appWindow.loadURL(`${BASE_URL}/deals`)
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
 }

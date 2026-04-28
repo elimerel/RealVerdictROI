@@ -2,7 +2,7 @@
 
 /**
  * Renders AppSidebar immediately (with placeholder state), then fetches
- * user / pro-status / deal-count from the client and updates the sidebar.
+ * user / pro-status from the client and updates the sidebar.
  *
  * This replaces the server-side data fetching that used to block the layout
  * from streaming.  With this approach the sidebar (and the full page shell)
@@ -25,7 +25,6 @@ function rowIsPro(row: { status: string; current_period_end: string | null } | n
 export function SidebarDataLoader() {
   const [userEmail, setUserEmail] = useState<string | undefined>()
   const [isPro, setIsPro] = useState(false)
-  const [dealCount, setDealCount] = useState<number | undefined>()
 
   useEffect(() => {
     const supabase = createClient()
@@ -33,19 +32,15 @@ export function SidebarDataLoader() {
       if (!user) return
       setUserEmail(user.email)
 
-      const [{ count }, { data: sub }] = await Promise.all([
-        supabase.from("deals").select("id", { count: "exact", head: true }),
-        supabase
-          .from("subscriptions")
-          .select("status, current_period_end")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-      ])
+      const { data: sub } = await supabase
+        .from("subscriptions")
+        .select("status, current_period_end")
+        .eq("user_id", user.id)
+        .maybeSingle()
 
-      setDealCount(count ?? undefined)
       setIsPro(rowIsPro(sub as { status: string; current_period_end: string | null } | null))
     })
   }, [])
 
-  return <AppSidebar userEmail={userEmail} isPro={isPro} dealCount={dealCount} />
+  return <AppSidebar userEmail={userEmail} isPro={isPro} />
 }

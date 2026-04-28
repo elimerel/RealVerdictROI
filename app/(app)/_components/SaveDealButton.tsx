@@ -84,7 +84,7 @@ export default function SaveDealButton({
   if (status.state === "saved") {
     return (
       <Link
-        href="/dashboard"
+        href="/deals"
         style={{
           borderColor: "var(--accent)",
           backgroundColor: "var(--accent-soft)",
