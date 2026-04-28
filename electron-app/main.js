@@ -113,10 +113,11 @@ function createAppWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,   // keeps preload isolated from page JS
       nodeIntegration: false,   // page JS cannot access Node APIs
-      // sandbox intentionally omitted: sandboxed renderers cannot load
-      // preload scripts from inside an ASAR archive, which silently prevents
-      // contextBridge from running and leaves window.electronAPI undefined.
-      // contextIsolation + nodeIntegration:false provides equivalent security.
+      sandbox: false,           // MUST be explicit: Electron 20+ defaults to
+                                // sandbox:true, which blocks loading preload
+                                // scripts from inside an ASAR archive.
+                                // contextIsolation:true is the real security
+                                // boundary — sandbox adds nothing here.
     },
   })
 
