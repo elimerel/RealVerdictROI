@@ -108,6 +108,7 @@ const FALLBACK_NARRATIVE: AiNarrative = {
 
 export async function POST(req: Request) {
   if (!supabaseEnv().configured) {
+    console.log("[narrative] Supabase not configured — aborting");
     return NextResponse.json(
       { error: "Supabase is not configured." },
       { status: 503 }
@@ -121,6 +122,7 @@ export async function POST(req: Request) {
     error: authErr,
   } = await supabase.auth.getUser();
   if (authErr || !user) {
+    console.log("[narrative] Auth failed:", authErr?.message);
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
@@ -137,9 +139,11 @@ export async function POST(req: Request) {
     );
   }
 
+  console.log("[narrative] route called for dealId:", body.dealId, "user:", user.id);
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    // No key configured — store fallback so clients stop retrying
+    console.log("[narrative] No ANTHROPIC_API_KEY — storing fallback narrative");
     const narrative: AiNarrative = { ...FALLBACK_NARRATIVE, generatedAt: new Date().toISOString() };
     await supabase
       .from("deals")
@@ -152,6 +156,7 @@ export async function POST(req: Request) {
   // Generate narrative
   let narrative: AiNarrative;
   try {
+    console.log("[narrative] Calling Claude claude-haiku-4-5 for dealId:", body.dealId);
     const anthropic = createAnthropic({ apiKey });
     const { object } = await generateObject({
       model: anthropic("claude-haiku-4-5"),
@@ -161,6 +166,7 @@ export async function POST(req: Request) {
       maxOutputTokens: 400,
       temperature: 0,
     });
+    console.log("[narrative] Claude response:", JSON.stringify(object));
 
     narrative = {
       summary: object.summary,
@@ -168,11 +174,13 @@ export async function POST(req: Request) {
       risk: object.risk,
       generatedAt: new Date().toISOString(),
     };
-  } catch {
+  } catch (err) {
+    console.error("[narrative] Claude call failed:", err);
     narrative = { ...FALLBACK_NARRATIVE, generatedAt: new Date().toISOString() };
   }
 
   // Persist to DB — only update rows owned by this user
+  console.log("[narrative] Persisting to DB for dealId:", body.dealId);
   const { error: updateErr } = await supabase
     .from("deals")
     .update({ ai_narrative: narrative })
@@ -180,11 +188,13 @@ export async function POST(req: Request) {
     .eq("user_id", user.id);
 
   if (updateErr) {
+    console.error("[narrative] DB update failed:", updateErr.message);
     return NextResponse.json(
       { error: "Failed to save narrative." },
       { status: 500 }
     );
   }
 
+  console.log("[narrative] Done — narrative stored for dealId:", body.dealId);
   return NextResponse.json({ narrative });
 }

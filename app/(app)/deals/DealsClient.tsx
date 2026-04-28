@@ -258,6 +258,7 @@ export function DealsClient({
     if (deal) {
       const computed = dealData.get(deal.id)
       if (!computed) return null
+      console.log("[deals] panelData ai_narrative for", deal.id, ":", deal.ai_narrative ?? "null")
       return {
         analysis: computed.analysis,
         walkAway: computed.walkAway,
@@ -325,8 +326,9 @@ export function DealsClient({
   const handleSelectSavedDeal = useCallback(
     (deal: SavedDeal, computed: { analysis: DealAnalysis; walkAway: OfferCeiling | null }) => {
       setSelectedId(deal.id)
-      // Fire-and-forget narrative generation for deals that predate the feature
+      // Generate narrative for deals that predate the feature, then refresh to show it
       if (!deal.ai_narrative) {
+        console.log("[deals] ai_narrative is null for", deal.id, "— triggering background generation")
         fetch("/api/deals/narrative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -337,10 +339,23 @@ export function DealsClient({
             walkAway: computed.walkAway,
             address: deal.address,
           }),
-        }).catch(() => {})
+        })
+          .then((res) => {
+            if (res.ok) {
+              console.log("[deals] narrative generated — refreshing deals list")
+              router.refresh()
+            } else {
+              console.warn("[deals] narrative route returned", res.status)
+            }
+          })
+          .catch((err) => {
+            console.error("[deals] narrative fetch failed:", err)
+          })
+      } else {
+        console.log("[deals] ai_narrative already present for", deal.id, ":", deal.ai_narrative?.summary?.slice(0, 60))
       }
     },
-    []
+    [router]
   )
 
   // ── Filtered saved deals ──
