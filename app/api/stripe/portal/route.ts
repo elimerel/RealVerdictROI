@@ -72,7 +72,7 @@ export const POST = withErrorReporting(
     try {
       const session = await stripe.billingPortal.sessions.create({
         customer: data.stripe_customer_id as string,
-        return_url: `${appBaseUrl()}/dashboard`,
+        return_url: `${appBaseUrl()}/deals`,
       });
       logEvent("stripe.portal.opened", { userId: auth.user.id });
       return NextResponse.redirect(session.url, { status: 303 });

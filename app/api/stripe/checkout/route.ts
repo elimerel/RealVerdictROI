@@ -44,7 +44,7 @@ export const POST = withErrorReporting(
         client_reference_id: auth.user.id,
         customer_email: auth.user.email ?? undefined,
         line_items: [{ price: priceId, quantity: 1 }],
-        success_url: `${base}/dashboard?checkout=success`,
+        success_url: `${base}/deals?checkout=success`,
         cancel_url: `${base}/pricing?checkout=canceled`,
         metadata: { supabase_user_id: auth.user.id },
         subscription_data: {
