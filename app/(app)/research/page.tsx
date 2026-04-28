@@ -420,7 +420,7 @@ function ElectronResultsView({
   ]
 
   return (
-    <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
+    <div className="flex flex-1 overflow-hidden h-full">
       <ScrollArea className="flex-1">
         <div className="max-w-3xl mx-auto p-8 space-y-6">
 
@@ -732,8 +732,9 @@ function ElectronResearchPage() {
     }
   }
 
-  const handleViewFull = () => {
+  const handleViewFull = async () => {
     if (!analysisResult) return
+    await window.electronAPI?.hideBrowser()
     window.location.href = buildViewFullUrl(analysisResult)
   }
 
@@ -859,7 +860,7 @@ function ElectronResearchPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-hidden flex flex-col">
               <ElectronResultsView result={analysisResult} onBack={() => setAnalysisOpen(false)} onViewFull={handleViewFull} />
             </div>
           </div>
