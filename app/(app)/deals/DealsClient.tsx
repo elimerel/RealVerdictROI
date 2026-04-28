@@ -1,12 +1,14 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import {
   Globe,
   MapPin,
   ArrowRight,
   Loader2,
   LayoutList,
+  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
@@ -21,7 +23,7 @@ import {
   type VerdictTier,
 } from "@/lib/calculations"
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
-import type { PropertyFacts } from "../_components/AnalysisPanel"
+import AnalysisPanel, { type PropertyFacts } from "../_components/AnalysisPanel"
 import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
 
 // ---------------------------------------------------------------------------
@@ -97,23 +99,18 @@ function extractPropertyFacts(facts: Record<string, unknown>): PropertyFacts {
 
 function LoadingCard() {
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 animate-pulse border-l-[3px]">
-      {/* Address bar */}
+    <div className="rounded-md border border-zinc-800 bg-zinc-900 p-3 animate-pulse border-l-[3px]">
       <div className="h-4 w-3/4 rounded bg-zinc-800 mb-3" />
-      {/* Facts strip */}
-      <div className="h-3 w-2/5 rounded bg-zinc-800 mb-4" />
-      {/* Badge + price row */}
+      <div className="h-3 w-2/5 rounded bg-zinc-800 mb-3" />
       <div className="flex justify-between mb-3">
         <div className="h-5 w-16 rounded bg-zinc-800" />
         <div className="h-5 w-24 rounded bg-zinc-800" />
       </div>
-      {/* Metric tiles */}
-      <div className="flex gap-4 mb-3">
-        <div className="flex-1 h-10 rounded bg-zinc-800" />
-        <div className="flex-1 h-10 rounded bg-zinc-800" />
-        <div className="flex-1 h-10 rounded bg-zinc-800" />
+      <div className="flex gap-3 mb-2">
+        <div className="flex-1 h-8 rounded bg-zinc-800" />
+        <div className="flex-1 h-8 rounded bg-zinc-800" />
+        <div className="flex-1 h-8 rounded bg-zinc-800" />
       </div>
-      {/* Time */}
       <div className="h-3 w-16 rounded bg-zinc-800 ml-auto" />
     </div>
   )
@@ -131,7 +128,7 @@ function ErrorCard({
   onRetry: () => void
 }) {
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 border-l-[3px] border-l-red-500">
+    <div className="rounded-md border border-zinc-800 bg-zinc-900 p-3 border-l-[3px] border-l-red-500">
       <p className="text-sm font-medium text-foreground mb-1">Could not load property</p>
       <p className="text-xs text-red-400 mb-3 leading-relaxed">{message}</p>
       <button
@@ -150,18 +147,16 @@ function ErrorCard({
 
 export function DealsClient({
   deals,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  signedIn: _signedIn,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  isPro: _isPro,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  supabaseConfigured: _supabaseConfigured,
+  signedIn,
+  isPro,
+  supabaseConfigured,
 }: {
   deals: SavedDeal[]
   signedIn: boolean
   isPro: boolean
   supabaseConfigured: boolean
 }) {
+  const router = useRouter()
 
   // ── Search state ──
   const [query, setQuery] = useState("")
@@ -172,20 +167,43 @@ export function DealsClient({
   const [isSearching, setIsSearching] = useState(false)
 
   // ── Deals state ──
-  // Fix 2: no auto-select — panel only opens on explicit card click
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeFilter, setActiveFilter] = useState<VerdictTier | null>(null)
   const [pendingCard, setPendingCard] = useState<PendingCard | null>(null)
+
+  // ── Right panel width ──
+  const rightPanelRef = useRef<HTMLDivElement>(null)
+  const [panelWidth, setPanelWidth] = useState(460)
 
   // ── Refs ──
   const formRef = useRef<HTMLFormElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isListingUrl = LISTING_URL_RE.test(query)
-  // Phase 2 will open the right panel with AnalysisPanel content.
-  // For Phase 1 the right zone is suppressed — clicking a card highlights
-  // it (selectedId tracks this) but no panel slides in.
-  const panelOpen = false
+
+  // Panel is open only when a deal with actual data is selected
+  const panelOpen = useMemo(() => {
+    if (!selectedId) return false
+    if (deals.some((d) => d.id === selectedId)) return true
+    if (
+      pendingCard?.id === selectedId &&
+      pendingCard?.kind === "done"
+    )
+      return true
+    return false
+  }, [selectedId, deals, pendingCard])
+
+  // ── Track right panel width ──
+  useEffect(() => {
+    const el = rightPanelRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) setPanelWidth(entry.contentRect.width)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [panelOpen]) // re-attach when panel opens
 
   // ── Pre-compute analysis for all saved deals ──
   const dealData = useMemo(() => {
@@ -211,6 +229,79 @@ export function DealsClient({
     }
     return map
   }, [deals])
+
+  // ── Derive data for AnalysisPanel from the selected deal ──
+  const panelData = useMemo(() => {
+    if (!selectedId) return null
+
+    // Pending done card
+    if (
+      pendingCard &&
+      pendingCard.id === selectedId &&
+      pendingCard.kind === "done"
+    ) {
+      return {
+        analysis: pendingCard.analysis,
+        walkAway: pendingCard.walkAway,
+        inputs: pendingCard.analysis.inputs,
+        address: pendingCard.address,
+        propertyFacts: pendingCard.propertyFacts ?? undefined,
+        savedDealId: undefined as string | undefined,
+        isPending: true,
+      }
+    }
+
+    // Saved deal
+    const deal = deals.find((d) => d.id === selectedId)
+    if (deal) {
+      const computed = dealData.get(deal.id)
+      if (!computed) return null
+      return {
+        analysis: computed.analysis,
+        walkAway: computed.walkAway,
+        inputs: computed.analysis.inputs,
+        address: deal.address ?? undefined,
+        propertyFacts: deal.property_facts ?? undefined,
+        savedDealId: deal.id,
+        isPending: false,
+      }
+    }
+
+    return null
+  }, [selectedId, pendingCard, deals, dealData])
+
+  // ── Save a freshly-analyzed deal ──
+  const handleSave = useCallback(async () => {
+    if (
+      !pendingCard ||
+      pendingCard.kind !== "done" ||
+      pendingCard.id !== selectedId
+    )
+      return
+    if (!signedIn) {
+      router.push("/login?mode=signup&redirect=/deals")
+      return
+    }
+    if (!isPro) {
+      router.push("/pricing?redirect=/deals")
+      return
+    }
+    try {
+      const res = await fetch("/api/deals/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputs: pendingCard.analysis.inputs,
+          address: pendingCard.address,
+          propertyFacts: pendingCard.propertyFacts,
+        }),
+      })
+      if (!res.ok) return
+      router.refresh()
+    } catch {
+      // save failed silently — user can retry
+    }
+  }, [pendingCard, selectedId, signedIn, isPro, router])
 
   // ── Filtered saved deals ──
   const filteredDeals = useMemo(() => {
@@ -300,7 +391,6 @@ export function DealsClient({
         sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
       }
 
-      // Compute analysis
       const merged: DealInputs = { ...DEFAULT_INPUTS, ...payload.inputs }
       const inputs = sanitiseInputs(merged)
       const analysis = analyseDeal(inputs)
@@ -347,7 +437,7 @@ export function DealsClient({
         const message =
           err instanceof Error ? err.message : "Something went wrong. Try again."
         setPendingCard({ kind: "error", id: pendingId, message, inputText: text })
-        setSearchError(null) // error shown inline in the card
+        setSearchError(null)
       } finally {
         setIsSearching(false)
       }
@@ -383,7 +473,7 @@ export function DealsClient({
     }
   }
 
-  // ── Pending card visibility in current filter ──
+  // ── Pending card grid visibility ──
   const showPendingInGrid =
     pendingCard !== null &&
     (pendingCard.kind === "loading" ||
@@ -513,7 +603,6 @@ export function DealsClient({
 
         {/* Card grid or empty state */}
         {!hasDeals ? (
-          /* Empty state */
           <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
             <LayoutList className="h-10 w-10 text-muted-foreground/20" />
             <div className="space-y-1">
@@ -591,7 +680,43 @@ export function DealsClient({
         )}
       </div>
 
-      {/* Phase 2: right panel with AnalysisPanel goes here */}
+      {/* ═══════════════════════════════════════════════
+          RIGHT ZONE — AnalysisPanel
+      ═══════════════════════════════════════════════ */}
+      <div
+        className={cn(
+          "transition-all duration-200 overflow-hidden relative",
+          panelOpen ? "flex-1" : "w-0"
+        )}
+      >
+        {panelOpen && panelData && (
+          <div ref={rightPanelRef} className="h-full w-full overflow-hidden">
+            {/* Close button */}
+            <button
+              onClick={() => setSelectedId(null)}
+              className="absolute top-3 right-3 z-20 flex items-center justify-center h-7 w-7 rounded-md border border-zinc-700 bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-500 transition-colors"
+              aria-label="Close panel"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+
+            <AnalysisPanel
+              analysis={panelData.analysis}
+              walkAway={panelData.walkAway}
+              inputs={panelData.inputs}
+              address={panelData.address}
+              propertyFacts={panelData.propertyFacts}
+              savedDealId={panelData.savedDealId}
+              signedIn={signedIn}
+              isPro={isPro}
+              supabaseConfigured={supabaseConfigured}
+              panelWidth={panelWidth}
+              onSave={panelData.isPending ? handleSave : undefined}
+              onClose={() => setSelectedId(null)}
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }
