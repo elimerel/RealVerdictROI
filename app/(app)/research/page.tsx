@@ -390,7 +390,6 @@ function ElectronResultsView({
               Save &amp; view full analysis
             </Button>
           </div>
-        </div>
       </div>
     </div>
   )
