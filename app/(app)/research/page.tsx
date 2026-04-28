@@ -950,9 +950,10 @@ export default function ResearchPage() {
   const [isElectron, setIsElectron] = useState<boolean | null>(null)
 
   useLayoutEffect(() => {
-    // Preload.js adds the "electron" class to <html> synchronously before any
-    // page script runs, making this check instant and always accurate.
-    setIsElectron(document.documentElement.classList.contains("electron"))
+    // window.electronAPI is exposed by contextBridge in preload.js before any
+    // page scripts run.  It lives in the JS context — React hydration cannot
+    // touch it, making this the most reliable Electron detection available.
+    setIsElectron(!!window.electronAPI)
   }, [])
 
   if (isElectron === null) return null
