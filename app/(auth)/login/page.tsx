@@ -17,7 +17,7 @@ export default async function LoginPage({
   const redirectTo =
     typeof sp.redirect === "string" && sp.redirect.startsWith("/")
       ? sp.redirect
-      : "/search";
+      : "/deals";
 
   const initialMode: "signin" | "signup" =
     sp.mode === "signup" ? "signup" : "signin";
