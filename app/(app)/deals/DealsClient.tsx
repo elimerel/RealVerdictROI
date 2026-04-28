@@ -23,6 +23,7 @@ import {
   type VerdictTier,
 } from "@/lib/calculations"
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
+import type { AiNarrative } from "@/lib/lead-adapter"
 import AnalysisPanel, { type PropertyFacts } from "../_components/AnalysisPanel"
 import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
 
@@ -247,6 +248,7 @@ export function DealsClient({
         address: pendingCard.address,
         propertyFacts: pendingCard.propertyFacts ?? undefined,
         savedDealId: undefined as string | undefined,
+        ai_narrative: null as AiNarrative | null,
         isPending: true,
       }
     }
@@ -263,6 +265,7 @@ export function DealsClient({
         address: deal.address ?? undefined,
         propertyFacts: deal.property_facts ?? undefined,
         savedDealId: deal.id,
+        ai_narrative: deal.ai_narrative ?? null,
         isPending: false,
       }
     }
@@ -297,11 +300,48 @@ export function DealsClient({
         }),
       })
       if (!res.ok) return
+      const saved = (await res.json()) as { id?: string }
+      // Fire-and-forget: generate AI narrative in the background
+      if (saved.id) {
+        fetch("/api/deals/narrative", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dealId: saved.id,
+            analysis: pendingCard.analysis,
+            inputs: pendingCard.analysis.inputs,
+            walkAway: pendingCard.walkAway,
+            address: pendingCard.address,
+          }),
+        }).catch(() => {})
+      }
       router.refresh()
     } catch {
       // save failed silently — user can retry
     }
   }, [pendingCard, selectedId, signedIn, isPro, router])
+
+  // ── Select a saved deal, triggering background narrative if needed ──
+  const handleSelectSavedDeal = useCallback(
+    (deal: SavedDeal, computed: { analysis: DealAnalysis; walkAway: OfferCeiling | null }) => {
+      setSelectedId(deal.id)
+      // Fire-and-forget narrative generation for deals that predate the feature
+      if (!deal.ai_narrative) {
+        fetch("/api/deals/narrative", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dealId: deal.id,
+            analysis: computed.analysis,
+            inputs: computed.analysis.inputs,
+            walkAway: computed.walkAway,
+            address: deal.address,
+          }),
+        }).catch(() => {})
+      }
+    },
+    []
+  )
 
   // ── Filtered saved deals ──
   const filteredDeals = useMemo(() => {
@@ -671,7 +711,7 @@ export function DealsClient({
                     propertyFacts={deal.property_facts}
                     createdAt={deal.created_at}
                     isSelected={selectedId === deal.id}
-                    onSelect={() => setSelectedId(deal.id)}
+                    onSelect={() => handleSelectSavedDeal(deal, computed)}
                   />
                 )
               })}
@@ -706,6 +746,7 @@ export function DealsClient({
               inputs={panelData.inputs}
               address={panelData.address}
               propertyFacts={panelData.propertyFacts}
+              ai_narrative={panelData.ai_narrative}
               savedDealId={panelData.savedDealId}
               signedIn={signedIn}
               isPro={isPro}
