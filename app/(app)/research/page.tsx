@@ -191,7 +191,7 @@ function WalkAwayBlock({
           <div
             className="h-full rounded-full transition-all"
             style={{
-              width: ceiling >= listPrice ? `${Math.min(100, (listPrice / ceiling) * 100)}%` : "100%",
+              width: ceiling >= listPrice ? Math.min(100, (listPrice / ceiling) * 100) + "%" : "100%",
               backgroundColor: c.text,
             }}
           />
@@ -351,6 +351,8 @@ function ElectronResultsView({
             <div className="space-y-2">
               {analysis.verdict.breakdown.map((b) => {
                 const pct = b.maxPoints > 0 ? b.points / b.maxPoints : 0
+                const scoreText = b.points + "/" + b.maxPoints
+                const barWidth = Math.round(pct * 100) + "%"
                 return (
                   <div key={b.category} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -359,7 +361,7 @@ function ElectronResultsView({
                         "font-mono font-medium",
                         (b.status === "win" || b.status === "ok") ? "text-emerald-400" : b.status === "warn" ? "text-amber-400" : "text-red-400"
                       )}>
-                        {b.points}{"/"}{b.maxPoints}
+                        {scoreText}
                       </span>
                     </div>
                     <div className="h-1 rounded-full bg-muted/40 overflow-hidden">
@@ -368,7 +370,7 @@ function ElectronResultsView({
                           "h-full rounded-full transition-all",
                           (b.status === "win" || b.status === "ok") ? "bg-emerald-500" : b.status === "warn" ? "bg-amber-500" : "bg-red-500"
                         )}
-                        style={{ width: `${pct * 100}%` }}
+                        style={{ width: barWidth }}
                       />
                     </div>
                   </div>
