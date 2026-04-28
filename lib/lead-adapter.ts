@@ -10,6 +10,13 @@ import type {
   VerdictTier as V0VerdictTier,
 } from "@/lib/types";
 
+export type AiNarrative = {
+  summary: string;      // 1 sentence — the verdict in plain English
+  opportunity: string;  // 1-2 sentences — what works in this deal's favor
+  risk: string;         // 1-2 sentences — what could break it
+  generatedAt: string;  // ISO timestamp
+};
+
 export type DealRow = {
   id: string;
   created_at: string;
@@ -24,6 +31,7 @@ export type DealRow = {
     yearBuilt?: number | null;
     propertyType?: string | null;
   } | null;
+  ai_narrative?: AiNarrative | null;
 };
 
 // ---------------------------------------------------------------------------
