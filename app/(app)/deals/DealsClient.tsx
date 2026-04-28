@@ -1,20 +1,14 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
-import { useRouter } from "next/navigation"
 import {
   Globe,
   MapPin,
   ArrowRight,
   Loader2,
   LayoutList,
+  X,
 } from "lucide-react"
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
 import {
@@ -25,19 +19,60 @@ import {
   type DealAnalysis,
   type DealInputs,
   type OfferCeiling,
+  type VerdictTier,
 } from "@/lib/calculations"
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
+import type { PropertyFacts } from "../_components/AnalysisPanel"
 import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
-import AnalysisPanel, { type PropertyFacts } from "../_components/AnalysisPanel"
 
 // ---------------------------------------------------------------------------
-// Module-level constants and pure helpers
+// Constants
 // ---------------------------------------------------------------------------
 
 const LISTING_URL_RE =
   /^https?:\/\/(www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i
 const AUTOFILL_CACHE_NS = "autofill:v4"
 const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
+
+const FILTER_PILLS = [
+  { label: "All", tier: null },
+  { label: "Strong Buy", tier: "excellent" as VerdictTier },
+  { label: "Good Deal", tier: "good" as VerdictTier },
+  { label: "Fair", tier: "fair" as VerdictTier },
+  { label: "Risky", tier: "poor" as VerdictTier },
+  { label: "Walk Away", tier: "avoid" as VerdictTier },
+] as const
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type ResolverPayload = {
+  address?: string
+  inputs: Partial<DealInputs>
+  notes: string[]
+  warnings: string[]
+  facts: Record<string, unknown>
+  provenance: Record<string, unknown>
+}
+
+type PendingCard =
+  | { kind: "loading"; id: string }
+  | { kind: "error"; id: string; message: string; inputText: string }
+  | {
+      kind: "done"
+      id: string
+      address?: string
+      verdict: VerdictTier
+      analysis: DealAnalysis
+      walkAway: OfferCeiling | null
+      propertyFacts?: PropertyFacts | null
+      createdAt: string
+    }
+
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
 
 function isValidInput(text: string): boolean {
   if (!text.trim()) return false
@@ -58,43 +93,54 @@ function extractPropertyFacts(facts: Record<string, unknown>): PropertyFacts {
 }
 
 // ---------------------------------------------------------------------------
-// Types
+// Loading card skeleton
 // ---------------------------------------------------------------------------
 
-type ResolverPayload = {
-  address?: string
-  inputs: Partial<DealInputs>
-  notes: string[]
-  warnings: string[]
-  facts: Record<string, unknown>
-  provenance: Record<string, unknown>
+function LoadingCard() {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 animate-pulse border-l-[3px]">
+      {/* Address bar */}
+      <div className="h-4 w-3/4 rounded bg-zinc-800 mb-3" />
+      {/* Facts strip */}
+      <div className="h-3 w-2/5 rounded bg-zinc-800 mb-4" />
+      {/* Badge + price row */}
+      <div className="flex justify-between mb-3">
+        <div className="h-5 w-16 rounded bg-zinc-800" />
+        <div className="h-5 w-24 rounded bg-zinc-800" />
+      </div>
+      {/* Metric tiles */}
+      <div className="flex gap-4 mb-3">
+        <div className="flex-1 h-10 rounded bg-zinc-800" />
+        <div className="flex-1 h-10 rounded bg-zinc-800" />
+        <div className="flex-1 h-10 rounded bg-zinc-800" />
+      </div>
+      {/* Time */}
+      <div className="h-3 w-16 rounded bg-zinc-800 ml-auto" />
+    </div>
+  )
 }
 
-type PanelContent =
-  | { kind: "empty" }
-  | { kind: "loading" }
-  | { kind: "deal"; deal: SavedDeal }
-  | {
-      kind: "result"
-      analysis: DealAnalysis
-      walkAway: OfferCeiling | null
-      inputs: DealInputs
-      address?: string
-      propertyFacts?: PropertyFacts
-      savedDealId?: string
-    }
-
 // ---------------------------------------------------------------------------
-// Loading state shown in the right panel while analysis runs
+// Error card
 // ---------------------------------------------------------------------------
 
-function RightPanelLoading() {
+function ErrorCard({
+  message,
+  onRetry,
+}: {
+  message: string
+  onRetry: () => void
+}) {
   return (
-    <div className="h-full flex items-center justify-center">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        <p className="text-sm">Fetching property data…</p>
-      </div>
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 border-l-[3px] border-l-red-500">
+      <p className="text-sm font-medium text-foreground mb-1">Could not load property</p>
+      <p className="text-xs text-red-400 mb-3 leading-relaxed">{message}</p>
+      <button
+        onClick={onRetry}
+        className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+      >
+        Try again
+      </button>
     </div>
   )
 }
@@ -105,16 +151,18 @@ function RightPanelLoading() {
 
 export function DealsClient({
   deals,
-  signedIn,
-  isPro,
-  supabaseConfigured,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  signedIn: _signedIn,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  isPro: _isPro,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  supabaseConfigured: _supabaseConfigured,
 }: {
   deals: SavedDeal[]
   signedIn: boolean
   isPro: boolean
   supabaseConfigured: boolean
 }) {
-  const router = useRouter()
 
   // ── Search state ──
   const [query, setQuery] = useState("")
@@ -124,34 +172,55 @@ export function DealsClient({
   const [searchError, setSearchError] = useState<string | null>(null)
   const [isSearching, setIsSearching] = useState(false)
 
-  // ── Right panel state ──
-  const [panelContent, setPanelContent] = useState<PanelContent>(
-    deals.length > 0 ? { kind: "deal", deal: deals[0] } : { kind: "empty" }
+  // ── Deals state ──
+  const [selectedId, setSelectedId] = useState<string | null>(
+    deals.length > 0 ? deals[0].id : null
   )
-  const [panelWidth, setPanelWidth] = useState(460)
+  const [activeFilter, setActiveFilter] = useState<VerdictTier | null>(null)
+  const [pendingCard, setPendingCard] = useState<PendingCard | null>(null)
 
   // ── Refs ──
-  const rightPanelRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isListingUrl = LISTING_URL_RE.test(query)
+  const panelOpen = selectedId !== null
 
-  // Track right panel width for AnalysisPanel display mode
-  useEffect(() => {
-    const el = rightPanelRef.current
-    if (!el) return
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (entry) setPanelWidth(entry.contentRect.width)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+  // ── Pre-compute analysis for all saved deals ──
+  const dealData = useMemo(() => {
+    const map = new Map<
+      string,
+      { analysis: DealAnalysis; walkAway: OfferCeiling | null }
+    >()
+    for (const deal of deals) {
+      try {
+        const inputs = sanitiseInputs(deal.inputs)
+        const analysis = analyseDeal(inputs)
+        const walkAway = (() => {
+          try {
+            return findOfferCeiling(inputs)
+          } catch {
+            return null
+          }
+        })()
+        map.set(deal.id, { analysis, walkAway })
+      } catch {
+        // skip malformed deal rows
+      }
+    }
+    return map
+  }, [deals])
 
-  // Address autocomplete
+  // ── Filtered saved deals ──
+  const filteredDeals = useMemo(() => {
+    if (activeFilter === null) return deals
+    return deals.filter((d) => d.verdict === activeFilter)
+  }, [deals, activeFilter])
+
+  // ── Address autocomplete ──
   useEffect(() => {
     if (isListingUrl || query.length < 4) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSuggestions([])
       setShowSuggestions(false)
       return
@@ -177,7 +246,7 @@ export function DealsClient({
     }
   }, [query, isListingUrl])
 
-  // Close autocomplete dropdown on outside click
+  // Close autocomplete on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (formRef.current && !formRef.current.contains(e.target as Node)) {
@@ -188,67 +257,17 @@ export function DealsClient({
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  // ── Helpers ──
+  // ── Submit helpers ──
 
-  const loadFromPayload = useCallback(
-    (payload: ResolverPayload) => {
-      try {
-        const merged: DealInputs = { ...DEFAULT_INPUTS, ...payload.inputs }
-        const sanitized = sanitiseInputs(merged)
-        console.log("[DealsClient] inputs before analyseDeal:", {
-          purchasePrice: sanitized.purchasePrice,
-          monthlyRent: sanitized.monthlyRent,
-        })
-        const analysis = analyseDeal(sanitized)
-        const walkAway = (() => {
-          try {
-            return findOfferCeiling(sanitized)
-          } catch {
-            return null
-          }
-        })()
-        setPanelContent({
-          kind: "result",
-          analysis,
-          walkAway,
-          inputs: sanitized,
-          address: payload.address,
-          propertyFacts: extractPropertyFacts(payload.facts ?? {}),
-        })
-      } catch (err) {
-        setSearchError(
-          err instanceof Error ? err.message : "Analysis failed."
-        )
-        setPanelContent({ kind: "empty" })
-      }
-    },
-    []
-  )
-
-  // ── Submit logic ──
-
-  const submitSearch = useCallback(
-    async (text: string) => {
-      if (!isValidInput(text)) {
-        setSearchError("Enter a street address or a listing URL.")
-        return
-      }
-      setSearchError(null)
-      setIsSearching(true)
-      setShowSuggestions(false)
-
+  const resolveAndAnalyze = useCallback(
+    async (text: string, pendingId: string) => {
       const cacheId = normalizeCacheKey(text)
       const cached = sessionGet<ResolverPayload>(AUTOFILL_CACHE_NS, cacheId)
+
+      let payload: ResolverPayload
       if (cached) {
-        loadFromPayload(cached)
-        setIsSearching(false)
-        return
-      }
-
-      setPanelContent({ kind: "loading" })
-
-      // Listing URLs → POST { url }; addresses → GET ?address=
-      try {
+        payload = cached
+      } else {
         let res: Response
         if (LISTING_URL_RE.test(text)) {
           res = await fetch("/api/property-resolve", {
@@ -263,33 +282,76 @@ export function DealsClient({
         }
 
         if (!res.ok) {
-          const payload = (await res.json().catch(() => ({}))) as {
+          const body = (await res.json().catch(() => ({}))) as {
             message?: string
             error?: string
           }
           throw new Error(
-            (typeof payload?.message === "string" && payload.message) ||
-              (typeof payload?.error === "string" &&
-              payload.error.length < 120
-                ? payload.error
+            (typeof body?.message === "string" && body.message) ||
+              (typeof body?.error === "string" && body.error.length < 120
+                ? body.error
                 : null) ||
               "Couldn't resolve that property. Try again or fill inputs manually."
           )
         }
 
-        const resolved = (await res.json()) as ResolverPayload
-        sessionSet(AUTOFILL_CACHE_NS, cacheId, resolved, AUTOFILL_CACHE_TTL_MS)
-        loadFromPayload(resolved)
+        payload = (await res.json()) as ResolverPayload
+        sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
+      }
+
+      // Compute analysis
+      const merged: DealInputs = { ...DEFAULT_INPUTS, ...payload.inputs }
+      const inputs = sanitiseInputs(merged)
+      const analysis = analyseDeal(inputs)
+      const walkAway = (() => {
+        try {
+          return findOfferCeiling(inputs)
+        } catch {
+          return null
+        }
+      })()
+
+      setPendingCard({
+        kind: "done",
+        id: pendingId,
+        address: payload.address,
+        verdict: analysis.verdict.tier,
+        analysis,
+        walkAway,
+        propertyFacts: extractPropertyFacts(payload.facts ?? {}),
+        createdAt: new Date().toISOString(),
+      })
+      setSelectedId(pendingId)
+    },
+    []
+  )
+
+  const submitSearch = useCallback(
+    async (text: string) => {
+      if (!isValidInput(text)) {
+        setSearchError("Enter a street address or a listing URL.")
+        return
+      }
+      setSearchError(null)
+      setIsSearching(true)
+      setShowSuggestions(false)
+
+      const pendingId = `pending-${Date.now()}`
+      setPendingCard({ kind: "loading", id: pendingId })
+      setSelectedId(pendingId)
+
+      try {
+        await resolveAndAnalyze(text, pendingId)
       } catch (err) {
-        setSearchError(
+        const message =
           err instanceof Error ? err.message : "Something went wrong. Try again."
-        )
-        setPanelContent({ kind: "empty" })
+        setPendingCard({ kind: "error", id: pendingId, message, inputText: text })
+        setSearchError(null) // error shown inline in the card
       } finally {
         setIsSearching(false)
       }
     },
-    [loadFromPayload]
+    [resolveAndAnalyze]
   )
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -320,235 +382,241 @@ export function DealsClient({
     }
   }
 
-  // Save a freshly-analyzed deal
-  const handleSave = useCallback(async () => {
-    if (panelContent.kind !== "result") return
-    if (!signedIn) {
-      router.push("/login?mode=signup&redirect=/deals")
-      return
-    }
-    if (!isPro) {
-      router.push("/pricing?redirect=/deals")
-      return
-    }
-    const { inputs, address, propertyFacts } = panelContent
-    try {
-      const res = await fetch("/api/deals/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs, address, propertyFacts }),
-      })
-      if (!res.ok) return
-      const data = (await res.json()) as { id: string }
-      setPanelContent((prev) =>
-        prev.kind === "result" ? { ...prev, savedDealId: data.id } : prev
-      )
-      router.refresh()
-    } catch {
-      // Save failed silently — user can try again
-    }
-  }, [panelContent, signedIn, isPro, router])
+  // ── Pending card visibility in current filter ──
+  const showPendingInGrid =
+    pendingCard !== null &&
+    (pendingCard.kind === "loading" ||
+      pendingCard.kind === "error" ||
+      (pendingCard.kind === "done" &&
+        (activeFilter === null || pendingCard.verdict === activeFilter)))
 
-  // ── Derived panel data for AnalysisPanel ──
-
-  const derivedPanelData = useMemo(() => {
-    if (panelContent.kind === "deal") {
-      const { deal } = panelContent
-      try {
-        const inputs = sanitiseInputs(deal.inputs)
-        const analysis = analyseDeal(inputs)
-        const walkAway = (() => {
-          try {
-            return findOfferCeiling(inputs)
-          } catch {
-            return null
-          }
-        })()
-        return {
-          analysis,
-          walkAway,
-          inputs,
-          address: deal.address ?? undefined,
-          propertyFacts: deal.property_facts ?? undefined,
-          savedDealId: deal.id,
-          onSave: undefined as undefined,
-        }
-      } catch {
-        return null
-      }
-    }
-    if (panelContent.kind === "result") {
-      return {
-        analysis: panelContent.analysis,
-        walkAway: panelContent.walkAway,
-        inputs: panelContent.inputs,
-        address: panelContent.address,
-        propertyFacts: panelContent.propertyFacts,
-        savedDealId: panelContent.savedDealId,
-        onSave: handleSave,
-      }
-    }
-    return null
-  }, [panelContent, handleSave])
+  const hasDeals = deals.length > 0 || pendingCard !== null
 
   // ── Render ──
 
   return (
-    <ResizablePanelGroup
-      direction="horizontal"
-      className="h-[calc(100vh-3.5rem)]"
-    >
-      {/* ── Left panel: search + deal list ── */}
-      <ResizablePanel defaultSize={32} minSize={22} maxSize={48}>
-        <div className="flex flex-col h-full">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-zinc-950">
 
-          {/* Search input */}
-          <div className="shrink-0 p-3 border-b border-border">
-            <form
-              ref={formRef}
-              onSubmit={handleSubmit}
-              className="relative"
+      {/* ═══════════════════════════════════════════════
+          LEFT ZONE — search + filter + grid
+      ═══════════════════════════════════════════════ */}
+      <div
+        className={cn(
+          "flex flex-col transition-all duration-200 overflow-hidden",
+          "border-r border-zinc-800",
+          panelOpen ? "w-[340px] shrink-0" : "flex-1"
+        )}
+      >
+        {/* Search bar */}
+        <div className="shrink-0 p-3 border-b border-zinc-800">
+          <form ref={formRef} onSubmit={handleSubmit} className="relative">
+            <div
+              className={cn(
+                "flex items-center gap-2 rounded-md border bg-zinc-900 px-3 py-2 transition-colors",
+                searchError
+                  ? "border-amber-500/50"
+                  : "border-zinc-700 focus-within:border-zinc-500"
+              )}
             >
-              <div
-                className={cn(
-                  "flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 transition-colors",
-                  searchError
-                    ? "border-amber-500/50"
-                    : "border-border focus-within:border-foreground/20"
-                )}
+              {isListingUrl ? (
+                <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              )}
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setSearchError(null)
+                }}
+                onFocus={() => {
+                  if (suggestions.length > 0) setShowSuggestions(true)
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Zillow URL or address…"
+                disabled={isSearching}
+                className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
+              />
+              <button
+                type="submit"
+                disabled={!query.trim() || isSearching}
+                className="shrink-0 flex items-center justify-center rounded h-6 w-6 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+                aria-label="Analyze"
               >
-                {isListingUrl ? (
-                  <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                {isSearching ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <ArrowRight className="h-3.5 w-3.5" />
                 )}
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => {
-                    setQuery(e.target.value)
-                    setSearchError(null)
-                  }}
-                  onFocus={() => {
-                    if (suggestions.length > 0) setShowSuggestions(true)
-                  }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Zillow URL or address…"
-                  disabled={isSearching}
-                  className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
-                />
-                <button
-                  type="submit"
-                  disabled={!query.trim() || isSearching}
-                  className="shrink-0 flex items-center justify-center rounded h-6 w-6 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
-                  aria-label="Analyze"
-                >
-                  {isSearching ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </div>
+              </button>
+            </div>
 
-              {/* Error hint */}
-              {searchError && (
-                <p className="mt-1 px-1 text-[11px] text-amber-500">
-                  {searchError}
-                </p>
-              )}
+            {/* Error hint */}
+            {searchError && (
+              <p className="mt-1 px-1 text-[11px] text-amber-500">
+                {searchError}
+              </p>
+            )}
 
-              {/* Autocomplete dropdown */}
-              {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-md border border-border bg-card shadow-lg overflow-hidden">
-                  {suggestions.map((s, i) => (
-                    <button
-                      key={s.placeId}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        handleSuggestionSelect(s)
-                      }}
-                      className={cn(
-                        "w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-muted/60 transition-colors",
-                        i === activeSuggestion && "bg-muted/60",
-                        i < suggestions.length - 1 &&
-                          "border-b border-border/50"
-                      )}
-                    >
-                      <span className="text-xs font-medium">{s.primary}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {s.secondary}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </form>
-          </div>
-
-          {/* Deal list */}
-          {deals.length > 0 ? (
-            <ScrollArea className="flex-1">
-              <div>
-                {deals.map((deal) => (
-                  <SavedDealCard
-                    key={deal.id}
-                    deal={deal}
-                    isSelected={
-                      panelContent.kind === "deal" &&
-                      panelContent.deal.id === deal.id
-                    }
-                    onSelect={() =>
-                      setPanelContent({ kind: "deal", deal })
-                    }
-                  />
+            {/* Autocomplete dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-md border border-zinc-700 bg-zinc-900 shadow-xl overflow-hidden">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={s.placeId}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      handleSuggestionSelect(s)
+                    }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-zinc-800 transition-colors",
+                      i === activeSuggestion && "bg-zinc-800",
+                      i < suggestions.length - 1 && "border-b border-zinc-800"
+                    )}
+                  >
+                    <span className="text-xs font-medium">{s.primary}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {s.secondary}
+                    </span>
+                  </button>
                 ))}
               </div>
-            </ScrollArea>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-6 gap-2 text-center">
-              <LayoutList className="h-8 w-8 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">No saved deals yet</p>
-              <p className="text-xs text-muted-foreground/60">
-                Analyze a property above to get started
+            )}
+          </form>
+        </div>
+
+        {/* Filter pills — hidden when no deals */}
+        {hasDeals && (
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-zinc-800 overflow-x-auto scrollbar-none">
+            {FILTER_PILLS.map(({ label, tier }) => {
+              const isActive = activeFilter === tier
+              return (
+                <button
+                  key={label}
+                  onClick={() => setActiveFilter(tier)}
+                  className={cn(
+                    "shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors duration-150",
+                    isActive
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-transparent text-muted-foreground border-zinc-700 hover:border-zinc-500 hover:text-foreground"
+                  )}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Card grid or empty state */}
+        {!hasDeals ? (
+          /* Empty state */
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+            <LayoutList className="h-10 w-10 text-muted-foreground/20" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">No deals yet</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Paste a Zillow URL or address above
+                <br />
+                to analyze your first deal
               </p>
             </div>
-          )}
-        </div>
-      </ResizablePanel>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <div
+              className={cn(
+                "grid gap-2 p-3",
+                panelOpen ? "grid-cols-1" : "grid-cols-2"
+              )}
+            >
+              {/* Pending card */}
+              {showPendingInGrid && pendingCard && (
+                <div
+                  key={pendingCard.id}
+                  onClick={() =>
+                    pendingCard.kind !== "loading" &&
+                    setSelectedId(pendingCard.id)
+                  }
+                  className={cn(
+                    pendingCard.kind === "loading" && "cursor-default",
+                    pendingCard.kind !== "loading" && "cursor-pointer"
+                  )}
+                >
+                  {pendingCard.kind === "loading" && <LoadingCard />}
+                  {pendingCard.kind === "error" && (
+                    <ErrorCard
+                      message={pendingCard.message}
+                      onRetry={() => submitSearch(pendingCard.inputText)}
+                    />
+                  )}
+                  {pendingCard.kind === "done" && (
+                    <SavedDealCard
+                      address={pendingCard.address ?? null}
+                      verdict={pendingCard.verdict}
+                      analysis={pendingCard.analysis}
+                      walkAway={pendingCard.walkAway}
+                      propertyFacts={pendingCard.propertyFacts}
+                      createdAt={pendingCard.createdAt}
+                      isSelected={selectedId === pendingCard.id}
+                      onSelect={() => setSelectedId(pendingCard.id)}
+                    />
+                  )}
+                </div>
+              )}
 
-      <ResizableHandle withHandle />
-
-      {/* ── Right panel: AnalysisPanel / loading / empty ── */}
-      <ResizablePanel defaultSize={68} minSize={52}>
-        <div ref={rightPanelRef} className="h-full w-full overflow-hidden">
-          {panelContent.kind === "loading" ? (
-            <RightPanelLoading />
-          ) : derivedPanelData ? (
-            <AnalysisPanel
-              analysis={derivedPanelData.analysis}
-              walkAway={derivedPanelData.walkAway}
-              address={derivedPanelData.address}
-              inputs={derivedPanelData.inputs}
-              signedIn={signedIn}
-              isPro={isPro}
-              supabaseConfigured={supabaseConfigured}
-              panelWidth={panelWidth}
-              savedDealId={derivedPanelData.savedDealId}
-              propertyFacts={derivedPanelData.propertyFacts}
-              onSave={derivedPanelData.onSave}
-            />
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
-              <LayoutList className="h-10 w-10 opacity-20" />
-              <p className="text-sm">
-                Paste a listing URL or enter an address to analyze
-              </p>
+              {/* Saved deal cards */}
+              {filteredDeals.map((deal) => {
+                const computed = dealData.get(deal.id)
+                if (!computed) return null
+                return (
+                  <SavedDealCard
+                    key={deal.id}
+                    address={deal.address}
+                    verdict={deal.verdict as VerdictTier}
+                    analysis={computed.analysis}
+                    walkAway={computed.walkAway}
+                    propertyFacts={deal.property_facts}
+                    createdAt={deal.created_at}
+                    isSelected={selectedId === deal.id}
+                    onSelect={() => setSelectedId(deal.id)}
+                  />
+                )
+              })}
             </div>
-          )}
-        </div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════
+          RIGHT ZONE — placeholder (Phase 2: AnalysisPanel)
+      ═══════════════════════════════════════════════ */}
+      <div
+        className={cn(
+          "transition-all duration-200 overflow-hidden relative",
+          panelOpen ? "flex-1" : "w-0"
+        )}
+      >
+        {panelOpen && (
+          <>
+            {/* Close button */}
+            <button
+              onClick={() => setSelectedId(null)}
+              className="absolute top-3 right-3 z-10 flex items-center justify-center h-7 w-7 rounded-md border border-zinc-700 bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-500 transition-colors"
+              aria-label="Close panel"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+
+            {/* Phase 2 placeholder */}
+            <div className="h-full w-full">
+              {/* AnalysisPanel goes here in Phase 2 */}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   )
 }
