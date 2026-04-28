@@ -3,7 +3,8 @@
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 import type { DealRow } from "@/lib/lead-adapter"
-import { TIER_ACCENT, TIER_LABEL } from "@/lib/tier-constants"
+// Fix 1: use TIER_LABEL from tier-style.ts for user-facing badge labels
+import { TIER_ACCENT, TIER_LABEL } from "@/app/(app)/_components/results/tier-style"
 import {
   formatCurrency,
   formatPercent,
@@ -85,10 +86,15 @@ export function SavedDealCard({
   const dscrStr = !isFinite(dscr) ? "∞" : `${dscr.toFixed(2)}x`
   const walkAwayPrice = walkAway?.recommendedCeiling?.price
 
+  // Fix 6: detect bad data — all zeros with no walk-away means unusable inputs
+  const isBadData = cashFlow === 0 && capRate === 0 && walkAwayPrice == null
+
   const facts = propertyFacts
   const hasFacts =
     facts &&
     (facts.beds != null || facts.baths != null || facts.sqft != null)
+
+  const borderColor = isBadData ? "rgb(82,82,91)" : accent // zinc-600 for bad data
 
   return (
     <button
@@ -104,72 +110,83 @@ export function SavedDealCard({
         borderRightWidth: "1px",
         borderBottomWidth: "1px",
         borderLeftWidth: "3px",
-        borderTopColor: isSelected ? accent : "rgb(39,39,42)",
-        borderRightColor: isSelected ? accent : "rgb(39,39,42)",
-        borderBottomColor: isSelected ? accent : "rgb(39,39,42)",
-        borderLeftColor: accent,
+        borderTopColor: isSelected ? borderColor : "rgb(39,39,42)",
+        borderRightColor: isSelected ? borderColor : "rgb(39,39,42)",
+        borderBottomColor: isSelected ? borderColor : "rgb(39,39,42)",
+        borderLeftColor: borderColor,
         boxShadow: isSelected
-          ? `0 0 0 1px ${accent}30, 0 2px 8px rgba(0,0,0,.4)`
+          ? `0 0 0 1px ${borderColor}30, 0 2px 8px rgba(0,0,0,.4)`
           : "0 1px 3px rgba(0,0,0,.3)",
       }}
     >
-      {/* Address */}
-      <p className="text-sm font-medium truncate mb-1 pr-2">
+      {/* 1. Address */}
+      <p className="text-sm font-medium truncate mb-2 pr-2">
         {address ?? "Unknown address"}
       </p>
 
-      {/* Property facts strip */}
-      {hasFacts && (
-        <p className="text-[11px] text-muted-foreground mb-2 font-mono">
-          {[
-            facts!.beds != null && `${facts!.beds} bd`,
-            facts!.baths != null && `${facts!.baths} ba`,
-            facts!.sqft != null && `${facts!.sqft.toLocaleString()} sqft`,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+      {/* Bad data state */}
+      {isBadData ? (
+        <p className="text-xs text-muted-foreground/70 italic">
+          Analysis incomplete — click to review inputs
         </p>
-      )}
+      ) : (
+        <>
+          {/* Property facts strip */}
+          {hasFacts && (
+            <p className="text-[11px] text-muted-foreground mb-2 font-mono">
+              {[
+                facts!.beds != null && `${facts!.beds} bd`,
+                facts!.baths != null && `${facts!.baths} ba`,
+                facts!.sqft != null && `${facts!.sqft.toLocaleString()} sqft`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
 
-      {/* Verdict badge + walk-away price */}
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <span
-          className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0"
-          style={{ color: accent, backgroundColor: `${accent}18` }}
-        >
-          {label}
-        </span>
-        {walkAwayPrice != null && (
-          <div className="text-right min-w-0">
-            <span className="text-[10px] text-muted-foreground mr-1">
-              Walk-away
-            </span>
-            <span className="text-sm font-mono font-semibold tabular-nums">
-              {formatCurrency(walkAwayPrice, 0)}
+          {/* 2. Walk-away price — hero number */}
+          {walkAwayPrice != null && (
+            <div className="mb-2">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider leading-none mb-1">
+                Walk-away
+              </p>
+              <p className="text-2xl font-mono font-bold tabular-nums leading-none">
+                {formatCurrency(walkAwayPrice, 0)}
+              </p>
+            </div>
+          )}
+
+          {/* 3. Verdict badge */}
+          <div className="mb-3">
+            <span
+              className="text-xs font-semibold px-1.5 py-0.5 rounded"
+              style={{ color: accent, backgroundColor: `${accent}18` }}
+            >
+              {label}
             </span>
           </div>
-        )}
-      </div>
 
-      {/* Metric tiles */}
-      <div className="flex gap-4 mb-3">
-        <MetricTile
-          label="Cash flow"
-          value={`${cashFlow >= 0 ? "+" : ""}${formatCurrency(cashFlow, 0)}/mo`}
-          color={cashFlow >= 0 ? "green" : "red"}
-        />
-        <MetricTile
-          label="Cap rate"
-          value={formatPercent(capRate, 1)}
-        />
-        <MetricTile
-          label="DSCR"
-          value={dscrStr}
-        />
-      </div>
+          {/* 4. Three metric tiles */}
+          <div className="flex gap-4 mb-3">
+            <MetricTile
+              label="Cash flow"
+              value={`${cashFlow >= 0 ? "+" : ""}${formatCurrency(cashFlow, 0)}/mo`}
+              color={cashFlow >= 0 ? "green" : "red"}
+            />
+            <MetricTile
+              label="Cap rate"
+              value={formatPercent(capRate, 1)}
+            />
+            <MetricTile
+              label="DSCR"
+              value={dscrStr}
+            />
+          </div>
+        </>
+      )}
 
-      {/* Time ago */}
-      <p className="text-[10px] text-muted-foreground text-right">
+      {/* 5. Time ago */}
+      <p className="text-[10px] text-muted-foreground text-right mt-auto">
         {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
       </p>
     </button>

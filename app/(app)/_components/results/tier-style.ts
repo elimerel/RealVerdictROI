@@ -1,6 +1,19 @@
 import type { CSSProperties } from "react";
 import type { VerdictTier } from "@/lib/calculations";
-export { TIER_LABEL, TIER_ACCENT } from "@/lib/tier-constants";
+export { TIER_ACCENT } from "@/lib/tier-constants";
+
+/**
+ * User-facing badge labels for verdict tiers — used on deal cards and badges.
+ * Intentionally friendlier than the internal TIER_LABEL in lib/tier-constants.ts
+ * (which uses ALL-CAPS analyst shorthand like BORDERLINE / PASS).
+ */
+export const TIER_LABEL: Record<VerdictTier, string> = {
+  excellent: "Strong Buy",
+  good: "Good Deal",
+  fair: "Fair",
+  poor: "Risky",
+  avoid: "Walk Away",
+};
 
 export const WARN_COLOR = "#eab308";
 export const BAD_COLOR = "#ef4444";

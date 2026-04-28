@@ -173,9 +173,8 @@ export function DealsClient({
   const [isSearching, setIsSearching] = useState(false)
 
   // ── Deals state ──
-  const [selectedId, setSelectedId] = useState<string | null>(
-    deals.length > 0 ? deals[0].id : null
-  )
+  // Fix 2: no auto-select — panel only opens on explicit card click
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeFilter, setActiveFilter] = useState<VerdictTier | null>(null)
   const [pendingCard, setPendingCard] = useState<PendingCard | null>(null)
 
@@ -489,7 +488,7 @@ export function DealsClient({
 
         {/* Filter pills — hidden when no deals */}
         {hasDeals && (
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-zinc-800 overflow-x-auto scrollbar-none">
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-zinc-800 overflow-x-auto whitespace-nowrap scrollbar-hide">
             {FILTER_PILLS.map(({ label, tier }) => {
               const isActive = activeFilter === tier
               return (
