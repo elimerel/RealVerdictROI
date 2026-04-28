@@ -359,7 +359,7 @@ function ElectronResultsView({
                         "font-mono font-medium",
                         (b.status === "win" || b.status === "ok") ? "text-emerald-400" : b.status === "warn" ? "text-amber-400" : "text-red-400"
                       )}>
-                        {b.points}/{b.maxPoints}
+                        {b.points}{"/"}{b.maxPoints}
                       </span>
                     </div>
                     <div className="h-1 rounded-full bg-muted/40 overflow-hidden">
