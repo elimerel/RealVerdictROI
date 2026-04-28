@@ -4,8 +4,6 @@ import { createAnthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import type { NextRequest } from "next/server"
 import type { DealInputs } from "@/lib/calculations"
-import fs from "fs"
-import nodePath from "path"
 
 // ---------------------------------------------------------------------------
 // Called by the Chrome extension / Electron browser:analyze IPC.
@@ -22,7 +20,7 @@ export const maxDuration = 30
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Anthropic-Key, X-OpenAI-Key",
 }
 
 export async function OPTIONS() {
@@ -121,23 +119,20 @@ type ModelBundle =
   | { provider: "openai";    key: string }
   | null
 
-function resolveModel(): ModelBundle {
-  // 1. Anthropic from env
+function resolveModel(req: NextRequest): ModelBundle {
+  // 1. Keys forwarded by the Electron desktop app as request headers.
+  //    This lets users supply their own API keys without server env vars.
+  const headerAnthropic = req.headers.get("x-anthropic-key")
+  if (headerAnthropic) return { provider: "anthropic", key: headerAnthropic }
+
+  const headerOpenAI = req.headers.get("x-openai-key")
+  if (headerOpenAI) return { provider: "openai", key: headerOpenAI }
+
+  // 2. Anthropic from env (Vercel environment variable)
   const anthropicEnv = process.env.ANTHROPIC_API_KEY
   if (anthropicEnv) return { provider: "anthropic", key: anthropicEnv }
 
-  // 2. Anthropic from Electron userData config.json
-  if (process.env.USER_DATA_PATH) {
-    try {
-      const cfg = JSON.parse(
-        fs.readFileSync(nodePath.join(process.env.USER_DATA_PATH, "config.json"), "utf8")
-      )
-      if (cfg?.anthropicApiKey) return { provider: "anthropic", key: cfg.anthropicApiKey }
-      if (cfg?.openaiApiKey)    return { provider: "openai",    key: cfg.openaiApiKey }
-    } catch { /* config missing — continue */ }
-  }
-
-  // 3. OpenAI from env
+  // 3. OpenAI from env (Vercel environment variable)
   const openaiEnv = process.env.OPENAI_API_KEY
   if (openaiEnv) return { provider: "openai", key: openaiEnv }
 
@@ -162,7 +157,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "No page text provided." }, { status: 400, headers: cors })
     }
 
-    const bundle = resolveModel()
+    const bundle = resolveModel(req)
     if (!bundle) {
       return Response.json(
         { error: "No AI API key found. Add an Anthropic or OpenAI key in Settings." },

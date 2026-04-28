@@ -6,9 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "electron . --dev",
-    "build:next": "cd .. && ELECTRON_BUILD=1 npx next build",
-    "build:copy": "node scripts/copy-next.js",
-    "build": "npm run build:next && npm run build:copy && electron-builder --mac",
+    "build": "electron-builder --mac",
     "dist": "npm run build"
   },
   "build": {
@@ -35,15 +33,7 @@
     },
     "files": [
       "main.js",
-      "preload.js",
-      "loading.html"
-    ],
-    "extraResources": [
-      {
-        "from": "resources/nextapp",
-        "to": "nextapp",
-        "filter": ["**/*", "**/.next/**", "**/.next/server/**", "**/.next/static/**"]
-      }
+      "preload.js"
     ],
     "asar": true
   },

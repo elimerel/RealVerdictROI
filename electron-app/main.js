@@ -1,9 +1,7 @@
 "use strict"
 
-const { app, BrowserWindow, WebContentsView, ipcMain, utilityProcess, screen } = require("electron")
+const { app, BrowserWindow, WebContentsView, ipcMain, screen } = require("electron")
 const path = require("path")
-const http = require("http")
-const net = require("net")
 const fs = require("fs")
 
 // ---------------------------------------------------------------------------
@@ -26,15 +24,16 @@ app.on("second-instance", () => {
 
 const DEV = process.argv.includes("--dev")
 
+// In dev mode, point at the local Next.js server so changes are reflected live.
+// In production (packaged app), always talk to the live Vercel deployment.
+const BASE_URL = DEV
+  ? "http://127.0.0.1:3000"
+  : "https://real-verdict-roi.vercel.app"
+
 const LISTING_RE =
   /zillow\.com\/homedetails|redfin\.com\/[A-Z]{2}\/|realtor\.com\/realestateandhomes-detail|homes\.com\/property|trulia\.com\/p\//i
 
-const nextRoot = app.isPackaged
-  ? path.join(process.resourcesPath, "nextapp")
-  : path.join(__dirname, "..")
-
 const CONFIG_PATH = path.join(app.getPath("userData"), "config.json")
-const LOADING_FILE = path.join(__dirname, "loading.html")
 
 // Login window dimensions
 const LOGIN_W = 420
@@ -69,92 +68,7 @@ let appWindow = null
 /** @type {WebContentsView | null} */
 let browserView = null
 
-/** @type {import("electron").UtilityProcess | null} */
-let serverProcess = null
-
-let PORT = 3000
-let serverReady = false
 let isMainMode = false   // tracks whether window is currently in main-app mode
-
-// ---------------------------------------------------------------------------
-// Port helpers
-// ---------------------------------------------------------------------------
-
-function isPortInUse(port) {
-  return new Promise((resolve) => {
-    const t = net.createServer()
-    t.once("error", () => resolve(true))
-    t.once("listening", () => { t.close(); resolve(false) })
-    t.listen(port, "127.0.0.1")
-  })
-}
-
-async function findFreePort(start = 3000) {
-  let port = start
-  while (await isPortInUse(port)) {
-    port++
-    if (port > start + 50) throw new Error("No free port in range")
-  }
-  return port
-}
-
-// ---------------------------------------------------------------------------
-// Next.js server
-// ---------------------------------------------------------------------------
-
-function startNextServer(port) {
-  const config = readConfig()
-
-  if (!app.isPackaged) {
-    const { spawn } = require("child_process")
-    const proc = spawn("npm", ["run", "dev", "--", "-p", String(port)], {
-      cwd: nextRoot, shell: true,
-      env: { ...process.env, PORT: String(port) },
-    })
-    proc.stdout?.on("data", (d) => process.stdout.write(`[next] ${d}`))
-    proc.stderr?.on("data", (d) => process.stderr.write(`[next] ${d}`))
-    return proc
-  }
-
-  const serverJs = path.join(nextRoot, "server.js")
-  const child = utilityProcess.fork(serverJs, [], {
-    cwd: nextRoot,
-    env: {
-      ...process.env,
-      PORT: String(port),
-      HOSTNAME: "127.0.0.1",
-      NODE_ENV: "production",
-      NEXT_SHARP_PATH: "",
-      USER_DATA_PATH: app.getPath("userData"),
-      ...(config.openaiApiKey    ? { OPENAI_API_KEY:    config.openaiApiKey    } : {}),
-      ...(config.anthropicApiKey ? { ANTHROPIC_API_KEY: config.anthropicApiKey } : {}),
-    },
-    stdio: "pipe",
-  })
-  child.stdout?.on("data", (d) => process.stdout.write(`[next] ${d}`))
-  child.stderr?.on("data", (d) => process.stderr.write(`[next] ${d}`))
-  return child
-}
-
-function waitForServer(port, maxMs = 60_000) {
-  return new Promise((resolve, reject) => {
-    const deadline = Date.now() + maxMs
-    function probe() {
-      const req = http.get(`http://127.0.0.1:${port}/`, (res) => {
-        res.resume()
-        if (res.statusCode && res.statusCode < 500) return resolve()
-        retry()
-      })
-      req.on("error", retry)
-      req.setTimeout(1000, () => { req.destroy(); retry() })
-    }
-    function retry() {
-      if (Date.now() > deadline) return reject(new Error("Next.js server timed out"))
-      setTimeout(probe, 1000)
-    }
-    probe()
-  })
-}
 
 // ---------------------------------------------------------------------------
 // Window helpers
@@ -208,12 +122,7 @@ function createAppWindow() {
     if (appWindow && !appWindow.isDestroyed()) appWindow.show()
   })
 
-  if (!serverReady) {
-    appWindow.loadFile(LOADING_FILE)
-    // waitForServer() in app.whenReady() will navigate to /login once ready
-  } else {
-    appWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
-  }
+  appWindow.loadURL(`${BASE_URL}/login?source=electron`)
 
   appWindow.on("resize", () => syncBrowserViewBounds())
   appWindow.on("move",   () => syncBrowserViewBounds())
@@ -224,20 +133,20 @@ function createAppWindow() {
     app.quit()
   })
 
-  // Catch OAuth callback redirects: after Google (or any provider) redirects
-  // back through /auth/callback, Next.js issues a server-side redirect to
-  // /search.  That navigation bypasses the IPC path, so the small login window
-  // would end up showing the full app crammed into 420×560.
-  // Solution: watch for the window landing on any app-page while still in
-  // login mode and call expandToMainApp(true) — resize only, no extra loadURL.
+  // Catch any navigation that lands on an app page while still in login mode.
+  // This covers: OAuth callback redirect → /search (server-side redirect that
+  // bypasses the IPC path), and any other case where the window ends up on an
+  // authenticated app page without going through the auth:signed-in IPC.
   appWindow.webContents.on("did-navigate", (_event, url) => {
     if (isMainMode) return
     try {
       const u = new URL(url)
-      const isOurServer = u.hostname === "127.0.0.1" && u.port === String(PORT)
-      const isAppPage   = !u.pathname.startsWith("/login") &&
-                          !u.pathname.startsWith("/auth")
-      if (isOurServer && isAppPage) {
+      const isOurHost = DEV
+        ? (u.hostname === "127.0.0.1")
+        : (u.hostname === "real-verdict-roi.vercel.app")
+      const isAppPage = !u.pathname.startsWith("/login") &&
+                        !u.pathname.startsWith("/auth")
+      if (isOurHost && isAppPage) {
         expandToMainApp()
       }
     } catch { /* ignore unparseable URLs */ }
@@ -261,7 +170,7 @@ function expandToMainApp() {
   appWindow.setMinimumSize(900, 600)
   // Resize first (no animation — keep it simple and reliable), then load.
   appWindow.setBounds(centeredBounds(w, h))
-  appWindow.loadURL(`http://127.0.0.1:${PORT}/search`)
+  appWindow.loadURL(`${BASE_URL}/search`)
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
 }
@@ -283,7 +192,7 @@ function shrinkToLogin() {
   // Navigate after the animation has started so it doesn't flash
   setTimeout(() => {
     if (appWindow && !appWindow.isDestroyed()) {
-      appWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
+      appWindow.loadURL(`${BASE_URL}/login?source=electron`)
     }
   }, 250)
 }
@@ -408,10 +317,18 @@ ipcMain.handle("browser:analyze", async () => {
   if (!dom || dom.text.length < 50)
     return { error: "Not enough page content. Make sure you're on a property listing." }
 
+  // Read stored API keys to forward as request headers.
+  // The Vercel API route checks these headers before falling back to env vars,
+  // so user-supplied keys work even though this is a serverless deployment.
+  const config = readConfig()
+  const headers = { "Content-Type": "application/json" }
+  if (config.anthropicApiKey) headers["X-Anthropic-Key"] = config.anthropicApiKey
+  if (config.openaiApiKey)    headers["X-OpenAI-Key"]    = config.openaiApiKey
+
   try {
-    const res = await fetch(`http://127.0.0.1:${PORT}/api/extract`, {
+    const res = await fetch(`${BASE_URL}/api/extract`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ url: dom.url, title: dom.title, text: dom.text }),
       signal: AbortSignal.timeout(45_000),
     })
@@ -436,19 +353,19 @@ ipcMain.handle("auth:signed-out", () => shrinkToLogin())
  * Opens a dedicated BrowserWindow so the login window never navigates away.
  * Session cookies are shared across all BrowserWindows in the default
  * Electron session, so once the popup processes /auth/callback the main
- * window can navigate to /search and find itself authenticated.
+ * window can navigate to the app and find itself authenticated.
  *
  * Detection strategy — three layers:
  *
  * 1. did-redirect-navigation: fires for EVERY server-side HTTP redirect
- *    BEFORE it completes.  Catches Google → /auth/callback redirect early.
+ *    BEFORE it completes.  Catches callback → /search redirect early.
  *
  * 2. did-navigate: fires once the navigation COMMITS (final URL after all
  *    redirects).  Catches the /search landing as a fallback.
  *
  * 3. did-navigate-in-page: hash-fragment / SPA navigation fallback.
  *
- * In all cases, once we detect a URL on our local server we hand it to the
+ * In all cases, once we detect a URL on our app host we hand it to the
  * main window and close the popup.  The main window's own did-navigate
  * listener then calls expandToMainApp().
  */
@@ -481,21 +398,21 @@ ipcMain.handle("auth:open-oauth", (_e, oauthUrl) => {
     const finish = (url) => {
       if (resolved) return
       resolved = true
-      // If the URL is the auth callback, load it in the main window so the
-      // session cookie gets set, then the main window redirects to /search.
-      // If it's already /search (or any app page), load it directly — the
-      // session cookie was already set by the callback the popup processed.
+      // Load the callback / app URL in the main window so the session cookie
+      // gets applied and the window navigates to the authenticated app.
       appWindow?.loadURL(url)
       popup.destroy()
       resolve({ ok: true })
     }
 
+    const appHost = DEV ? "127.0.0.1" : "real-verdict-roi.vercel.app"
+
     const checkUrl = (url) => {
       try {
         const u = new URL(url)
-        // Any URL on our local server means OAuth is done (or the callback
-        // has been hit).  Hand it to the main window.
-        if (u.hostname === "127.0.0.1" && u.port === String(PORT)) {
+        // Any URL on our app host means OAuth is done (or the callback has
+        // been hit).  Hand it to the main window.
+        if (u.hostname === appHost) {
           finish(url)
         }
       } catch { /* ignore */ }
@@ -546,32 +463,7 @@ ipcMain.handle("config:has-anthropic-key", () => {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-app.whenReady().then(async () => {
-  // Always use port 3000.  A fixed port is required so that the OAuth
-  // redirectTo URL (http://127.0.0.1:3000/auth/callback) matches what is
-  // registered in Supabase's allowed redirect URLs.  Dynamic port-finding
-  // would produce a different port each time, making it impossible to
-  // whitelist a specific URL in Supabase / Google Cloud Console.
-  PORT = 3000
-
-  serverProcess = startNextServer(PORT)
-
-  // Boot server in the background; navigate to /login once ready
-  waitForServer(PORT).then(() => {
-    serverReady = true
-    if (appWindow && !appWindow.isDestroyed() && !isMainMode) {
-      appWindow.loadURL(`http://127.0.0.1:${PORT}/login?source=electron`)
-      // Bring the window to the front after navigation so the first click
-      // lands on the form rather than just focusing the window.
-      appWindow.once("did-finish-load", () => {
-        if (appWindow && !appWindow.isDestroyed()) appWindow.focus()
-      })
-    }
-  }).catch((err) => {
-    console.error("[electron] server failed to start:", err.message)
-  })
-
-  // Create the single app window (shows loading screen while server boots)
+app.whenReady().then(() => {
   createAppWindow()
 
   app.on("activate", () => {
@@ -580,10 +472,5 @@ app.whenReady().then(async () => {
 })
 
 app.on("window-all-closed", () => {
-  serverProcess?.kill()
   if (process.platform !== "darwin") app.quit()
-})
-
-app.on("before-quit", () => {
-  serverProcess?.kill()
 })
