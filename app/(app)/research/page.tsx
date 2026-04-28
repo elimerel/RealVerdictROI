@@ -420,8 +420,8 @@ function ElectronResultsView({
   ]
 
   return (
-    <div className="flex flex-1 overflow-hidden h-full">
-      <ScrollArea className="flex-1">
+    <div className="h-full overflow-hidden">
+      <ScrollArea className="h-full">
         <div className="max-w-3xl mx-auto p-8 space-y-6">
 
           {/* Address + source */}
@@ -735,11 +735,11 @@ function ElectronResearchPage() {
   const handleViewFull = async () => {
     if (!analysisResult) return
     await window.electronAPI?.hideBrowser()
-    window.location.href = buildViewFullUrl(analysisResult)
+    window.location.href = buildViewFullUrl(analysisResult) + "&fromelec=1"
   }
 
   return (
-    <SidebarInset>
+    <SidebarInset className="overflow-hidden">
       {/* Top bar */}
       <header className="h-14 flex items-center gap-2 border-b border-border px-4 shrink-0">
         <SidebarTrigger className="-ml-1" />
@@ -798,7 +798,7 @@ function ElectronResearchPage() {
       </header>
 
       {/* Body: browser pane (left) + analysis panel (right) */}
-      <div className="flex flex-1 overflow-hidden" style={{ height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}>
+      <div className="flex overflow-hidden" style={{ height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}>
 
         {/* Browser pane — WebContentsView layered on top by Electron */}
         <div className="flex-1 overflow-hidden relative bg-zinc-950 flex flex-col min-w-0">
@@ -839,7 +839,7 @@ function ElectronResearchPage() {
         {analysisOpen && analysisResult && (
           <div
             className="flex flex-col border-l border-border bg-background overflow-hidden shrink-0"
-            style={{ width: ANALYSIS_W }}
+            style={{ width: ANALYSIS_W, height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}
           >
             <div className="h-10 flex items-center gap-2 px-3 border-b border-border shrink-0">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
@@ -860,7 +860,7 @@ function ElectronResearchPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <ElectronResultsView result={analysisResult} onBack={() => setAnalysisOpen(false)} onViewFull={handleViewFull} />
             </div>
           </div>
