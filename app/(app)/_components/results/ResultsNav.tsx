@@ -130,15 +130,24 @@ function ElectronSaveButton({
   const [state, setState] = useState<St>("idle")
   const didAutoSave = useRef(false)
 
+  const searchParams = useSearchParams()
+
   const save = async () => {
     if (state === "saving" || state === "saved") return
     if (!isPro) return
     setState("saving")
     try {
+      const propertyFacts = {
+        beds:         searchParams.get("beds")         ? Number(searchParams.get("beds"))         : null,
+        baths:        searchParams.get("baths")        ? Number(searchParams.get("baths"))        : null,
+        sqft:         searchParams.get("sqft")         ? Number(searchParams.get("sqft"))         : null,
+        yearBuilt:    searchParams.get("yearBuilt")    ? Number(searchParams.get("yearBuilt"))    : null,
+        propertyType: searchParams.get("propertyType") ?? null,
+      }
       const res = await fetch("/api/deals/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs, address }),
+        body: JSON.stringify({ inputs, address, propertyFacts }),
       })
       if (!res.ok) throw new Error("save failed")
       setState("saved")

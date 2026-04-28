@@ -154,6 +154,26 @@ input[type="number"] {
   }
 }
 
+/* Global scrollbar — replaces the OS default white/grey bar with something
+   that blends into the dark UI. Webkit-only (Chrome/Electron/Safari). */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 12%);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(1 0 0 / 22%);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Electron window chrome
    -------------------------------------------------------------------
    The 28px top strip is the native drag + traffic-light area.

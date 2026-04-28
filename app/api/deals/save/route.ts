@@ -10,9 +10,18 @@ import { enforceRateLimit } from "@/lib/ratelimit";
 import { withErrorReporting, captureError, logEvent } from "@/lib/observability";
 import { isPro } from "@/lib/pro";
 
+type PropertyFacts = {
+  beds?: number | null;
+  baths?: number | null;
+  sqft?: number | null;
+  yearBuilt?: number | null;
+  propertyType?: string | null;
+};
+
 type SaveBody = {
   inputs: DealInputs;
   address?: string;
+  propertyFacts?: PropertyFacts;
 };
 
 export const POST = withErrorReporting("api.deals-save", async (req: Request) => {
@@ -61,6 +70,8 @@ export const POST = withErrorReporting("api.deals-save", async (req: Request) =>
   const inputs = sanitiseInputs(body.inputs);
   const analysis = analyseDeal(inputs);
 
+  const propertyFacts = body.propertyFacts ?? null;
+
   const { data, error } = await supabase
     .from("deals")
     .insert({
@@ -69,6 +80,7 @@ export const POST = withErrorReporting("api.deals-save", async (req: Request) =>
       inputs,
       results: analysis,
       verdict: analysis.verdict.tier,
+      property_facts: propertyFacts,
     })
     .select("id, created_at")
     .single();

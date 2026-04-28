@@ -35,13 +35,19 @@ type NegativeSignal = {
   severity: "high" | "medium" | "low"
 }
 
+type PropertyFacts = {
+  beds?: number | null
+  baths?: number | null
+  sqft?: number | null
+  yearBuilt?: number | null
+  propertyType?: string | null
+}
+
 type AnalysisResult = {
   address?: string
   inputs: Partial<DealInputs>
   analysis: DealAnalysis
-  // Rental walk-away: max price where the deal still clears the hurdle rate
   walkAway: number | null
-  // Flip walk-away: ARV - rehab - 15% margin (wholesaler formula)
   flipWalkAway: number | null
   arvEstimate: number | null
   rehabCostEstimate: number | null
@@ -49,6 +55,7 @@ type AnalysisResult = {
   siteName: string | null
   confidence: string
   modelUsed?: string
+  propertyFacts?: PropertyFacts
 }
 
 // ---------------------------------------------------------------------------
@@ -422,63 +429,47 @@ function ElectronResultsView({
   return (
     <div className="h-full overflow-hidden">
       <ScrollArea className="h-full">
-        <div className="max-w-3xl mx-auto p-8 space-y-6">
+        <div className="p-5 space-y-4">
 
-          {/* Address + source */}
-          <div className="space-y-1">
-            <h2 className="text-xl font-semibold tracking-tight">
+          {/* Address + source — compact header */}
+          <div className="space-y-0.5">
+            <h2 className="text-sm font-semibold leading-snug">
               {result.address ?? "Property Analysis"}
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground">
               {result.siteName ?? "listing page"} · {result.modelUsed === "anthropic" ? "Claude" : "GPT-4o-mini"} · {result.confidence} confidence
             </p>
           </div>
 
-          {/* Verdict Gauge — top of panel, first thing investor sees */}
+          {/* 1 — GO / NEGOTIATE / WALK AWAY decision */}
           <VerdictGauge listPrice={listPrice} walkAway={walkAway} flipWalkAway={flipWalkAway} />
 
-          {/* Risk signals — surface immediately after gauge */}
+          {/* 2 — Walk-away number (the price that makes the deal work) */}
+          {(walkAway != null || flipWalkAway != null) && (
+            <TranslucentMath
+              walkAway={walkAway}
+              flipWalkAway={flipWalkAway}
+              arvEstimate={result.arvEstimate}
+              rehabCostEstimate={result.rehabCostEstimate}
+              listPrice={listPrice}
+            />
+          )}
+
+          {/* 3 — Risk signals immediately after the number */}
           {result.negativeSignals.length > 0 && (
             <RiskSignals signals={result.negativeSignals} />
           )}
 
-          {/* Verdict card */}
-          <div
-            className="rounded-xl p-6 space-y-2"
-            style={{ backgroundColor: `${accentColor}12`, borderColor: `${accentColor}25`, borderWidth: 1 }}
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: accentColor }}>
-              Verdict
-            </p>
-            <p className="text-3xl font-bold" style={{ color: accentColor }}>{tierLabel}</p>
-            <p className="text-sm text-muted-foreground leading-relaxed max-w-lg">
-              {analysis.verdict.summary}
-            </p>
-          </div>
-
-          {/* Walk-away math — transparent, investor-first */}
-          {(walkAway != null || flipWalkAway != null) && (
-            <div className="rounded-xl border border-border bg-card/40 p-5">
-              <TranslucentMath
-                walkAway={walkAway}
-                flipWalkAway={flipWalkAway}
-                arvEstimate={result.arvEstimate}
-                rehabCostEstimate={result.rehabCostEstimate}
-                listPrice={listPrice}
-              />
-            </div>
-          )}
-
-          {/* Metric grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* 4 — Key metrics grid */}
+          <div className="grid grid-cols-2 gap-2">
             {metrics.map((m) => (
-              <div key={m.label} className="rounded-xl border border-border bg-card/40 p-4 space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <m.icon className="h-3.5 w-3.5 text-muted-foreground" />
-                  <p className="text-[11px] text-muted-foreground">{m.label}</p>
+              <div key={m.label} className="rounded-lg border border-border bg-card/40 p-3 space-y-1">
+                <div className="flex items-center gap-1">
+                  <m.icon className="h-3 w-3 text-muted-foreground" />
+                  <p className="text-[10px] text-muted-foreground">{m.label}</p>
                 </div>
                 <p className={cn(
-                  "text-2xl font-bold font-mono",
+                  "text-lg font-bold font-mono",
                   m.neutral ? "text-foreground" : m.good ? "text-emerald-400" : "text-red-400"
                 )}>
                   {m.value}
@@ -487,14 +478,27 @@ function ElectronResultsView({
             ))}
           </div>
 
-          {/* Score breakdown */}
-          <div className="rounded-xl border border-border bg-card/40 p-5 space-y-4">
-            <p className="text-sm font-medium">Score breakdown</p>
-            <div className="space-y-3">
+          {/* 5 — Verdict summary (supporting context) */}
+          <div
+            className="rounded-lg px-4 py-3 space-y-1"
+            style={{ backgroundColor: `${accentColor}10`, borderColor: `${accentColor}25`, borderWidth: 1 }}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: accentColor }}>
+              {tierLabel}
+            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {analysis.verdict.summary}
+            </p>
+          </div>
+
+          {/* 6 — Score breakdown */}
+          <div className="rounded-lg border border-border bg-card/40 p-4 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Score breakdown</p>
+            <div className="space-y-2">
               {analysis.verdict.breakdown.map((b) => {
                 const pct = b.maxPoints > 0 ? b.points / b.maxPoints : 0
                 return (
-                  <div key={b.category} className="space-y-1.5">
+                  <div key={b.category} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">{b.category}</span>
                       <span className={cn(
@@ -504,7 +508,7 @@ function ElectronResultsView({
                         {b.points}/{b.maxPoints}
                       </span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                    <div className="h-1 rounded-full bg-muted/40 overflow-hidden">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all",
@@ -519,15 +523,15 @@ function ElectronResultsView({
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 pb-4">
-            <Button variant="outline" className="gap-2" onClick={onBack}>
-              <ChevronLeft className="h-4 w-4" />
-              Back to listing
+          {/* 7 — Actions */}
+          <div className="flex gap-2 pb-2">
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={onBack}>
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Back
             </Button>
-            <Button className="gap-2 flex-1" onClick={onViewFull}>
+            <Button size="sm" className="gap-1.5 flex-1" onClick={onViewFull}>
               <ExternalLink className="h-3.5 w-3.5" />
-              Open full analysis &amp; save deal
+              Save &amp; view full analysis
             </Button>
           </div>
         </div>
@@ -550,6 +554,13 @@ type ExtractPayload = {
   arvEstimate?: number
   rehabCostEstimate?: number
   modelUsed?: string
+  facts?: {
+    bedrooms?: number
+    bathrooms?: number
+    squareFeet?: number
+    yearBuilt?: number
+    propertyType?: string
+  }
 }
 
 function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
@@ -579,6 +590,13 @@ function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
     siteName: data.siteName ?? null,
     confidence: data.confidence ?? "medium",
     modelUsed: data.modelUsed,
+    propertyFacts: data.facts ? {
+      beds: data.facts.bedrooms ?? null,
+      baths: data.facts.bathrooms ?? null,
+      sqft: data.facts.squareFeet ?? null,
+      yearBuilt: data.facts.yearBuilt ?? null,
+      propertyType: data.facts.propertyType ?? null,
+    } : undefined,
   }
 }
 
@@ -593,6 +611,12 @@ function buildViewFullUrl(result: AnalysisResult): string {
   if (i.loanInterestRate)          p.set("loanInterestRate",          String(i.loanInterestRate))
   if (i.annualAppreciationPercent) p.set("annualAppreciationPercent", String(i.annualAppreciationPercent))
   if (result.address)              p.set("address",                   result.address)
+  const f = result.propertyFacts
+  if (f?.beds)         p.set("beds",         String(f.beds))
+  if (f?.baths)        p.set("baths",        String(f.baths))
+  if (f?.sqft)         p.set("sqft",         String(f.sqft))
+  if (f?.yearBuilt)    p.set("yearBuilt",    String(f.yearBuilt))
+  if (f?.propertyType) p.set("propertyType", f.propertyType)
   return `/results?${p.toString()}`
 }
 
@@ -602,15 +626,23 @@ function buildViewFullUrl(result: AnalysisResult): string {
 
 const TITLEBAR_H = 28
 const HEADER_H = 56
-const ANALYSIS_W = 400  // wider to accommodate the new panels
 
 const SIDEBAR_OPEN_W = 256
 const SIDEBAR_ICON_W = 48
 
+// Panel takes 36% of the space to the right of the sidebar, clamped 300–440px.
+// Recomputed on every resize so the panel always fits the window.
+function calcAnalysisW(sidebarOpen: boolean): number {
+  const sidebarW = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
+  const available = window.innerWidth - sidebarW
+  return Math.min(440, Math.max(300, Math.round(available * 0.36)))
+}
+
 function calcBounds(sidebarOpen: boolean, analysisOpen: boolean) {
   const x = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
   const y = TITLEBAR_H + HEADER_H
-  const width = Math.max(0, window.innerWidth - x - (analysisOpen ? ANALYSIS_W : 0))
+  const analysisW = analysisOpen ? calcAnalysisW(sidebarOpen) : 0
+  const width = Math.max(0, window.innerWidth - x - analysisW)
   const height = Math.max(0, window.innerHeight - y)
   return { x, y, width, height }
 }
@@ -657,6 +689,15 @@ function ElectronResearchPage() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [analysisW, setAnalysisW] = useState(380)
+
+  // Keep panel width in sync with window size so it never clips
+  useEffect(() => {
+    function update() { setAnalysisW(calcAnalysisW(sidebarOpen)) }
+    update()
+    window.addEventListener("resize", update)
+    return () => window.removeEventListener("resize", update)
+  }, [sidebarOpen])
 
   useElectronBounds(browserActive, sidebarOpen, analysisOpen)
 
@@ -839,7 +880,7 @@ function ElectronResearchPage() {
         {analysisOpen && analysisResult && (
           <div
             className="flex flex-col border-l border-border bg-background overflow-hidden shrink-0"
-            style={{ width: ANALYSIS_W, height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}
+            style={{ width: analysisW, height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}
           >
             <div className="h-10 flex items-center gap-2 px-3 border-b border-border shrink-0">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />

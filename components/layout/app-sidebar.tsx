@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
-import { Search, Inbox, BarChart3, Settings, TrendingUp, Globe, LogOut, ChevronUp } from "lucide-react"
+import { Search, BookmarkCheck, BarChart3, Settings, TrendingUp, Globe, LogOut, ChevronUp } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -29,7 +29,7 @@ import { createClient } from "@/lib/supabase/client"
 const navItems = [
   { title: "Search",          icon: Search,    href: "/search" },
   { title: "Research",        icon: Globe,     href: "/research" },
-  { title: "Leads Inbox",     icon: Inbox,     href: "/leads",    badge: null },
+  { title: "Saved Deals",     icon: BookmarkCheck, href: "/leads", badge: null },
   { title: "Market Insights", icon: BarChart3, href: "/insights" },
   { title: "Settings",        icon: Settings,  href: "/settings" },
 ]

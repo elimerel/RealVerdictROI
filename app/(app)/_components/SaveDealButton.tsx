@@ -23,6 +23,7 @@ export default function SaveDealButton({
   signedIn,
   isPro,
   supabaseConfigured,
+  propertyFacts,
 }: {
   inputs: DealInputs;
   address?: string;
@@ -30,6 +31,7 @@ export default function SaveDealButton({
   signedIn: boolean;
   isPro: boolean;
   supabaseConfigured: boolean;
+  propertyFacts?: { beds?: number; baths?: number; sqft?: number; yearBuilt?: number; propertyType?: string };
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<SaveStatus>({ state: "idle" });
@@ -54,7 +56,7 @@ export default function SaveDealButton({
       const res = await fetch("/api/deals/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs, address }),
+        body: JSON.stringify({ inputs, address, propertyFacts }),
       });
       if (res.status === 401) {
         router.push(

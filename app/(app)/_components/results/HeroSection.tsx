@@ -254,6 +254,7 @@ function HeroActions({
         signedIn={signedIn}
         isPro={isPro}
         supabaseConfigured={supabaseConfigured}
+        propertyFacts={subjectFacts}
       />
       <ShareButton path={currentUrl} />
       <AddToComparisonButton

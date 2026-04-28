@@ -1,5 +1,5 @@
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
-import { Inbox } from "lucide-react"
+import { BookmarkCheck } from "lucide-react"
 
 export default function LeadsLoading() {
   return (
@@ -7,8 +7,8 @@ export default function LeadsLoading() {
       <header className="h-14 flex items-center gap-4 border-b border-border px-4">
         <SidebarTrigger className="-ml-1" />
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Inbox className="h-4 w-4" />
-          <span>Leads Inbox</span>
+          <BookmarkCheck className="h-4 w-4" />
+          <span>Saved Deals</span>
         </div>
       </header>
 

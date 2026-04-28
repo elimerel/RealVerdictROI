@@ -17,6 +17,13 @@ export type DealRow = {
   inputs: DealInputs;
   results: DealAnalysis;
   verdict: string;
+  property_facts?: {
+    beds?: number | null;
+    baths?: number | null;
+    sqft?: number | null;
+    yearBuilt?: number | null;
+    propertyType?: string | null;
+  } | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -93,13 +100,11 @@ export function dealRowToLead(row: DealRow): Lead {
       city: loc.city,
       state: loc.state,
       zip: loc.zip,
-      // Physical facts aren't stored in deals table — default to 0 so the
-      // UI renders gracefully without crashing on the property detail view.
-      beds: 0,
-      baths: 0,
-      sqft: 0,
-      yearBuilt: 0,
-      propertyType: "Rental Property",
+      beds: row.property_facts?.beds ?? 0,
+      baths: row.property_facts?.baths ?? 0,
+      sqft: row.property_facts?.sqft ?? 0,
+      yearBuilt: row.property_facts?.yearBuilt ?? 0,
+      propertyType: row.property_facts?.propertyType ?? "Rental Property",
     },
 
     inputs: {
