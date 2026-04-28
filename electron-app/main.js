@@ -547,7 +547,12 @@ ipcMain.handle("config:has-anthropic-key", () => {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(async () => {
-  try { PORT = await findFreePort(3000) } catch { PORT = 3000 }
+  // Always use port 3000.  A fixed port is required so that the OAuth
+  // redirectTo URL (http://127.0.0.1:3000/auth/callback) matches what is
+  // registered in Supabase's allowed redirect URLs.  Dynamic port-finding
+  // would produce a different port each time, making it impossible to
+  // whitelist a specific URL in Supabase / Google Cloud Console.
+  PORT = 3000
 
   serverProcess = startNextServer(PORT)
 
