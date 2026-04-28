@@ -6,7 +6,6 @@ import {
   Globe,
   MapPin,
   ArrowRight,
-  CheckCircle2,
   Loader2,
   LayoutList,
 } from "lucide-react"
@@ -22,12 +21,13 @@ import {
   analyseDeal,
   sanitiseInputs,
   findOfferCeiling,
+  DEFAULT_INPUTS,
   type DealAnalysis,
   type DealInputs,
   type OfferCeiling,
 } from "@/lib/calculations"
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
-import { SavedDealCard, type SavedDeal } from "../leads/SavedDealCard"
+import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
 import AnalysisPanel, { type PropertyFacts } from "../_components/AnalysisPanel"
 
 // ---------------------------------------------------------------------------
@@ -39,11 +39,11 @@ const LISTING_URL_RE =
 const AUTOFILL_CACHE_NS = "autofill:v4"
 const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
 
-function detectMode(text: string): "browse" | "address" | null {
-  if (!text.trim()) return null
-  if (LISTING_URL_RE.test(text)) return "browse"
-  if (/\d/.test(text) && text.trim().length >= 6) return "address"
-  return null
+function isValidInput(text: string): boolean {
+  if (!text.trim()) return false
+  if (LISTING_URL_RE.test(text)) return true
+  if (/\d/.test(text) && text.trim().length >= 6) return true
+  return false
 }
 
 function extractPropertyFacts(facts: Record<string, unknown>): PropertyFacts {
@@ -61,8 +61,6 @@ function extractPropertyFacts(facts: Record<string, unknown>): PropertyFacts {
 // Types
 // ---------------------------------------------------------------------------
 
-type BrowseStep = { label: string; done: boolean }
-
 type ResolverPayload = {
   address?: string
   inputs: Partial<DealInputs>
@@ -72,21 +70,9 @@ type ResolverPayload = {
   provenance: Record<string, unknown>
 }
 
-type BrowseResponse = {
-  screenshot?: string
-  address?: string
-  inputs: Record<string, unknown>
-  facts?: Record<string, unknown>
-  notes?: string[]
-  warnings?: string[]
-  provenance?: Record<string, unknown>
-  siteName?: string | null
-  confidence?: string
-}
-
 type PanelContent =
   | { kind: "empty" }
-  | { kind: "loading"; hostname?: string; steps?: BrowseStep[] }
+  | { kind: "loading" }
   | { kind: "deal"; deal: SavedDeal }
   | {
       kind: "result"
@@ -102,45 +88,7 @@ type PanelContent =
 // Loading state shown in the right panel while analysis runs
 // ---------------------------------------------------------------------------
 
-function RightPanelLoading({
-  hostname,
-  steps,
-}: {
-  hostname?: string
-  steps?: BrowseStep[]
-}) {
-  if (hostname && steps) {
-    const activeIdx = steps.findIndex((s) => !s.done)
-    return (
-      <div className="h-full flex flex-col items-center justify-center gap-5 p-8">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Globe className="h-4 w-4 text-muted-foreground animate-pulse" />
-          Browsing {hostname}…
-        </div>
-        <div className="space-y-2.5 w-full max-w-xs">
-          {steps.map((s, i) => (
-            <div key={i} className="flex items-center gap-2.5 text-sm">
-              {s.done ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-              ) : i === activeIdx ? (
-                <Loader2 className="h-4 w-4 text-muted-foreground animate-spin shrink-0" />
-              ) : (
-                <div className="h-4 w-4 rounded-full border border-border shrink-0" />
-              )}
-              <span
-                className={
-                  s.done ? "text-foreground" : "text-muted-foreground"
-                }
-              >
-                {s.label}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
+function RightPanelLoading() {
   return (
     <div className="h-full flex items-center justify-center">
       <div className="flex items-center gap-2 text-muted-foreground">
@@ -186,7 +134,6 @@ export function DealsClient({
   const rightPanelRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isListingUrl = LISTING_URL_RE.test(query)
 
@@ -243,22 +190,15 @@ export function DealsClient({
 
   // ── Helpers ──
 
-  const advanceSteps = useCallback((upToIdx: number) => {
-    setPanelContent((prev) => {
-      if (prev.kind !== "loading" || !prev.steps) return prev
-      return {
-        ...prev,
-        steps: prev.steps.map((s, i) =>
-          i < upToIdx ? { ...s, done: true } : s
-        ),
-      }
-    })
-  }, [])
-
   const loadFromPayload = useCallback(
     (payload: ResolverPayload) => {
       try {
-        const sanitized = sanitiseInputs(payload.inputs as DealInputs)
+        const merged: DealInputs = { ...DEFAULT_INPUTS, ...payload.inputs }
+        const sanitized = sanitiseInputs(merged)
+        console.log("[DealsClient] inputs before analyseDeal:", {
+          purchasePrice: sanitized.purchasePrice,
+          monthlyRent: sanitized.monthlyRent,
+        })
         const analysis = analyseDeal(sanitized)
         const walkAway = (() => {
           try {
@@ -285,12 +225,11 @@ export function DealsClient({
     []
   )
 
-  // ── Submit logic (adapted from search/page.tsx — no router.push to /results) ──
+  // ── Submit logic ──
 
   const submitSearch = useCallback(
     async (text: string) => {
-      const mode = detectMode(text)
-      if (!mode) {
+      if (!isValidInput(text)) {
         setSearchError("Enter a street address or a listing URL.")
         return
       }
@@ -306,99 +245,22 @@ export function DealsClient({
         return
       }
 
-      // ── Browse mode: headless browser + AI extraction ──
-      if (mode === "browse") {
-        let hostname = ""
-        try {
-          hostname = new URL(text).hostname.replace("www.", "")
-        } catch {
-          hostname = text
-        }
+      setPanelContent({ kind: "loading" })
 
-        const steps: BrowseStep[] = [
-          { label: "Launching browser", done: false },
-          { label: "Visiting " + hostname, done: false },
-          { label: "Reading property data", done: false },
-          { label: "Filling in estimates", done: false },
-          { label: "Running analysis", done: false },
-        ]
-        setPanelContent({ kind: "loading", hostname, steps })
-
-        // Animate first two steps
-        advanceSteps(1)
-        if (stepTimerRef.current) clearTimeout(stepTimerRef.current)
-        stepTimerRef.current = setTimeout(() => advanceSteps(2), 1200)
-
-        try {
-          const res = await fetch("/api/browse", {
+      // Listing URLs → POST { url }; addresses → GET ?address=
+      try {
+        let res: Response
+        if (LISTING_URL_RE.test(text)) {
+          res = await fetch("/api/property-resolve", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url: text }),
           })
-
-          if (res.ok) {
-            const data = (await res.json()) as BrowseResponse
-            advanceSteps(4)
-            if (stepTimerRef.current) clearTimeout(stepTimerRef.current)
-            stepTimerRef.current = setTimeout(() => advanceSteps(5), 600)
-
-            const payload: ResolverPayload = {
-              address: data.address,
-              inputs: data.inputs as Partial<DealInputs>,
-              facts: data.facts ?? {},
-              notes: data.notes ?? [],
-              warnings: data.warnings ?? [],
-              provenance: data.provenance ?? {},
-            }
-            sessionSet(
-              AUTOFILL_CACHE_NS,
-              cacheId,
-              payload,
-              AUTOFILL_CACHE_TTL_MS
-            )
-
-            // Short pause so the final step reads as "done"
-            stepTimerRef.current = setTimeout(() => {
-              loadFromPayload(payload)
-              setIsSearching(false)
-            }, 600)
-            return
-          }
-
-          // Browse failed — fall through to property-resolve
-          const errBody = (await res.json().catch(() => ({}))) as {
-            error?: string
-          }
-          if (!errBody?.error?.includes("not configured")) {
-            throw new Error(errBody?.error ?? "Browser visit failed.")
-          }
-        } catch (err) {
-          if (
-            err instanceof Error &&
-            !err.message.includes("not configured")
-          ) {
-            setPanelContent({ kind: "empty" })
-            setSearchError(err.message)
-            setIsSearching(false)
-            return
-          }
+        } else {
+          res = await fetch(
+            `/api/property-resolve?address=${encodeURIComponent(text)}`
+          )
         }
-
-        // Reset loading state for the property-resolve fallback
-        setPanelContent({ kind: "loading" })
-      } else {
-        setPanelContent({ kind: "loading" })
-      }
-
-      // ── Standard mode: /api/property-resolve ──
-      try {
-        const res = await fetch("/api/property-resolve", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            LISTING_URL_RE.test(text) ? { url: text } : { address: text }
-          ),
-        })
 
         if (!res.ok) {
           const payload = (await res.json().catch(() => ({}))) as {
@@ -427,7 +289,7 @@ export function DealsClient({
         setIsSearching(false)
       }
     },
-    [advanceSteps, loadFromPayload]
+    [loadFromPayload]
   )
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -662,10 +524,7 @@ export function DealsClient({
       <ResizablePanel defaultSize={68} minSize={52}>
         <div ref={rightPanelRef} className="h-full w-full overflow-hidden">
           {panelContent.kind === "loading" ? (
-            <RightPanelLoading
-              hostname={panelContent.hostname}
-              steps={panelContent.steps}
-            />
+            <RightPanelLoading />
           ) : derivedPanelData ? (
             <AnalysisPanel
               analysis={derivedPanelData.analysis}

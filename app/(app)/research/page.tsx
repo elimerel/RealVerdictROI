@@ -5,7 +5,7 @@ import {
 } from "react"
 import {
   ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X,
-  AlertTriangle, CheckCircle2, TrendingUp, BarChart3,
+  AlertTriangle, TrendingUp, BarChart3, CheckCircle2,
 } from "lucide-react"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
@@ -452,7 +452,7 @@ function ElectronResearchPage() {
 }
 
 // ---------------------------------------------------------------------------
-// WEB MODE — desktop-only gate
+// WEB MODE — desktop-only notice
 // ---------------------------------------------------------------------------
 
 function WebResearchPage() {
@@ -467,55 +467,17 @@ function WebResearchPage() {
       </header>
 
       <div className="flex flex-1 items-center justify-center p-8">
-        <div className="max-w-md w-full space-y-6 text-center">
-          <div className="mx-auto h-16 w-16 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
-            <Globe className="h-8 w-8 text-muted-foreground opacity-60" />
-          </div>
-
-          <div className="space-y-2">
-            <h2 className="text-xl font-semibold tracking-tight">
-              Browser research is desktop-only
-            </h2>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              The Research tab lets you browse Zillow, Redfin, and Realtor.com directly inside the app and analyze any listing in one click. This feature requires the desktop app.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-2.5 text-left">
-            {[
-              "Browse any listing site natively",
-              "One-click analysis from the page",
-              "Session persists as you browse",
-              "No copy-pasting URLs",
-            ].map((f) => (
-              <div key={f} className="flex items-center gap-2.5 text-sm">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                <span className="text-muted-foreground">{f}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex flex-col gap-2.5">
-            <a
-              href="/download"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-semibold text-background transition hover:opacity-90"
-            >
-              Download the desktop app — Free
-            </a>
-            <a
-              href="/deals"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-muted/40"
-            >
-              Analyze by URL or address instead
-            </a>
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            macOS 12+ · Apple Silicon &amp; Intel · Free download
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground text-center">
+          Research is available in the desktop app.{" "}
+          <a
+            href="https://realverdict.com/download"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-4 hover:text-foreground transition-colors"
+          >
+            Download it at realverdict.com/download
+          </a>
+        </p>
       </div>
     </SidebarInset>
   )

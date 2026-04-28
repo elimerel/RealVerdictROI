@@ -1,531 +1,162 @@
-import type { Metadata } from "next";
-import type { CSSProperties } from "react";
-import { headers } from "next/headers";
-import { SidebarInset } from "@/components/ui/sidebar";
-import ResultsViewTracker from "../_components/ResultsViewTracker";
-import FollowUpChat from "../_components/FollowUpChat";
-import WhatIfPanel from "../_components/WhatIfPanel";
-import StressTestPanel from "../_components/StressTestPanel";
-import VerdictRubric from "../_components/VerdictRubric";
-import CompsSection from "../_components/CompsSection";
-import ResultsTabs from "../_components/ResultsTabs";
-import HowWeGotThese from "../_components/HowWeGotThese";
-import ResultsWarningsBanner from "../_components/ResultsWarningsBanner";
-import AnalysisQuotaExceeded from "../_components/AnalysisQuotaExceeded";
-import ProCompsTeaser from "../_components/ProCompsTeaser";
-import ResultsHeader from "../_components/results/ResultsHeader";
-import { ResultsShell } from "../_components/results/ResultsShell";
-import HeroSection, {
-  RunLiveCompsCTA,
-} from "../_components/results/HeroSection";
-import EvidenceSection from "../_components/results/EvidenceSection";
-import BreakdownSection from "../_components/results/BreakdownSection";
-import { TIER_ACCENT, TIER_LABEL } from "../_components/results/tier-style";
+import type { SearchParams } from "next/dist/server/request/search-params"
 import {
   analyseDeal,
   findOfferCeiling,
+  inputsFromSearchParams,
   formatCurrency,
   formatPercent,
-  inputsFromSearchParams,
-  inputsToSearchParams,
-} from "@/lib/calculations";
-import { fetchComps, type CompsResult } from "@/lib/comps";
-import { analyzeComparables, toAnalyseRentEvidence } from "@/lib/comparables";
-import { pickWeakAssumptions } from "@/lib/negotiation-pack";
-import type { ChatAnalysisContext } from "@/app/api/chat/route";
-import { fetchAcsZipProfile } from "@/lib/market-context-acs";
-import {
-  buildMarketSignals,
-  extractUsZipFromAddress,
-  type PageComp,
-} from "@/lib/market-context";
-import { fetchFreeMarketContext } from "@/lib/market-data";
-import { supabaseEnv } from "@/lib/supabase/config";
-import { getCurrentUser } from "@/lib/supabase/server";
-import { checkRateLimit, identifierFor } from "@/lib/ratelimit";
-import { isPro } from "@/lib/pro";
+} from "@/lib/calculations"
+import { TIER_LABEL, TIER_ACCENT } from "@/lib/tier-constants"
+import { cn } from "@/lib/utils"
 
-// ---------------------------------------------------------------------------
-// /results — verdict + walk-away price + deep analysis tabs.
-//
-// This file is the orchestrator: parse search params → auth + quota gates →
-// fetch comps (when live-comp opt-in) → analyze → render. Every visual
-// concern lives in a child component under _components/results/.
-//
-// File map:
-//   _components/results/ResultsHeader.tsx   — top nav
-//   _components/results/HeroSection.tsx     — verdict tier + walk-away + actions
-//   _components/results/EvidenceSection.tsx — metrics tab (Numbers, top half)
-//   _components/results/BreakdownSection.tsx — tables tab (Numbers, bottom half)
-//   _components/results/tier-style.ts       — shared tier palette + tone helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// METADATA — builds per-deal title/description and points Open Graph +
-// Twitter cards at /api/og?<same params> so shared links render a branded
-// verdict image instead of a blank card.
-// ---------------------------------------------------------------------------
-
-export async function generateMetadata({
+export default async function ResultsSharePage({
   searchParams,
 }: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}): Promise<Metadata> {
-  const search = await searchParams;
-  const inputs = inputsFromSearchParams(search);
-  const analysis = analyseDeal(inputs);
-  const tier = analysis.verdict.tier;
-
-  const address =
-    typeof search.address === "string" && search.address.trim()
-      ? search.address.trim()
-      : undefined;
-
-  const tierLabel = TIER_LABEL[tier];
-  const price = formatCurrency(inputs.purchasePrice, 0);
-  const title = address
-    ? `${tierLabel} · ${address} · ${price}`
-    : `${tierLabel} · ${price}`;
-
-  const description = address
-    ? `${tierLabel} rental underwriting for ${address}. ${formatCurrency(analysis.monthlyCashFlow, 0)}/mo cash flow, ${formatPercent(analysis.capRate, 1)} cap, ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) + " DSCR" : "no debt"}. Walk-away price before you wire earnest money.`
-    : `${tierLabel} rental verdict: ${formatCurrency(analysis.monthlyCashFlow, 0)}/mo cash flow, ${formatPercent(analysis.capRate, 1)} cap rate. Walk-away price built in.`;
-
-  // Reuse the same query string we received so /api/og produces an image that
-  // matches the page the user is actually linking to.
-  const ogQuery = inputsToSearchParams(inputs);
-  if (address) ogQuery.set("address", address);
-  const ogUrl = `/api/og?${ogQuery.toString()}`;
-
-  return {
-    title,
-    description,
-    openGraph: {
-      title,
-      description,
-      type: "article",
-      images: [{ url: ogUrl, width: 1200, height: 630 }],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: [ogUrl],
-    },
-  };
-}
-
-export default async function ResultsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+  searchParams: Promise<SearchParams>
 }) {
-  const search = await searchParams;
-  const inputs = inputsFromSearchParams(search);
-  const addressRaw = search.address;
-  const address =
-    typeof addressRaw === "string" && addressRaw.trim()
-      ? addressRaw.trim()
-      : undefined;
-
-  const editParams = inputsToSearchParams(inputs);
-  if (address) editParams.set("address", address);
-  const editHref = `/?${editParams.toString()}#analyze`;
-
-  const resultsParams = inputsToSearchParams(inputs);
-  if (address) resultsParams.set("address", address);
-  const currentUrl = `/results?${resultsParams.toString()}`;
-
-  const supaConfig = supabaseEnv();
-  const user = supaConfig.configured ? await getCurrentUser() : null;
-  const pro = user ? await isPro(user) : false;
-
-  // Live-comp opt-in (§20.8). Without this flag the page is a fast estimate:
-  // no RentCast comp pull, no quota burn. The "Run live comp analysis" CTA
-  // toggles this on. Pro users can opt in unlimited; free users have
-  // 3 / 7-day rolling window (analysis-free-user limiter).
-  const liveComps = search.livecomps === "1";
-
-  // Quota only fires on the live-comp path. Browse-and-bounce visits to
-  // /results don't burn analyses anymore — that was eating the free tier
-  // for tire-kickers and not telling us anything about real intent.
-  if (liveComps && !pro) {
-    const hList = await headers();
-    const rateReq = new Request("https://internal/", { headers: hList });
-    const bucket = user ? "analysis-free-user" : "analysis-free-anon";
-    const id = identifierFor(rateReq, user?.id ?? undefined);
-    const { allowed, retryAfter } = await checkRateLimit(bucket, id);
-    if (!allowed) {
-      return (
-        <SidebarInset>
-          <ResultsHeader
-            editHref={editHref}
-            currentUrl={currentUrl}
-            supabaseConfigured={supaConfig.configured}
-            signedIn={!!user}
-            isPro={false}
-            inputs={inputs}
-            address={address}
-            fromelec={search.fromelec === "1"}
-          />
-          <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-            <AnalysisQuotaExceeded
-              retryAfter={retryAfter}
-              returnTo={currentUrl}
-            />
-          </div>
-        </SidebarInset>
-      );
-    }
+  const params = await searchParams
+  const normalized: Record<string, string | string[] | undefined> = {}
+  for (const [k, v] of Object.entries(params)) {
+    normalized[k] = v as string | string[] | undefined
   }
 
-  // Comp inputs (used only when liveComps === true). Beds/baths/sqft passed
-  // when present so the comp filter is meaningful. Any 0-or-smaller value is
-  // treated as "unknown" to avoid silently disabling filters (RentCast public
-  // records sometimes report 0 beds).
-  const rawBeds = numberOrUndef(search.beds);
-  const rawBaths = numberOrUndef(search.baths);
-  const compsBeds = rawBeds && rawBeds > 0 ? rawBeds : undefined;
-  const compsBaths = rawBaths && rawBaths > 0 ? rawBaths : undefined;
-  const compsSqft = numberOrUndef(search.sqft);
-  const propertyType =
-    typeof search.propertyType === "string" && search.propertyType.trim()
-      ? search.propertyType.trim()
-      : undefined;
-  const lastSalePrice = numberOrUndef(search.lastSalePrice);
-  const lastSaleDate =
-    typeof search.lastSaleDate === "string" && search.lastSaleDate.trim()
-      ? search.lastSaleDate.trim()
-      : undefined;
+  const inputs = inputsFromSearchParams(normalized)
+  const analysis = analyseDeal(inputs)
+  const walkAway = (() => {
+    try { return findOfferCeiling(inputs) } catch { return null }
+  })()
 
-  // Live comp pull — only when the user has explicitly clicked through. On
-  // the fast estimate path comps and comparables stay null, and every UI
-  // surface that consumes them already has empty-state handling.
-  const comps: CompsResult | null =
-    liveComps && address
-      ? await fetchComps({
-          address,
-          beds: compsBeds,
-          baths: compsBaths,
-          sqft: compsSqft,
-        })
-      : null;
+  const tier = analysis.verdict.tier
+  const accent = TIER_ACCENT[tier]
+  const label = TIER_LABEL[tier]
+  const address = typeof params.address === "string" ? params.address : undefined
+  const walkAwayPrice = walkAway?.primaryTarget?.price ?? null
 
-  const currentListPrice =
-    search.listed === "1" ? inputs.purchasePrice : undefined;
-  const comparables =
-    liveComps && address
-      ? analyzeComparables(
-          {
-            address,
-            price: inputs.purchasePrice,
-            sqft: compsSqft,
-            beds: compsBeds,
-            baths: compsBaths,
-            yearBuilt: numberOrUndef(search.yearBuilt),
-            propertyType,
-            monthlyHOA: inputs.monthlyHOA,
-            lastSalePrice,
-            lastSaleDate,
-            currentListPrice,
-            expectedAppreciation: inputs.annualAppreciationPercent
-              ? inputs.annualAppreciationPercent / 100
-              : undefined,
-          },
-          comps,
-        )
-      : null;
-
-  const analyseEvidence = comparables
-    ? toAnalyseRentEvidence(comparables)
-    : undefined;
-  const analysis = analyseDeal(inputs, analyseEvidence);
-
-  // URL the "Run live comp analysis" button navigates to — same query
-  // string with livecomps=1 added. Built once so the CTA can render in
-  // multiple locations (top of page, inside Comps tab teaser).
-  const liveCompsHref = (() => {
-    const sp = inputsToSearchParams(inputs);
-    if (address) sp.set("address", address);
-    if (typeof search.beds === "string") sp.set("beds", search.beds);
-    if (typeof search.baths === "string") sp.set("baths", search.baths);
-    if (typeof search.sqft === "string") sp.set("sqft", search.sqft);
-    if (typeof search.yearBuilt === "string")
-      sp.set("yearBuilt", search.yearBuilt);
-    if (typeof search.propertyType === "string")
-      sp.set("propertyType", search.propertyType);
-    if (typeof search.lastSalePrice === "string")
-      sp.set("lastSalePrice", search.lastSalePrice);
-    if (typeof search.lastSaleDate === "string")
-      sp.set("lastSaleDate", search.lastSaleDate);
-    if (search.listed === "1") sp.set("listed", "1");
-    sp.set("livecomps", "1");
-    return `/results?${sp.toString()}`;
-  })();
-
-  const tier = analysis.verdict.tier;
-  const accent = TIER_ACCENT[tier];
-  const accentSoft = accent + "14"; // ~8% alpha (hex suffix)
-
-  // ---------------------------------------------------------------------
-  // AI chat context. Compute walk-away + weak assumptions once here and
-  // pass them into both InitialVerdict and FollowUpChat so the AI layer
-  // speaks with the same numbers as the Hero card, the Pack, and the
-  // Comps tab. Without this the AI used to invent its own "fair offer"
-  // that contradicted OfferCeilingCard sitting 200px above it.
-  // ---------------------------------------------------------------------
-  const marketValueAnchor =
-    comparables?.marketValue?.value ??
-    (inputs.purchasePrice > 0 ? inputs.purchasePrice : undefined);
-  const ceilingForChat = findOfferCeiling(inputs, {
-    marketValueCap: marketValueAnchor,
-    marketValueCapSource: comparables?.marketValue?.value ? "comps" : "list",
-    analyseDealOptions: analyseEvidence,
-  });
-  const weakAssumptionsForChat = comparables
-    ? pickWeakAssumptions({
-        inputs,
-        analysis,
-        comparables,
-        warnings: [],
-        provenance: {},
-      }).slice(0, 3)
-    : [];
-
-  const parsedZip = address ? extractUsZipFromAddress(address) : undefined;
-
-  // Parse page comps encoded in URL (base64-JSON, set by Electron main process
-  // after structured extraction from listing JSON — see electron-app/main.js).
-  // The research→results navigation doesn't include these today; this is the
-  // receiver so it's ready when that path is wired.
-  const pageComps: PageComp[] | null = (() => {
-    const raw = typeof search.pagecomps === "string" ? search.pagecomps : null;
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(
-        Buffer.from(raw, "base64").toString("utf8"),
-      ) as unknown;
-      if (!Array.isArray(parsed)) return null;
-      return (parsed as unknown[]).filter(
-        (c): c is PageComp =>
-          c !== null &&
-          typeof c === "object" &&
-          typeof (c as Record<string, unknown>).soldPrice === "number" &&
-          ((c as Record<string, unknown>).soldPrice as number) > 0,
-      );
-    } catch {
-      return null;
-    }
-  })();
-
-  // Always fetch free market context (ACS + HUD FMR + ZORI + Walk Score)
-  // regardless of liveComps flag. Free users get this data; Pro users get it
-  // too plus the RentCast comp layer on top.
-  const [acsZipProfile, freeMarketCtx] = await Promise.all([
-    parsedZip ? fetchAcsZipProfile(parsedZip) : Promise.resolve(null),
-    fetchFreeMarketContext(parsedZip, address),
-  ]);
-
-  const marketSignals = buildMarketSignals(
-    inputs,
-    parsedZip,
-    acsZipProfile,
-    freeMarketCtx,
-    pageComps,
-  );
-
-  const analysisContext: ChatAnalysisContext = {
-    ...marketSignals,
-    walkAwayPrice: ceilingForChat.primaryTarget?.price,
-    walkAwayTier:
-      ceilingForChat.primaryTarget?.tier === "avoid"
-        ? undefined
-        : ceilingForChat.primaryTarget?.tier,
-    marketValueCapSource: comparables?.marketValue?.value ? "comps" : "list",
-    fairValue: comparables?.marketValue?.value ?? undefined,
-    fairValueConfidence: comparables?.marketValue?.confidence ?? undefined,
-    marketRent: comparables?.marketRent?.value ?? undefined,
-    marketRentConfidence: comparables?.marketRent?.confidence ?? undefined,
-    weakAssumptions: weakAssumptionsForChat.map((w) => ({
-      field: w.field,
-      current: w.current,
-      realistic: w.realistic,
-      gap: w.gap,
-    })),
-    // pageComps stats already merged into marketSignals via buildMarketSignals;
-    // no extra fields needed here.
-  };
-
-  // CSS variables flow down to every child via inheritance. Client components
-  // (InitialVerdict, FollowUpChat) read `var(--accent)` directly.
-  const rootStyle: CSSProperties & Record<string, string> = {
-    "--accent": accent,
-    "--accent-soft": accentSoft,
-  };
+  const metrics = [
+    {
+      label: "Cash flow",
+      value: (analysis.monthlyCashFlow >= 0 ? "+" : "") + formatCurrency(analysis.monthlyCashFlow, 0) + "/mo",
+      good: analysis.monthlyCashFlow >= 0,
+    },
+    {
+      label: "Cap rate",
+      value: formatPercent(analysis.capRate, 2),
+      good: analysis.capRate >= 0.05,
+    },
+    {
+      label: "DSCR",
+      value: isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞",
+      good: analysis.dscr >= 1.2,
+    },
+    {
+      label: "Cash-on-cash",
+      value: formatPercent(analysis.cashOnCashReturn, 2),
+      good: analysis.cashOnCashReturn >= 0.07,
+    },
+  ]
 
   return (
-    <SidebarInset>
-      <div style={rootStyle}>
-      <ResultsViewTracker
-        tier={tier}
-        priceBucket={priceBucketForAnalytics(inputs.purchasePrice)}
-        source={address ? "address" : "manual"}
-      />
-      <ResultsHeader
-        editHref={editHref}
-        currentUrl={currentUrl}
-        supabaseConfigured={supaConfig.configured}
-        signedIn={!!user}
-        isPro={pro}
-        inputs={inputs}
-        address={address}
-        fromelec={search.fromelec === "1"}
-      />
+    <div className="min-h-screen bg-white text-zinc-900">
+      <div className="max-w-2xl mx-auto px-6 py-10 pb-16">
 
-      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-14">
-          <ResultsWarningsBanner address={address} />
-
-          <HowWeGotThese
-            comparables={comparables}
-            subjectPrice={inputs.purchasePrice}
-            subjectRent={inputs.monthlyRent}
-          />
-
-          {!liveComps && address && (
-            <RunLiveCompsCTA href={liveCompsHref} isPro={pro} />
+        {/* Address */}
+        <div className="space-y-1 mb-6">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+            Deal Analysis
+          </p>
+          {address && (
+            <h1 className="text-xl font-bold leading-snug text-zinc-900">{address}</h1>
           )}
-
-          <HeroSection
-            tier={tier}
-            analysis={analysis}
-            address={address}
-            inputs={inputs}
-            editHref={editHref}
-            currentUrl={currentUrl}
-            signedIn={!!user}
-            isPro={pro}
-            supabaseConfigured={supaConfig.configured}
-            packEligible={liveComps && !!comparables && !!address}
-            marketValueCap={
-              // Walk-away discipline: bound the ceiling by comp-derived fair
-              // value when we have it, list price otherwise. Without this the
-              // income rubric can return walk-away prices 5-10× market value
-              // on rent-heavy listings (the $3.4M-on-a-$540k-listing bug).
-              comparables?.marketValue?.value ??
-              (inputs.purchasePrice > 0 ? inputs.purchasePrice : undefined)
-            }
-            marketValueCapSource={
-              comparables?.marketValue?.value ? "comps" : "list"
-            }
-            subjectFacts={{
-              beds: compsBeds,
-              baths: compsBaths,
-              sqft: compsSqft,
-              yearBuilt: numberOrUndef(search.yearBuilt),
-              propertyType,
-              lastSalePrice,
-              lastSaleDate,
-            }}
-            isListed={search.listed === "1"}
-            analysisContext={analysisContext}
-            analyseDealOptions={analyseEvidence}
-          />
-
-          <div className="mt-10 sm:mt-14">
-            <ResultsTabs
-              tabs={[
-                {
-                  id: "numbers",
-                  label: "Numbers",
-                  content: (
-                    <div className="flex flex-col gap-12">
-                      <EvidenceSection analysis={analysis} comps={comps} />
-                      <BreakdownSection analysis={analysis} />
-                    </div>
-                  ),
-                },
-                {
-                  id: "comps",
-                  label: "Comps",
-                  badge:
-                    pro && comps
-                      ? String(
-                          comps.saleComps.stats.count +
-                            comps.rentComps.stats.count,
-                        )
-                      : undefined,
-                  content: pro ? (
-                    <CompsSection
-                      analysis={analysis}
-                      comps={comps}
-                      comparables={comparables}
-                      address={address}
-                      liveCompsHref={!liveComps ? liveCompsHref : undefined}
-                    />
-                  ) : (
-                    <ProCompsTeaser returnTo={currentUrl} />
-                  ),
-                },
-                {
-                  id: "stress",
-                  label: "Stress test",
-                  content: (
-                    <StressTestPanel
-                      baseInputs={inputs}
-                      baseAnalysis={analysis}
-                    />
-                  ),
-                },
-                {
-                  id: "whatif",
-                  label: "What-if",
-                  content: (
-                    <WhatIfPanel
-                      baseInputs={inputs}
-                      baseAnalysis={analysis}
-                      address={address}
-                    />
-                  ),
-                },
-                {
-                  id: "rubric",
-                  label: "Rubric",
-                  content: <VerdictRubric verdict={analysis.verdict} />,
-                },
-                {
-                  id: "chat",
-                  label: "Ask AI",
-                  content: (
-                    <FollowUpChat
-                      inputs={inputs}
-                      analysisContext={analysisContext}
-                    />
-                  ),
-                },
-              ]}
-            />
-          </div>
         </div>
+
+        {/* Verdict badge */}
+        <div
+          className="rounded-xl px-5 py-4 space-y-1 mb-5"
+          style={{
+            backgroundColor: accent + "18",
+            border: `1px solid ${accent}40`,
+          }}
+        >
+          <p
+            className="text-[10px] font-semibold uppercase tracking-widest"
+            style={{ color: accent }}
+          >
+            Verdict
+          </p>
+          <p className="text-2xl font-extrabold" style={{ color: accent }}>
+            {label}
+          </p>
+          <p className="text-sm text-zinc-600 leading-relaxed">
+            {analysis.verdict.summary}
+          </p>
+        </div>
+
+        {/* Walk-away ceiling */}
+        {walkAwayPrice != null && (
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 space-y-1 mb-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+              Walk-Away Ceiling
+            </p>
+            <p className="text-3xl font-bold tabular-nums text-zinc-900">
+              {formatCurrency(walkAwayPrice, 0)}
+            </p>
+            {inputs.purchasePrice > 0 && (
+              <p
+                className={cn(
+                  "text-xs tabular-nums",
+                  walkAwayPrice >= inputs.purchasePrice
+                    ? "text-emerald-600"
+                    : "text-red-600"
+                )}
+              >
+                {walkAwayPrice >= inputs.purchasePrice
+                  ? formatCurrency(walkAwayPrice - inputs.purchasePrice, 0) +
+                    " under ceiling — deal works at ask"
+                  : formatCurrency(inputs.purchasePrice - walkAwayPrice, 0) +
+                    " over ceiling"}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Four key metric tiles */}
+        <div className="grid grid-cols-2 gap-3">
+          {metrics.map((m) => (
+            <div
+              key={m.label}
+              className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 space-y-0.5"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+                {m.label}
+              </p>
+              <p
+                className={cn(
+                  "text-xl font-bold tabular-nums",
+                  m.good ? "text-emerald-600" : "text-red-600"
+                )}
+              >
+                {m.value}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="mt-12 pt-6 border-t border-zinc-100 text-center">
+          <p className="text-xs text-zinc-400">
+            Analyzed with{" "}
+            <a
+              href="https://realverdict.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-zinc-600 transition-colors"
+            >
+              RealVerdict
+            </a>
+          </p>
+        </div>
+
       </div>
-    </SidebarInset>
-  );
-}
-
-function numberOrUndef(v: string | string[] | undefined): number | undefined {
-  if (typeof v !== "string" || v === "") return undefined;
-  const n = Number(v);
-  return isFinite(n) ? n : undefined;
-}
-
-// Low-cardinality price bucket for analytics — keeps Plausible props usable.
-function priceBucketForAnalytics(price: number): string {
-  if (!price || price <= 0) return "none";
-  if (price < 100_000) return "<100k";
-  if (price < 200_000) return "100-200k";
-  if (price < 350_000) return "200-350k";
-  if (price < 500_000) return "350-500k";
-  if (price < 750_000) return "500-750k";
-  if (price < 1_000_000) return "750k-1M";
-  if (price < 2_000_000) return "1-2M";
-  return "2M+";
+    </div>
+  )
 }

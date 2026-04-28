@@ -1,12 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   analyseDeal,
   formatCurrency,
   formatPercent,
-  inputsToSearchParams,
   sanitiseInputs,
   type DealAnalysis,
   type DealInputs,
@@ -78,13 +76,10 @@ function pct(value: number, base: number): string {
 export default function WhatIfPanel({
   baseInputs,
   baseAnalysis,
-  address,
 }: {
   baseInputs: DealInputs;
   baseAnalysis: DealAnalysis;
-  address?: string;
 }) {
-  const router = useRouter();
   const [draft, setDraft] = useState<DealInputs>(baseInputs);
 
   const draftAnalysis = useMemo(() => {
@@ -97,30 +92,15 @@ export default function WhatIfPanel({
 
   const reset = () => setDraft(baseInputs);
 
-  const applyAsNewVerdict = () => {
-    const params = inputsToSearchParams(sanitiseInputs(draft));
-    if (address) params.set("address", address);
-    router.push(`/results?${params.toString()}`);
-  };
+  // TODO: apply as new analysis in panel
+  const applyAsNewVerdict = () => { reset(); };
 
   const isDirty = KNOBS.some((k) => draft[k.key] !== baseInputs[k.key]);
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
-            What-if
-          </div>
-          <h2 className="mt-1 text-2xl font-semibold text-zinc-100 sm:text-3xl">
-            Move the numbers. See the verdict change.
-          </h2>
-          <p className="mt-1 text-sm text-zinc-500">
-            Drag a slider — every metric below recomputes instantly using the
-            same engine that produced the original verdict.
-          </p>
-        </div>
-        {isDirty && (
+      {isDirty && (
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={reset}
@@ -128,8 +108,8 @@ export default function WhatIfPanel({
           >
             Reset to original
           </button>
-        )}
-      </header>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 sm:grid-cols-2 lg:grid-cols-3">
         {KNOBS.map((knob) => {

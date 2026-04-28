@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server"
 import { supabaseEnv } from "@/lib/supabase/config"
 import { isPro } from "@/lib/pro"
 import { DealsClient } from "./DealsClient"
-import type { SavedDeal } from "../leads/SavedDealCard"
+import type { SavedDeal } from "./SavedDealCard"
 
 export const dynamic = "force-dynamic"
 

@@ -268,28 +268,20 @@ export default function AnalysisPanel({
                 {address}
               </h2>
             )}
-            {pf && (
+            {pf && (pf.beds != null || pf.baths != null || pf.sqft != null || pf.yearBuilt != null) && (
               <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
-                {pf.beds != null && (
-                  <span className="flex items-center gap-1">
-                    <Bed className="h-3 w-3" />{pf.beds} bd
-                  </span>
-                )}
-                {pf.baths != null && (
-                  <span className="flex items-center gap-1">
-                    <Bath className="h-3 w-3" />{pf.baths} ba
-                  </span>
-                )}
-                {pf.sqft != null && (
-                  <span className="flex items-center gap-1">
-                    <Ruler className="h-3 w-3" />{pf.sqft.toLocaleString()} sqft
-                  </span>
-                )}
-                {pf.yearBuilt != null && (
-                  <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />Built {pf.yearBuilt}
-                  </span>
-                )}
+                <span className="flex items-center gap-1">
+                  <Bed className="h-3 w-3" />{pf.beds != null ? `${pf.beds} bd` : "—"}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Bath className="h-3 w-3" />{pf.baths != null ? `${pf.baths} ba` : "—"}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Ruler className="h-3 w-3" />{pf.sqft != null ? `${pf.sqft.toLocaleString()} sqft` : "—"}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />{pf.yearBuilt != null ? `Built ${pf.yearBuilt}` : "—"}
+                </span>
                 {pf.propertyType != null && (
                   <span className="flex items-center gap-1">
                     <Home className="h-3 w-3" />{pf.propertyType}
