@@ -90,15 +90,13 @@ export function SavedDealDetail({ deal }: { deal: SavedDeal }) {
             <h2 className="text-lg font-semibold truncate">
               {deal.address ?? "Unknown address"}
             </h2>
-            {pf && (pf.beds || pf.baths || pf.sqft || pf.yearBuilt || pf.propertyType) && (
-              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                {pf.beds    && <span className="flex items-center gap-1"><Bed      className="h-3 w-3" />{pf.beds} bd</span>}
-                {pf.baths   && <span className="flex items-center gap-1"><Bath     className="h-3 w-3" />{pf.baths} ba</span>}
-                {pf.sqft    && <span className="flex items-center gap-1"><Ruler    className="h-3 w-3" />{pf.sqft.toLocaleString()} sqft</span>}
-                {pf.yearBuilt && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Built {pf.yearBuilt}</span>}
-                {pf.propertyType && <span className="flex items-center gap-1"><Home className="h-3 w-3" />{pf.propertyType}</span>}
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1"><Bed      className="h-3 w-3" />{pf?.beds    ?? "—"} bd</span>
+              <span className="flex items-center gap-1"><Bath     className="h-3 w-3" />{pf?.baths   ?? "—"} ba</span>
+              <span className="flex items-center gap-1"><Ruler    className="h-3 w-3" />{pf?.sqft    ? pf.sqft.toLocaleString() + " sqft" : "— sqft"}</span>
+              <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{pf?.yearBuilt ? `Built ${pf.yearBuilt}` : "Year —"}</span>
+              <span className="flex items-center gap-1"><Home     className="h-3 w-3" />{pf?.propertyType ?? "—"}</span>
+            </div>
           </div>
           <a
             href={resultsHref}

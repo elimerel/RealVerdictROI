@@ -13,6 +13,7 @@ import ResultsWarningsBanner from "../_components/ResultsWarningsBanner";
 import AnalysisQuotaExceeded from "../_components/AnalysisQuotaExceeded";
 import ProCompsTeaser from "../_components/ProCompsTeaser";
 import ResultsHeader from "../_components/results/ResultsHeader";
+import { ResultsShell } from "../_components/results/ResultsShell";
 import HeroSection, {
   RunLiveCompsCTA,
 } from "../_components/results/HeroSection";
@@ -153,7 +154,7 @@ export default async function ResultsPage({
     const { allowed, retryAfter } = await checkRateLimit(bucket, id);
     if (!allowed) {
       return (
-        <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
+        <ResultsShell>
           <ResultsHeader
             editHref={editHref}
             currentUrl={currentUrl}
@@ -171,7 +172,7 @@ export default async function ResultsPage({
               />
             </div>
           </main>
-        </div>
+        </ResultsShell>
       );
     }
   }
@@ -321,10 +322,7 @@ export default async function ResultsPage({
   };
 
   return (
-    <div
-      style={rootStyle}
-      className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100"
-    >
+    <ResultsShell style={rootStyle}>
       <ResultsViewTracker
         tier={tier}
         priceBucket={priceBucketForAnalytics(inputs.purchasePrice)}
@@ -473,7 +471,7 @@ export default async function ResultsPage({
           assumptions independently before committing capital.
         </div>
       </footer>
-    </div>
+    </ResultsShell>
   );
 }
 

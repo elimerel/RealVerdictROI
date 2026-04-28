@@ -74,169 +74,129 @@ function hostnameOf(url: string) {
 }
 
 // ---------------------------------------------------------------------------
-// VerdictGauge — the centerpiece: Green/Yellow/Red based on price vs ceiling
+// WalkAwayBlock — unified decision gauge + price + math in one block
 // ---------------------------------------------------------------------------
 
-function VerdictGauge({
+function WalkAwayBlock({
   listPrice,
-  walkAway,
-  flipWalkAway,
-}: {
-  listPrice: number | null
-  walkAway: number | null
-  flipWalkAway: number | null
-}) {
-  // Prefer flip walk-away when available (wholesaler/flipper is the target user)
-  const ceiling = flipWalkAway ?? walkAway
-  if (!ceiling || !listPrice) return null
-
-  const diff = ceiling - listPrice
-  const pct = (diff / listPrice) * 100
-
-  type GaugeStatus = "green" | "yellow" | "red"
-  let status: GaugeStatus
-  let headline: string
-  let subtext: string
-
-  if (diff >= 0) {
-    status = "green"
-    headline = "GO — Price is Under Walk-Away"
-    subtext = `${formatCurrency(listPrice, 0)} asking · ${formatCurrency(diff, 0)} under ceiling`
-  } else if (pct > -5) {
-    status = "yellow"
-    headline = "NEGOTIATE — Within 5% of Walk-Away"
-    subtext = `${Math.abs(pct).toFixed(1)}% over ceiling · negotiate or walk`
-  } else {
-    status = "red"
-    headline = "WALK AWAY"
-    subtext = `Asking is ${formatCurrency(-diff, 0)} over your ceiling`
-  }
-
-  const palette: Record<GaugeStatus, { bg: string; border: string; text: string; sub: string }> = {
-    green:  { bg: "rgba(34,197,94,0.12)",  border: "rgba(34,197,94,0.5)",  text: "#4ade80", sub: "#86efac" },
-    yellow: { bg: "rgba(234,179,8,0.12)",  border: "rgba(234,179,8,0.5)",  text: "#facc15", sub: "#fde68a" },
-    red:    { bg: "rgba(239,68,68,0.12)",  border: "rgba(239,68,68,0.5)",  text: "#f87171", sub: "#fca5a5" },
-  }
-  const c = palette[status]
-
-  return (
-    <div
-      className="rounded-xl px-5 py-4 space-y-2"
-      style={{ backgroundColor: c.bg, borderColor: c.border, borderWidth: 1 }}
-    >
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: c.text }}>
-          {status === "green" ? "✓" : status === "yellow" ? "⚡" : "✗"} {headline}
-        </p>
-        <span
-          className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full"
-          style={{ backgroundColor: c.border, color: c.text }}
-        >
-          {pct > 0 ? "+" : ""}{pct.toFixed(1)}%
-        </span>
-      </div>
-      <p className="text-xs" style={{ color: c.sub }}>{subtext}</p>
-
-      {/* Visual bar */}
-      <div className="relative h-2 rounded-full bg-muted/30 overflow-hidden mt-1">
-        {diff >= 0 ? (
-          <div
-            className="h-full rounded-full transition-all"
-            style={{ width: `${Math.min(100, (listPrice / ceiling) * 100)}%`, backgroundColor: c.text }}
-          />
-        ) : (
-          <div
-            className="h-full rounded-full w-full transition-all"
-            style={{ backgroundColor: c.text }}
-          />
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// TranslucentMath — shows the walk-away calculation so investors trust the number
-// ---------------------------------------------------------------------------
-
-function TranslucentMath({
   walkAway,
   flipWalkAway,
   arvEstimate,
   rehabCostEstimate,
-  listPrice,
 }: {
+  listPrice: number | null
   walkAway: number | null
   flipWalkAway: number | null
   arvEstimate: number | null
   rehabCostEstimate: number | null
-  listPrice: number | null
 }) {
+  const ceiling = flipWalkAway ?? walkAway
+  if (!ceiling) return null
+
+  type GaugeStatus = "green" | "yellow" | "red"
+  let status: GaugeStatus = "green"
+  let headline = "Walk-Away Ceiling"
+  let verdict = ""
+
+  if (listPrice) {
+    const diff = ceiling - listPrice
+    const pct = (diff / listPrice) * 100
+    if (diff >= 0) {
+      status = "green"
+      verdict = `GO · ${formatCurrency(diff, 0)} under ceiling (${Math.abs(pct).toFixed(1)}%)`
+    } else if (pct > -5) {
+      status = "yellow"
+      headline = "Negotiate"
+      verdict = `${Math.abs(pct).toFixed(1)}% over ceiling · room to negotiate`
+    } else {
+      status = "red"
+      headline = "Walk Away"
+      verdict = `Asking is ${formatCurrency(-diff, 0)} over your ceiling`
+    }
+  }
+
+  const palette: Record<GaugeStatus, { bg: string; border: string; text: string; sub: string }> = {
+    green:  { bg: "rgba(34,197,94,0.10)",  border: "rgba(34,197,94,0.4)",  text: "#4ade80", sub: "#86efac" },
+    yellow: { bg: "rgba(234,179,8,0.10)",  border: "rgba(234,179,8,0.4)",  text: "#facc15", sub: "#fde68a" },
+    red:    { bg: "rgba(239,68,68,0.10)",  border: "rgba(239,68,68,0.4)",  text: "#f87171", sub: "#fca5a5" },
+  }
+  const c = listPrice ? palette[status] : { bg: "rgba(99,102,241,0.08)", border: "rgba(99,102,241,0.25)", text: "#a5b4fc", sub: "#c7d2fe" }
+
   return (
-    <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-        <ShieldCheck className="h-3 w-3" /> Walk-Away Math
+    <div
+      className="rounded-xl px-4 py-3 space-y-2.5"
+      style={{ backgroundColor: c.bg, borderColor: c.border, borderWidth: 1 }}
+    >
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: c.text }}>
+          <ShieldCheck className="inline h-3 w-3 mr-1 -mt-0.5" />
+          {headline}
+        </p>
+        {listPrice && verdict && (
+          <span className="text-[10px] font-mono" style={{ color: c.sub }}>{verdict}</span>
+        )}
+      </div>
+
+      {/* Price — the number they need */}
+      <p className="text-2xl font-bold font-mono" style={{ color: c.text }}>
+        {formatCurrency(ceiling, 0)}
       </p>
 
+      {/* Math breakdown */}
       {flipWalkAway != null && arvEstimate != null ? (
-        // Full flip formula with ARV
-        <div className="space-y-0.5">
-          <p className="text-lg font-bold font-mono">{formatCurrency(flipWalkAway, 0)}</p>
-          <div className="space-y-1 text-[11px] font-mono mt-1">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">ARV (after repair)</span>
-              <span className="text-foreground">{formatCurrency(arvEstimate, 0)}</span>
+        <div className="space-y-1 text-[11px] font-mono">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">ARV (after repair)</span>
+            <span className="text-foreground">{formatCurrency(arvEstimate, 0)}</span>
+          </div>
+          {rehabCostEstimate != null && (
+            <div className="flex items-center justify-between text-red-400">
+              <span>− Estimated rehab</span>
+              <span>({formatCurrency(rehabCostEstimate, 0)})</span>
             </div>
-            {rehabCostEstimate != null && (
-              <div className="flex items-center justify-between text-red-400">
-                <span>− Estimated rehab</span>
-                <span>({formatCurrency(rehabCostEstimate, 0)})</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between text-amber-400">
-              <span>− 15% profit margin</span>
-              <span>({formatCurrency(arvEstimate * 0.15, 0)})</span>
-            </div>
-            <div className="border-t border-border/50 pt-1 mt-0.5 flex items-center justify-between font-semibold text-foreground">
-              <span>= Flip walk-away</span>
-              <span>{formatCurrency(flipWalkAway, 0)}</span>
-            </div>
+          )}
+          <div className="flex items-center justify-between text-amber-400">
+            <span>− 15% profit margin</span>
+            <span>({formatCurrency(arvEstimate * 0.15, 0)})</span>
+          </div>
+          <div className="border-t border-border/40 pt-1 flex items-center justify-between font-semibold text-foreground">
+            <span>= Flip walk-away</span>
+            <span>{formatCurrency(flipWalkAway, 0)}</span>
           </div>
         </div>
-      ) : walkAway != null ? (
-        // Rental formula fallback
-        <div className="space-y-0.5">
-          <p className="text-lg font-bold font-mono">{formatCurrency(walkAway, 0)}</p>
-          <div className="space-y-1 text-[11px] font-mono mt-1">
-            {listPrice && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Asking price</span>
-                <span className="text-foreground">{formatCurrency(listPrice, 0)}</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between text-muted-foreground/70">
-              <span>Ceiling (rental rubric)</span>
-              <span className="text-foreground">{formatCurrency(walkAway, 0)}</span>
-            </div>
-            {listPrice && (
-              <div className={cn(
-                "border-t border-border/50 pt-1 mt-0.5 flex items-center justify-between font-semibold",
-                walkAway >= listPrice ? "text-emerald-400" : "text-red-400"
-              )}>
-                <span>{walkAway >= listPrice ? "Deal works at ask" : "Over ceiling by"}</span>
-                <span>
-                  {walkAway >= listPrice
-                    ? formatCurrency(walkAway - listPrice, 0) + " room"
-                    : formatCurrency(listPrice - walkAway, 0)}
-                </span>
-              </div>
-            )}
+      ) : walkAway != null && listPrice ? (
+        <div className="space-y-1 text-[11px] font-mono">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Asking price</span>
+            <span>{formatCurrency(listPrice, 0)}</span>
           </div>
-          <p className="text-[10px] text-muted-foreground pt-1">
-            No ARV data found — showing rental yield ceiling
-          </p>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Rental yield ceiling</span>
+            <span>{formatCurrency(walkAway, 0)}</span>
+          </div>
+          <div className={cn(
+            "border-t border-border/40 pt-1 flex items-center justify-between font-semibold",
+            walkAway >= listPrice ? "text-emerald-400" : "text-red-400"
+          )}>
+            <span>{walkAway >= listPrice ? "Room to spare" : "Over by"}</span>
+            <span>{walkAway >= listPrice ? formatCurrency(walkAway - listPrice, 0) : formatCurrency(listPrice - walkAway, 0)}</span>
+          </div>
         </div>
       ) : null}
+
+      {/* Visual bar when list price present */}
+      {listPrice && (
+        <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{
+              width: ceiling >= listPrice ? `${Math.min(100, (listPrice / ceiling) * 100)}%` : "100%",
+              backgroundColor: c.text,
+            }}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -334,8 +294,14 @@ function AnalysisPanel({
 
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
-          {/* Verdict Gauge */}
-          <VerdictGauge listPrice={listPrice} walkAway={walkAway} flipWalkAway={flipWalkAway} />
+          {/* Unified walk-away decision + math */}
+          <WalkAwayBlock
+            listPrice={listPrice}
+            walkAway={walkAway}
+            flipWalkAway={flipWalkAway}
+            arvEstimate={result.arvEstimate}
+            rehabCostEstimate={result.rehabCostEstimate}
+          />
 
           {/* Verdict summary */}
           <div
@@ -346,17 +312,6 @@ function AnalysisPanel({
             <p className="text-lg font-semibold" style={{ color: accentColor }}>{tierLabel}</p>
             <p className="text-xs text-muted-foreground">{analysis.verdict.summary}</p>
           </div>
-
-          {/* Walk-away math */}
-          {ceiling != null && (
-            <TranslucentMath
-              walkAway={walkAway}
-              flipWalkAway={flipWalkAway}
-              arvEstimate={result.arvEstimate}
-              rehabCostEstimate={result.rehabCostEstimate}
-              listPrice={listPrice}
-            />
-          )}
 
           {/* Risk signals */}
           <RiskSignals signals={result.negativeSignals} />
@@ -441,21 +396,16 @@ function ElectronResultsView({
             </p>
           </div>
 
-          {/* 1 — GO / NEGOTIATE / WALK AWAY decision */}
-          <VerdictGauge listPrice={listPrice} walkAway={walkAway} flipWalkAway={flipWalkAway} />
+          {/* 1 — Decision + walk-away price + math in one block */}
+          <WalkAwayBlock
+            listPrice={listPrice}
+            walkAway={walkAway}
+            flipWalkAway={flipWalkAway}
+            arvEstimate={result.arvEstimate}
+            rehabCostEstimate={result.rehabCostEstimate}
+          />
 
-          {/* 2 — Walk-away number (the price that makes the deal work) */}
-          {(walkAway != null || flipWalkAway != null) && (
-            <TranslucentMath
-              walkAway={walkAway}
-              flipWalkAway={flipWalkAway}
-              arvEstimate={result.arvEstimate}
-              rehabCostEstimate={result.rehabCostEstimate}
-              listPrice={listPrice}
-            />
-          )}
-
-          {/* 3 — Risk signals immediately after the number */}
+          {/* 2 — Risk signals immediately after the number */}
           {result.negativeSignals.length > 0 && (
             <RiskSignals signals={result.negativeSignals} />
           )}
@@ -817,17 +767,15 @@ function ElectronResearchPage() {
             disabled={analysisLoading} onClick={handleAnalyze}
             className={cn("gap-1.5 shrink-0", isListingPage && "bg-emerald-600 hover:bg-emerald-500 text-white border-0")}>
             {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TrendingUp className="h-3.5 w-3.5" />}
-            {analysisLoading ? "Analyzing…" : "Analyze"}
+            {analysisLoading ? "Analyzing…" : isListingPage ? "Listing detected — Analyze" : "Analyze"}
           </Button>
         )}
 
-        {analysisResult && (
-          <button onClick={() => setAnalysisOpen(o => !o)}
-            className={cn("h-7 w-7 rounded flex items-center justify-center transition-colors shrink-0",
-              analysisOpen ? "bg-emerald-500/20 text-emerald-400" : "hover:bg-muted/60 text-muted-foreground")}>
-            <BarChart3 className="h-4 w-4" />
-          </button>
-        )}
+        <button onClick={() => setAnalysisOpen(o => !o)}
+          className={cn("h-7 w-7 rounded flex items-center justify-center transition-colors shrink-0",
+            analysisOpen ? "bg-emerald-500/20 text-emerald-400" : "hover:bg-muted/60 text-muted-foreground")}>
+          <BarChart3 className="h-4 w-4" />
+        </button>
 
         {error && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-400 shrink-0 max-w-[200px]">
@@ -862,13 +810,6 @@ function ElectronResearchPage() {
             </div>
           )}
 
-          {isListingPage && browserActive && (
-            <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-xs font-medium shadow-lg pointer-events-none">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Listing detected — click Analyze
-            </div>
-          )}
-
           {browserActive && currentUrl && (
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-background/80 backdrop-blur-sm border border-border/50 text-[10px] text-muted-foreground font-mono pointer-events-none">
               {hostnameOf(currentUrl)}{currentTitle ? ` — ${currentTitle.slice(0, 40)}` : ""}
@@ -876,33 +817,52 @@ function ElectronResearchPage() {
           )}
         </div>
 
-        {/* Right analysis panel */}
-        {analysisOpen && analysisResult && (
+        {/* Right analysis panel — always shown when open */}
+        {analysisOpen && (
           <div
             className="flex flex-col border-l border-border bg-background overflow-hidden shrink-0"
             style={{ width: analysisW, height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}
           >
             <div className="h-10 flex items-center gap-2 px-3 border-b border-border shrink-0">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-              <span className="text-xs font-medium truncate flex-1">
-                {analysisResult.address ?? "Analysis"}
-              </span>
-              {analysisResult.negativeSignals.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium shrink-0">
-                  {analysisResult.negativeSignals.length} risk{analysisResult.negativeSignals.length !== 1 ? "s" : ""}
-                </span>
+              {analysisResult ? (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                  <span className="text-xs font-medium truncate flex-1">
+                    {analysisResult.address ?? "Analysis"}
+                  </span>
+                  {analysisResult.negativeSignals.length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium shrink-0">
+                      {analysisResult.negativeSignals.length} risk{analysisResult.negativeSignals.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  <button onClick={handleViewFull}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0 flex items-center gap-1">
+                    <ExternalLink className="h-3 w-3" /> Full report
+                  </button>
+                </>
+              ) : (
+                <>
+                  <BarChart3 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs font-medium text-muted-foreground truncate flex-1">Analysis</span>
+                </>
               )}
-              <button onClick={handleViewFull}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0 flex items-center gap-1">
-                <ExternalLink className="h-3 w-3" /> Full report
-              </button>
               <button onClick={() => setAnalysisOpen(false)}
                 className="h-6 w-6 rounded flex items-center justify-center hover:bg-muted/60 text-muted-foreground shrink-0">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-hidden">
-              <ElectronResultsView result={analysisResult} onBack={() => setAnalysisOpen(false)} onViewFull={handleViewFull} />
+              {analysisResult ? (
+                <ElectronResultsView result={analysisResult} onBack={() => setAnalysisOpen(false)} onViewFull={handleViewFull} />
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground p-6 text-center">
+                  <TrendingUp className="h-8 w-8 opacity-20" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">No analysis yet</p>
+                    <p className="text-xs opacity-60">Browse to a listing and click Analyze</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
