@@ -111,10 +111,26 @@ function createAppWindow() {
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
+      contextIsolation: true,   // keeps preload isolated from page JS
+      nodeIntegration: false,   // page JS cannot access Node APIs
+      // sandbox intentionally omitted: sandboxed renderers cannot load
+      // preload scripts from inside an ASAR archive, which silently prevents
+      // contextBridge from running and leaves window.electronAPI undefined.
+      // contextIsolation + nodeIntegration:false provides equivalent security.
     },
+  })
+
+  // Cmd+Option+I (macOS) / Ctrl+Alt+I (Win/Linux) opens DevTools in any build.
+  // Useful for diagnosing preload / IPC issues without a dev flag.
+  appWindow.webContents.on("before-input-event", (_e, input) => {
+    if (
+      input.type === "keyDown" &&
+      input.key === "I" &&
+      (input.meta || input.control) &&
+      input.alt
+    ) {
+      appWindow?.webContents.openDevTools({ mode: "detach" })
+    }
   })
 
   // Reveal once the first paint is ready (no blank flash)
