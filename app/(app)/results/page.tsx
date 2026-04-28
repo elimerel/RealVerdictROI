@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { CSSProperties } from "react";
 import { headers } from "next/headers";
+import { SidebarInset } from "@/components/ui/sidebar";
 import ResultsViewTracker from "../_components/ResultsViewTracker";
 import FollowUpChat from "../_components/FollowUpChat";
 import WhatIfPanel from "../_components/WhatIfPanel";
@@ -36,7 +37,9 @@ import { fetchAcsZipProfile } from "@/lib/market-context-acs";
 import {
   buildMarketSignals,
   extractUsZipFromAddress,
+  type PageComp,
 } from "@/lib/market-context";
+import { fetchFreeMarketContext } from "@/lib/market-data";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { checkRateLimit, identifierFor } from "@/lib/ratelimit";
@@ -154,25 +157,24 @@ export default async function ResultsPage({
     const { allowed, retryAfter } = await checkRateLimit(bucket, id);
     if (!allowed) {
       return (
-        <ResultsShell>
+        <SidebarInset>
           <ResultsHeader
             editHref={editHref}
             currentUrl={currentUrl}
             supabaseConfigured={supaConfig.configured}
             signedIn={!!user}
+            isPro={false}
             inputs={inputs}
             address={address}
-            isPro={pro}
+            fromelec={search.fromelec === "1"}
           />
-          <main className="flex-1">
-            <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-              <AnalysisQuotaExceeded
-                retryAfter={retryAfter}
-                returnTo={currentUrl}
-              />
-            </div>
-          </main>
-        </ResultsShell>
+          <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
+            <AnalysisQuotaExceeded
+              retryAfter={retryAfter}
+              returnTo={currentUrl}
+            />
+          </div>
+        </SidebarInset>
       );
     }
   }
@@ -291,8 +293,46 @@ export default async function ResultsPage({
     : [];
 
   const parsedZip = address ? extractUsZipFromAddress(address) : undefined;
-  const acsZipProfile = parsedZip ? await fetchAcsZipProfile(parsedZip) : null;
-  const marketSignals = buildMarketSignals(inputs, parsedZip, acsZipProfile);
+
+  // Parse page comps encoded in URL (base64-JSON, set by Electron main process
+  // after structured extraction from listing JSON — see electron-app/main.js).
+  // The research→results navigation doesn't include these today; this is the
+  // receiver so it's ready when that path is wired.
+  const pageComps: PageComp[] | null = (() => {
+    const raw = typeof search.pagecomps === "string" ? search.pagecomps : null;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(
+        Buffer.from(raw, "base64").toString("utf8"),
+      ) as unknown;
+      if (!Array.isArray(parsed)) return null;
+      return (parsed as unknown[]).filter(
+        (c): c is PageComp =>
+          c !== null &&
+          typeof c === "object" &&
+          typeof (c as Record<string, unknown>).soldPrice === "number" &&
+          ((c as Record<string, unknown>).soldPrice as number) > 0,
+      );
+    } catch {
+      return null;
+    }
+  })();
+
+  // Always fetch free market context (ACS + HUD FMR + ZORI + Walk Score)
+  // regardless of liveComps flag. Free users get this data; Pro users get it
+  // too plus the RentCast comp layer on top.
+  const [acsZipProfile, freeMarketCtx] = await Promise.all([
+    parsedZip ? fetchAcsZipProfile(parsedZip) : Promise.resolve(null),
+    fetchFreeMarketContext(parsedZip, address),
+  ]);
+
+  const marketSignals = buildMarketSignals(
+    inputs,
+    parsedZip,
+    acsZipProfile,
+    freeMarketCtx,
+    pageComps,
+  );
 
   const analysisContext: ChatAnalysisContext = {
     ...marketSignals,
@@ -312,6 +352,8 @@ export default async function ResultsPage({
       realistic: w.realistic,
       gap: w.gap,
     })),
+    // pageComps stats already merged into marketSignals via buildMarketSignals;
+    // no extra fields needed here.
   };
 
   // CSS variables flow down to every child via inheritance. Client components
@@ -322,7 +364,8 @@ export default async function ResultsPage({
   };
 
   return (
-    <ResultsShell style={rootStyle}>
+    <SidebarInset>
+      <div style={rootStyle}>
       <ResultsViewTracker
         tier={tier}
         priceBucket={priceBucketForAnalytics(inputs.purchasePrice)}
@@ -333,13 +376,13 @@ export default async function ResultsPage({
         currentUrl={currentUrl}
         supabaseConfigured={supaConfig.configured}
         signedIn={!!user}
+        isPro={pro}
         inputs={inputs}
         address={address}
-        isPro={pro}
+        fromelec={search.fromelec === "1"}
       />
 
-      <main className="flex-1">
-        <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-14">
+      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-14">
           <ResultsWarningsBanner address={address} />
 
           <HowWeGotThese
@@ -463,15 +506,8 @@ export default async function ResultsPage({
             />
           </div>
         </div>
-      </main>
-
-      <footer className="border-t border-zinc-900 py-6">
-        <div className="mx-auto max-w-6xl px-6 text-xs text-zinc-600">
-          Figures are projections based on the inputs you provided. Verify
-          assumptions independently before committing capital.
-        </div>
-      </footer>
-    </ResultsShell>
+      </div>
+    </SidebarInset>
   );
 }
 

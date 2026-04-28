@@ -141,6 +141,10 @@ function createAppWindow() {
 
   appWindow.loadURL(`${BASE_URL}/login?source=electron`)
 
+  // Install the pageComps interceptor so structured-extraction comps flow
+  // through to the /results URL after the user clicks "Full report".
+  installPageCompsInterceptor()
+
   appWindow.on("resize", () => syncBrowserViewBounds())
   appWindow.on("move",   () => syncBrowserViewBounds())
   appWindow.on("closed", () => {
@@ -318,25 +322,372 @@ ipcMain.handle("browser:extract-dom", async () => {
   } catch (err) { console.error("[electron] extract-dom:", err); return null }
 })
 
+// ---------------------------------------------------------------------------
+// Structured page extractors — run in the page's JS context via
+// executeJavaScript, then return the same shape as /api/extract so the
+// renderer (research/page.tsx) works identically regardless of path.
+//
+// Each extractor runs entirely client-side in the listing page's JS context,
+// accessing window.__NEXT_DATA__, window.__reactInitialState__, or JSON-LD
+// script tags. No ScraperAPI, no AI tokens used.
+//
+// Returns null when structured extraction fails → falls back to AI path.
+// ---------------------------------------------------------------------------
+
+// Zillow — reads window.__NEXT_DATA__ (all the data Zillow ships to React)
+const ZILLOW_EXTRACTOR_JS = `(function() {
+  try {
+    var nd = window.__NEXT_DATA__;
+    if (!nd) return null;
+    var pageProps = nd.props && nd.props.pageProps;
+    if (!pageProps) return null;
+
+    // gdpClientCache may be a JSON-encoded string
+    var cache = (pageProps.componentProps && pageProps.componentProps.gdpClientCache)
+      || pageProps.gdpClientCache || null;
+    if (typeof cache === 'string') { try { cache = JSON.parse(cache); } catch(e) { cache = null; } }
+
+    // Walk any object tree for the first object that looks like a property listing
+    function walk(obj, depth) {
+      if (!obj || typeof obj !== 'object' || depth > 9) return null;
+      var hasPriceSignal = (typeof obj.price === 'number' || typeof obj.zestimate === 'number'
+        || typeof obj.unformattedPrice === 'number' || typeof obj.rentZestimate === 'number');
+      var hasIdentity = (typeof obj.bedrooms === 'number' || typeof obj.zpid !== 'undefined'
+        || typeof obj.streetAddress !== 'undefined' || typeof obj.livingArea === 'number');
+      if (hasPriceSignal && hasIdentity && Object.keys(obj).length >= 5) return obj;
+      var vals = Array.isArray(obj) ? obj : Object.values(obj);
+      for (var i = 0; i < vals.length; i++) {
+        var f = walk(vals[i], depth + 1);
+        if (f) return f;
+      }
+      return null;
+    }
+
+    var prop = walk(cache, 0) || walk(pageProps, 0);
+    if (!prop) return null;
+
+    // Address
+    var address = null;
+    if (typeof prop.streetAddress === 'string' && prop.streetAddress) {
+      address = prop.streetAddress + ', ' + (prop.city||'') + ', ' + (prop.state||'') + ' ' + (prop.zipcode||'');
+    } else if (prop.address && typeof prop.address === 'object') {
+      var a = prop.address;
+      address = ((a.streetAddress||'') + ', ' + (a.city||'') + ', ' + (a.state||'') + ' ' + (a.zipcode||a.postalCode||'')).trim();
+    } else if (typeof prop.address === 'string') {
+      address = prop.address;
+    }
+
+    // Annual property tax from taxHistory or rate
+    var annualTax = null;
+    if (Array.isArray(prop.taxHistory) && prop.taxHistory.length) {
+      var sorted = prop.taxHistory
+        .filter(function(t) { return t && t.taxPaid > 0; })
+        .sort(function(a, b) { return (b.time||0) - (a.time||0); });
+      if (sorted[0]) annualTax = sorted[0].taxPaid;
+    }
+    var price = prop.price || prop.unformattedPrice || null;
+    if (!annualTax && prop.propertyTaxRate && price) {
+      annualTax = Math.round((prop.propertyTaxRate / 100) * price);
+    }
+
+    // Annual insurance
+    var annualIns = prop.annualHomeownersInsurance || null;
+    if (!annualIns && prop.monthlyCosts && prop.monthlyCosts.homeInsurance) {
+      annualIns = Math.round(prop.monthlyCosts.homeInsurance * 12);
+    }
+
+    // Nearby sold homes (page comps)
+    var pageComps = [];
+    var nearby = prop.nearbyHomes || prop.comps || prop.recentlySoldHomes || [];
+    if (Array.isArray(nearby)) {
+      nearby.slice(0, 10).forEach(function(h) {
+        if (!h || typeof h !== 'object') return;
+        var sp = h.price || h.unformattedPrice || h.lastSoldPrice || null;
+        if (!sp || sp <= 0) return;
+        var ca = h.streetAddress || (h.address && (typeof h.address === 'string' ? h.address : h.address.streetAddress)) || '';
+        pageComps.push({ address: ca, soldPrice: sp,
+          beds: h.bedrooms||null, baths: h.bathrooms||null,
+          sqft: h.livingArea||h.livingAreaValue||null, soldDate: h.dateSold||h.soldDate||null });
+      });
+    }
+
+    return {
+      address: address ? address.replace(/\\s+/g, ' ').trim() : null,
+      price: price, rentEstimate: prop.rentZestimate || null,
+      beds: prop.bedrooms||null, baths: prop.bathrooms||null,
+      sqft: prop.livingArea||prop.livingAreaValue||null,
+      yearBuilt: prop.yearBuilt||null, hoa: prop.monthlyHoaFee||prop.hoaFee||null,
+      annualTax: annualTax, annualInsurance: annualIns,
+      propertyType: prop.homeType||null, pageComps: pageComps,
+    };
+  } catch(e) { return null; }
+})()`
+
+// Redfin — reads window.__reactInitialState__ or JSON-LD listing data
+const REDFIN_EXTRACTOR_JS = `(function() {
+  try {
+    // Try __reactInitialState__ first
+    var s = window.__reactInitialState__;
+    var listing = null;
+    if (s && s.propertyDetails) {
+      listing = s.propertyDetails;
+    } else if (s && s.listingInfo) {
+      listing = s.listingInfo;
+    }
+    // Fallback: JSON-LD
+    if (!listing) {
+      var scripts = document.querySelectorAll('script[type="application/ld+json"]');
+      for (var i = 0; i < scripts.length; i++) {
+        try {
+          var d = JSON.parse(scripts[i].textContent);
+          if (d && (d['@type'] === 'RealEstateListing' || d['@type'] === 'Product' || d.price)) {
+            listing = d; break;
+          }
+        } catch(e) {}
+      }
+    }
+    if (!listing) return null;
+
+    // Extract from Redfin's propertyDetails structure
+    var pd = listing.basicInfo || listing;
+    var address = null;
+    if (pd.streetLine && pd.city && pd.state) {
+      address = pd.streetLine + ', ' + pd.city + ', ' + pd.state + ' ' + (pd.zip||'');
+    } else if (typeof listing.name === 'string') {
+      address = listing.name;
+    } else if (typeof listing.address === 'object' && listing.address) {
+      var a = listing.address;
+      address = (a.streetAddress||'') + ', ' + (a.addressLocality||'') + ', ' + (a.addressRegion||'') + ' ' + (a.postalCode||'');
+    }
+
+    var price = pd.listingPrice || pd.price || (listing.offers && listing.offers.price) || null;
+    if (typeof price === 'string') price = parseFloat(price.replace(/[$,]/g,'')) || null;
+
+    var rentEst = pd.rentEstimate || pd.rentZestimate || null;
+    var beds = pd.beds || pd.bedrooms || null;
+    var baths = pd.baths || pd.bathrooms || null;
+    var sqft = pd.sqFt || pd.squareFeet || pd.livingArea || null;
+    if (sqft && sqft.value) sqft = sqft.value;
+    var yearBuilt = pd.yearBuilt || null;
+    var hoa = pd.hoa && pd.hoa.fee ? pd.hoa.fee : null;
+    var annualTax = pd.propertyTaxInfo && pd.propertyTaxInfo.taxesDue ? pd.propertyTaxInfo.taxesDue : null;
+
+    // Nearby sold comps from Redfin
+    var pageComps = [];
+    var similar = (s && (s.recentlySoldHomes || s.nearbyHomes)) || [];
+    if (Array.isArray(similar)) {
+      similar.slice(0, 10).forEach(function(h) {
+        var hp = h.basicInfo || h;
+        var sp = hp.soldPrice || hp.listingPrice || hp.price || null;
+        if (!sp || sp <= 0) return;
+        var ca = hp.streetLine || '';
+        if (hp.city) ca += ', ' + hp.city;
+        pageComps.push({ address: ca, soldPrice: sp,
+          beds: hp.beds||null, baths: hp.baths||null, sqft: hp.sqFt||null, soldDate: hp.soldDate||null });
+      });
+    }
+
+    return {
+      address: address ? address.replace(/\\s+/g,' ').trim() : null,
+      price: price, rentEstimate: rentEst, beds: beds, baths: baths,
+      sqft: sqft ? Math.round(Number(sqft)) : null, yearBuilt: yearBuilt,
+      hoa: hoa, annualTax: annualTax, annualInsurance: null,
+      propertyType: pd.propertyType||null, pageComps: pageComps,
+    };
+  } catch(e) { return null; }
+})()`
+
+// Realtor.com — reads JSON-LD <script> tags + window.__renderedProps__
+const REALTOR_EXTRACTOR_JS = `(function() {
+  try {
+    // JSON-LD first (most reliable on Realtor.com)
+    var data = null;
+    var scripts = document.querySelectorAll('script[type="application/ld+json"]');
+    for (var i = 0; i < scripts.length; i++) {
+      try {
+        var d = JSON.parse(scripts[i].textContent);
+        if (d && (d['@type'] === 'RealEstateListing' || d['@type'] === 'SingleFamilyResidence'
+            || d['@type'] === 'Apartment' || d['@type'] === 'Residence')) {
+          data = d; break;
+        }
+      } catch(e) {}
+    }
+    // Fallback: window.__NEXT_DATA__ (Realtor.com also uses Next.js)
+    if (!data) {
+      var nd = window.__NEXT_DATA__;
+      if (nd && nd.props && nd.props.pageProps) {
+        var pp = nd.props.pageProps;
+        data = pp.listing || pp.property || pp.propertyDetails || null;
+      }
+    }
+    if (!data) return null;
+
+    var address = null;
+    if (data.address && typeof data.address === 'object') {
+      var a = data.address;
+      address = (a.streetAddress||'') + ', ' + (a.addressLocality||a.city||'')
+        + ', ' + (a.addressRegion||a.state||'') + ' ' + (a.postalCode||a.zipCode||'');
+    } else if (typeof data.address === 'string') {
+      address = data.address;
+    } else if (data.streetLine || data.street_address) {
+      address = (data.streetLine||data.street_address||'') + ', '
+        + (data.city||'') + ', ' + (data.state||'') + ' ' + (data.zip_code||data.postal_code||'');
+    }
+
+    var price = null;
+    if (data.offers) {
+      price = typeof data.offers.price === 'string'
+        ? parseFloat(data.offers.price.replace(/[$,]/g,'')) : data.offers.price || null;
+    }
+    if (!price) price = data.listPrice || data.price || data.list_price || null;
+
+    var beds = data.numberOfRooms || data.bedrooms || data.beds || null;
+    var baths = data.bathrooms || data.baths || null;
+    var sqft = data.floorSize ? (data.floorSize.value || data.floorSize) : (data.sqFt || data.square_feet || null);
+    var yearBuilt = data.yearBuilt || data.year_built || null;
+    var hoa = (data.hoa_fee && data.hoa_fee.fee) || data.monthlyHoa || null;
+    var annualTax = data.tax_history && data.tax_history[0] ? data.tax_history[0].tax : null;
+
+    // Nearby sold from Realtor.com (usually in __NEXT_DATA__ nearbyHomes)
+    var pageComps = [];
+    var nearby = (window.__NEXT_DATA__ && window.__NEXT_DATA__.props && window.__NEXT_DATA__.props.pageProps
+      && (window.__NEXT_DATA__.props.pageProps.nearbyHomes || window.__NEXT_DATA__.props.pageProps.soldHomes)) || [];
+    if (Array.isArray(nearby)) {
+      nearby.slice(0, 10).forEach(function(h) {
+        var sp = h.soldPrice || h.list_price || h.price || null;
+        if (!sp || sp <= 0) return;
+        var ca = h.location && h.location.address ? h.location.address.line : (h.streetLine || h.address || '');
+        pageComps.push({ address: ca, soldPrice: sp,
+          beds: h.beds||null, baths: h.baths||null,
+          sqft: h.building_size && h.building_size.size ? h.building_size.size : null, soldDate: h.last_sold_date||null });
+      });
+    }
+
+    return {
+      address: address ? address.replace(/\\s+/g,' ').trim() : null,
+      price: price, rentEstimate: null, beds: beds, baths: baths,
+      sqft: sqft ? Math.round(Number(sqft)) : null, yearBuilt: yearBuilt,
+      hoa: hoa, annualTax: annualTax, annualInsurance: null,
+      propertyType: data['@type'] || data.propertyType || null, pageComps: pageComps,
+    };
+  } catch(e) { return null; }
+})()`
+
+// Build the /api/extract-compatible response from a structured extraction result.
+// Returns the full response object (same shape as what /api/extract returns) or null.
+async function buildStructuredResponse(structured, dom, config) {
+  if (!structured || !structured.price) return null
+
+  const inputs = {}
+  const facts = {}
+  const notes = []
+  const warnings = []
+
+  if (structured.price)         inputs.purchasePrice     = Math.round(structured.price)
+  if (structured.rentEstimate)  inputs.monthlyRent       = Math.round(structured.rentEstimate)
+  if (structured.hoa)           inputs.monthlyHOA        = Math.round(structured.hoa)
+  if (structured.annualTax)     inputs.annualPropertyTax = Math.round(structured.annualTax)
+  if (structured.annualInsurance) inputs.annualInsurance = Math.round(structured.annualInsurance)
+  if (structured.beds)          facts.bedrooms    = structured.beds
+  if (structured.baths)         facts.bathrooms   = structured.baths
+  if (structured.sqft)          facts.squareFeet  = structured.sqft
+  if (structured.yearBuilt)     facts.yearBuilt   = structured.yearBuilt
+  if (structured.propertyType)  facts.propertyType = structured.propertyType
+
+  const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.","") } catch { return "listing" } })()
+  notes.push(`Extracted from ${hostname} page JSON (no AI token used)`)
+
+  // Fill gaps via property-resolve when we have an address
+  if (structured.address) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/property-resolve?address=${encodeURIComponent(structured.address)}`, {
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (res.ok) {
+        const resolved = await res.json()
+        for (const [k, v] of Object.entries(resolved.inputs ?? {})) {
+          if (inputs[k] == null && v != null) inputs[k] = v
+        }
+        Object.assign(facts, resolved.facts ?? {})
+        notes.push(...(resolved.notes ?? []))
+        warnings.push(...(resolved.warnings ?? []))
+      }
+    } catch {
+      warnings.push("Supplemental estimates unavailable — using listing data only.")
+    }
+  }
+
+  return {
+    address: structured.address ?? undefined,
+    inputs, facts, notes, warnings,
+    provenance: {},
+    siteName: hostname,
+    confidence: "high",
+    negativeSignals: [],
+    arvEstimate: undefined,
+    rehabCostEstimate: undefined,
+    modelUsed: "structured",
+    pageComps: Array.isArray(structured.pageComps) && structured.pageComps.length > 0
+      ? structured.pageComps : undefined,
+  }
+}
+
+// Module-level store for page comps from the most recent analyze call.
+// Used by the will-navigate intercept to add pagecomps to the /results URL.
+let pendingPageComps = null
+
 ipcMain.handle("browser:analyze", async () => {
   if (!browserView) return { error: "No browser session active." }
+  pendingPageComps = null  // clear previous
+
   let dom
   try {
     dom = await browserView.webContents.executeJavaScript(`
       (() => {
+        const url = window.location.href
+        const title = document.title
         const clone = document.body.cloneNode(true)
         clone.querySelectorAll('nav,header,footer,script,style,[aria-hidden="true"]').forEach(el => el.remove())
-        return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,30000) }
+        return { url, title, text: (clone.innerText||"").slice(0,30000) }
       })()
     `)
   } catch { return { error: "Could not read the page. Try reloading it." } }
 
-  if (!dom || dom.text.length < 50)
+  if (!dom) return { error: "Could not read the page. Try reloading it." }
+
+  // Attempt structured extraction for known listing sites first
+  const url = dom.url || ""
+  let structured = null
+  try {
+    if (/zillow\.com/i.test(url)) {
+      structured = await browserView.webContents.executeJavaScript(ZILLOW_EXTRACTOR_JS)
+    } else if (/redfin\.com/i.test(url)) {
+      structured = await browserView.webContents.executeJavaScript(REDFIN_EXTRACTOR_JS)
+    } else if (/realtor\.com/i.test(url)) {
+      structured = await browserView.webContents.executeJavaScript(REALTOR_EXTRACTOR_JS)
+    }
+  } catch {
+    structured = null
+  }
+
+  if (structured && structured.price) {
+    // Structured extraction succeeded — no AI call needed
+    const config = readConfig()
+    const result = await buildStructuredResponse(structured, dom, config)
+    if (result) {
+      // Stash page comps so the will-navigate interceptor can add them to the URL
+      if (result.pageComps && result.pageComps.length > 0) {
+        pendingPageComps = result.pageComps
+      }
+      return result
+    }
+    // If buildStructuredResponse failed (e.g. no price after resolve), fall through to AI
+  }
+
+  // AI fallback — for unknown sites or when structured extraction failed
+  if (!dom.text || dom.text.length < 50)
     return { error: "Not enough page content. Make sure you're on a property listing." }
 
-  // Read stored API keys to forward as request headers.
-  // The Vercel API route checks these headers before falling back to env vars,
-  // so user-supplied keys work even though this is a serverless deployment.
   const config = readConfig()
   const headers = { "Content-Type": "application/json" }
   if (config.anthropicApiKey) headers["X-Anthropic-Key"] = config.anthropicApiKey
@@ -356,6 +707,39 @@ ipcMain.handle("browser:analyze", async () => {
     return { error: err instanceof Error ? err.message : "Network error." }
   }
 })
+
+// ---------------------------------------------------------------------------
+// Intercept navigation to /results in the main window and append pagecomps
+// when a structured extraction just produced them.  This threads page-extracted
+// sale comps to the results page without modifying research/page.tsx.
+// ---------------------------------------------------------------------------
+
+function installPageCompsInterceptor() {
+  if (!appWindow) return
+  appWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+    if (!pendingPageComps || pendingPageComps.length === 0) return
+    try {
+      const u = new URL(navigationUrl)
+      // Only intercept /results navigations on our own host
+      const isOurHost = DEV
+        ? (u.hostname === "127.0.0.1" || u.hostname === "localhost")
+        : (u.hostname === "real-verdict-roi.vercel.app")
+      if (!isOurHost || !u.pathname.startsWith("/results")) return
+
+      const comps = pendingPageComps
+      pendingPageComps = null
+
+      // base64-encode the comps array so it survives URL encoding cleanly
+      const encoded = Buffer.from(JSON.stringify(comps)).toString("base64")
+      u.searchParams.set("pagecomps", encoded)
+
+      event.preventDefault()
+      appWindow.webContents.loadURL(u.toString())
+    } catch {
+      // navigation proceeds unmodified
+    }
+  })
+}
 
 // ---------------------------------------------------------------------------
 // IPC — auth

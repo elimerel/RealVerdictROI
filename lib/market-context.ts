@@ -1,9 +1,10 @@
 import type { DealInputs } from "@/lib/calculations";
+import type { FreeMarketContext } from "@/lib/market-data";
 
 // ---------------------------------------------------------------------------
 // ZIP-level ACS snapshot + deal-structure signals for /results and /api/chat.
-// Census ACS 5-year at ZCTA — no HUD token required. HUD FMR can layer on
-// later behind HUD_USER_API_TOKEN if we want voucher-style floors.
+// Census ACS 5-year at ZCTA — no HUD token required.
+// Free market context (HUD FMR, ZORI, Walk Score) layers on via FreeMarketContext.
 // ---------------------------------------------------------------------------
 
 export type AcsZipProfile = {
@@ -15,8 +16,19 @@ export type AcsZipProfile = {
   housingVacancyRate: number;
 };
 
+/** Lightweight page-extracted comp (nearby sold homes from listing JSON). */
+export type PageComp = {
+  address: string;
+  soldPrice: number;
+  beds?: number | null;
+  baths?: number | null;
+  sqft?: number | null;
+  soldDate?: string | null;
+};
+
 /** Subset merged into ChatAnalysisContext — keep in sync with route.ts */
 export type MarketSignals = {
+  // ACS / deal-structure (existing)
   marketZip?: string;
   acsVintageYear?: number;
   zipMedianGrossRentMonthly?: number;
@@ -27,6 +39,34 @@ export type MarketSignals = {
   listPriceToAnnualGrossRentMultiple?: number;
   annualGrossYieldPercent?: number;
   dealStructureArchetype?: "equity_heavy" | "income_slanted" | "balanced";
+
+  // HUD Fair Market Rents
+  hudFmrBr1?: number;
+  hudFmrBr2?: number;
+  hudFmrBr3?: number;
+  hudFmrMetro?: string;
+  hudFmrYear?: number;
+  hudFmrSmallArea?: boolean;
+
+  // ZORI observed rent index
+  zoriMedianRent?: number;
+  zoriAsOf?: string;
+
+  // Walk Score
+  walkScore?: number;
+  walkDescription?: string;
+  transitScore?: number;
+  bikeScore?: number;
+
+  // HUD Area Median Income
+  amiMedianFamilyIncome?: number;
+  amiAreaName?: string;
+  amiYear?: number;
+
+  // Page comps (nearby sold homes extracted from listing JSON)
+  pageCompCount?: number;
+  pageCompMedianSoldPrice?: number;
+  pageCompMedianPricePerSqft?: number;
 };
 
 /** Best-effort US ZIP: trailing 12345 or 12345-6789, else "ST 12345". */
@@ -57,6 +97,8 @@ export function buildMarketSignals(
   inputs: DealInputs,
   zip: string | undefined,
   acs: AcsZipProfile | null,
+  free?: FreeMarketContext | null,
+  pageComps?: PageComp[] | null,
 ): MarketSignals {
   const annualRent = inputs.monthlyRent * 12;
   const hasPrice = inputs.purchasePrice > 0 && annualRent > 0;
@@ -76,17 +118,80 @@ export function buildMarketSignals(
     dealStructureArchetype: archetype,
   };
 
-  if (!acs) return out;
+  // ACS data
+  if (acs) {
+    out.acsVintageYear = acs.vintageYear;
+    out.zipMedianGrossRentMonthly = acs.medianGrossRentMonthly;
+    out.zipMedianOwnerOccupiedValue = acs.medianOwnerOccupiedValue;
+    out.zipMedianHouseholdIncome = acs.medianHouseholdIncome;
+    out.zipHousingVacancyRate = acs.housingVacancyRate;
 
-  out.acsVintageYear = acs.vintageYear;
-  out.zipMedianGrossRentMonthly = acs.medianGrossRentMonthly;
-  out.zipMedianOwnerOccupiedValue = acs.medianOwnerOccupiedValue;
-  out.zipMedianHouseholdIncome = acs.medianHouseholdIncome;
-  out.zipHousingVacancyRate = acs.housingVacancyRate;
+    if (acs.medianGrossRentMonthly > 0 && inputs.monthlyRent > 0) {
+      out.userMonthlyRentToZipMedianRatio =
+        inputs.monthlyRent / acs.medianGrossRentMonthly;
+    }
+  }
 
-  if (acs.medianGrossRentMonthly > 0 && inputs.monthlyRent > 0) {
-    out.userMonthlyRentToZipMedianRatio =
-      inputs.monthlyRent / acs.medianGrossRentMonthly;
+  // HUD FMR
+  if (free?.hudFmr) {
+    const fmr = free.hudFmr;
+    if (fmr.br1 > 0) out.hudFmrBr1 = fmr.br1;
+    if (fmr.br2 > 0) out.hudFmrBr2 = fmr.br2;
+    if (fmr.br3 > 0) out.hudFmrBr3 = fmr.br3;
+    if (fmr.metro ?? fmr.county) out.hudFmrMetro = fmr.metro ?? fmr.county;
+    out.hudFmrYear = fmr.year;
+    out.hudFmrSmallArea = fmr.smallArea;
+  }
+
+  // ZORI rent index
+  if (free?.rentTrend) {
+    out.zoriMedianRent = free.rentTrend.medianRent;
+    out.zoriAsOf = free.rentTrend.asOf;
+  }
+
+  // Walk Score
+  if (free?.walkScore) {
+    out.walkScore = free.walkScore.walkScore;
+    out.walkDescription = free.walkScore.walkDescription;
+    if (free.walkScore.transitScore !== undefined) out.transitScore = free.walkScore.transitScore;
+    if (free.walkScore.bikeScore !== undefined) out.bikeScore = free.walkScore.bikeScore;
+  }
+
+  // HUD AMI
+  if (free?.hudAmi) {
+    out.amiMedianFamilyIncome = free.hudAmi.medianFamilyIncome;
+    if (free.hudAmi.areaName) out.amiAreaName = free.hudAmi.areaName;
+    out.amiYear = free.hudAmi.year;
+  }
+
+  // Page comps — compute median sold price and median price/sqft
+  if (pageComps && pageComps.length > 0) {
+    out.pageCompCount = pageComps.length;
+
+    const prices = pageComps
+      .map((c) => c.soldPrice)
+      .filter((p) => p > 0)
+      .sort((a, b) => a - b);
+    if (prices.length > 0) {
+      const mid = Math.floor(prices.length / 2);
+      out.pageCompMedianSoldPrice =
+        prices.length % 2 === 0
+          ? Math.round((prices[mid - 1] + prices[mid]) / 2)
+          : prices[mid];
+    }
+
+    const ppsf = pageComps
+      .filter((c) => c.soldPrice > 0 && c.sqft && c.sqft > 0)
+      .map((c) => c.soldPrice / c.sqft!)
+      .sort((a, b) => a - b);
+    if (ppsf.length > 0) {
+      const mid = Math.floor(ppsf.length / 2);
+      out.pageCompMedianPricePerSqft = Math.round(
+        ppsf.length % 2 === 0
+          ? (ppsf[mid - 1] + ppsf[mid]) / 2
+          : ppsf[mid],
+      );
+    }
   }
 
   return out;
@@ -114,6 +219,34 @@ export function formatMarketSignalsHeroLine(s: MarketSignals): string | null {
   if (s.zipMedianGrossRentMonthly && s.zipMedianGrossRentMonthly > 0) {
     parts.push(`ZIP median gross rent ~${money(s.zipMedianGrossRentMonthly)}/mo`);
   }
+  if (s.zoriMedianRent && s.zoriMedianRent > 0) {
+    const tag = s.zoriAsOf ? ` (ZORI ${s.zoriAsOf})` : " (ZORI)";
+    parts.push(`observed market rent ~${money(s.zoriMedianRent)}/mo${tag}`);
+  }
+  if (s.hudFmrBr2 && s.hudFmrBr2 > 0) {
+    const area = s.hudFmrMetro ? ` · ${s.hudFmrMetro}` : "";
+    const label = s.hudFmrSmallArea ? "ZIP" : "county";
+    parts.push(`HUD FMR 2BR ~${money(s.hudFmrBr2)}/mo (${label}-level${area})`);
+  }
+  if (s.amiMedianFamilyIncome && s.amiMedianFamilyIncome > 0) {
+    const ami = s.amiMedianFamilyIncome;
+    const tier =
+      ami < 55_000
+        ? "Lower income market"
+        : ami < 85_000
+          ? "Moderate income market"
+          : ami < 120_000
+            ? "High income market"
+            : "Very high income market";
+    parts.push(`Area Median Income: ${money(ami)} · ${tier}`);
+  }
+  if (s.walkScore !== undefined) {
+    const desc = s.walkDescription ? ` — ${s.walkDescription}` : "";
+    parts.push(`Walk Score ${s.walkScore}${desc}`);
+  }
+  if (s.transitScore !== undefined) {
+    parts.push(`Transit ${s.transitScore}`);
+  }
   if (s.zipHousingVacancyRate !== undefined && s.zipHousingVacancyRate > 0) {
     parts.push(`ZIP housing vacancy ~${pct(s.zipHousingVacancyRate, 1)}`);
   }
@@ -126,6 +259,15 @@ export function formatMarketSignalsHeroLine(s: MarketSignals): string | null {
     parts.push(
       `${s.listPriceToAnnualGrossRentMultiple.toFixed(1)}× list / annual gross rent (your inputs)`,
     );
+  }
+  if (s.pageCompCount && s.pageCompCount > 0) {
+    const ppsf = s.pageCompMedianPricePerSqft
+      ? ` · ~${money(s.pageCompMedianPricePerSqft)}/sqft`
+      : "";
+    const medPrice = s.pageCompMedianSoldPrice
+      ? ` median ${money(s.pageCompMedianSoldPrice)}`
+      : "";
+    parts.push(`${s.pageCompCount} page comps${medPrice}${ppsf}`);
   }
   if (s.dealStructureArchetype) {
     const label =

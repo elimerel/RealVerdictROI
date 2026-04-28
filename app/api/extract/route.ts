@@ -37,6 +37,15 @@ const NegativeSignalSchema = z.object({
   severity: z.enum(["high", "medium", "low"]),
 })
 
+const PageCompSchema = z.object({
+  address:   z.string(),
+  soldPrice: z.number(),
+  beds:      z.number().nullable().optional(),
+  baths:     z.number().nullable().optional(),
+  sqft:      z.number().nullable().optional(),
+  soldDate:  z.string().nullable().optional(),
+})
+
 const InvestorExtractionSchema = z.object({
   // Core listing facts
   address:             z.string().nullable(),
@@ -54,6 +63,9 @@ const InvestorExtractionSchema = z.object({
   // Flip / wholesale fields
   arvEstimate:         z.number().nullable(),
   estimatedRehabCost:  z.number().nullable(),
+
+  // Nearby recently sold properties from the listing page (optional)
+  pageComps: z.array(PageCompSchema).optional(),
 
   // Risk signal scan — the most important part for deal snipers
   negativeSignals: z.array(NegativeSignalSchema),
@@ -91,6 +103,9 @@ MEDIUM severity (investigate before offering):
 LOW severity (note for due diligence):
   - "short sale", "bank owned", "REO", "pre-foreclosure", "auction"
   - "easement", "right of way", "deed restriction", "HOA violation"
+
+NEARBY RECENTLY SOLD PROPERTIES:
+If the page lists "recently sold", "similar homes sold", "comparable sales", or any nearby sold properties, extract up to 10 as pageComps. Each should have address, soldPrice, beds, baths, sqft (if visible), and soldDate. These are sale comps that help anchor fair value. Extract them even if they're only partially visible.
 
 ARV ESTIMATE:
 Based on all visible data (neighborhood, comps, Zestimate, sold prices nearby, $/sqft patterns), estimate the After Repair Value — what this property is worth fully renovated. If you see a "Zestimate", nearby sold prices, or $/sqft data, use it. If the listing says "recently renovated", the ARV ≈ list price.
@@ -265,6 +280,8 @@ export async function POST(req: NextRequest) {
         arvEstimate:     extracted.arvEstimate ?? undefined,
         rehabCostEstimate: extracted.estimatedRehabCost ?? undefined,
         modelUsed:       bundle.provider,
+        pageComps:       extracted.pageComps && extracted.pageComps.length > 0
+                           ? extracted.pageComps : undefined,
       },
       { headers: cors },
     )
