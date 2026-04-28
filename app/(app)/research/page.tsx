@@ -1,12 +1,12 @@
 "use client"
 
 import {
-  useState, useCallback, useEffect, useLayoutEffect,
+  useState, useCallback, useEffect, useLayoutEffect, useRef,
 } from "react"
 import {
   ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X,
   ExternalLink, AlertTriangle, CheckCircle2, TrendingUp,
-  ChevronLeft, BarChart3, DollarSign, Home,
+  ChevronLeft, ChevronDown, BarChart3, DollarSign, Home,
   Percent, ShieldCheck,
 } from "lucide-react"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
@@ -206,6 +206,7 @@ function WalkAwayBlock({
 // ---------------------------------------------------------------------------
 
 function RiskSignals({ signals }: { signals: NegativeSignal[] }) {
+  const [expanded, setExpanded] = useState(false)
   if (!signals?.length) return null
 
   const highCount = signals.filter(s => s.severity === "high").length
@@ -218,30 +219,41 @@ function RiskSignals({ signals }: { signals: NegativeSignal[] }) {
       className="rounded-lg px-4 py-3 space-y-2"
       style={{ backgroundColor: bgColor, borderColor, borderWidth: 1 }}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: labelColor }}>
-        <AlertTriangle className="h-3 w-3" />
-        {signals.length} Risk Signal{signals.length !== 1 ? "s" : ""} Detected
-      </p>
-      <div className="space-y-2">
-        {signals.map((s, i) => (
-          <div key={i} className="space-y-0.5">
-            <div className="flex items-center gap-1.5">
-              <span className={cn(
-                "text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide",
-                s.severity === "high"   ? "bg-red-500/20 text-red-300"    :
-                s.severity === "medium" ? "bg-amber-500/20 text-amber-300" :
-                                          "bg-zinc-500/20 text-zinc-400"
-              )}>
-                {s.severity}
-              </span>
-              <span className="text-xs text-foreground/90 font-medium">{s.signal}</span>
+      <button
+        onClick={() => setExpanded(o => !o)}
+        className="w-full flex items-center justify-between gap-2 text-left"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: labelColor }}>
+          <AlertTriangle className="h-3 w-3" />
+          {signals.length} Risk Signal{signals.length !== 1 ? "s" : ""} — tap to {expanded ? "hide" : "view"}
+        </p>
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-150", expanded && "rotate-180")}
+          style={{ color: labelColor }}
+        />
+      </button>
+      {expanded && (
+        <div className="space-y-2 pt-1">
+          {signals.map((s, i) => (
+            <div key={i} className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide",
+                  s.severity === "high"   ? "bg-red-500/20 text-red-300"    :
+                  s.severity === "medium" ? "bg-amber-500/20 text-amber-300" :
+                                            "bg-zinc-500/20 text-zinc-400"
+                )}>
+                  {s.severity}
+                </span>
+                <span className="text-xs text-foreground/90 font-medium">{s.signal}</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground italic pl-10 truncate">
+                &quot;{s.excerpt}&quot;
+              </p>
             </div>
-            <p className="text-[10px] text-muted-foreground italic pl-10 truncate">
-              &quot;{s.excerpt}&quot;
-            </p>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -382,9 +394,8 @@ function ElectronResultsView({
   ]
 
   return (
-    <div className="h-full overflow-hidden">
-      <ScrollArea className="h-full">
-        <div className="p-5 space-y-4">
+    <div className="absolute inset-0 overflow-y-auto">
+      <div className="p-5 space-y-4">
 
           {/* Address + source — compact header */}
           <div className="space-y-0.5">
@@ -485,7 +496,7 @@ function ElectronResultsView({
             </Button>
           </div>
         </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }
@@ -580,19 +591,14 @@ const HEADER_H = 56
 const SIDEBAR_OPEN_W = 256
 const SIDEBAR_ICON_W = 48
 
-// Panel takes 36% of the space to the right of the sidebar, clamped 300–440px.
-// Recomputed on every resize so the panel always fits the window.
-function calcAnalysisW(sidebarOpen: boolean): number {
-  const sidebarW = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
-  const available = window.innerWidth - sidebarW
-  return Math.min(440, Math.max(300, Math.round(available * 0.36)))
-}
+const MIN_PANEL_W = 280
+const MAX_PANEL_W = 600
+const DEFAULT_PANEL_W = 380
 
-function calcBounds(sidebarOpen: boolean, analysisOpen: boolean) {
+function calcBounds(sidebarOpen: boolean, panelW: number) {
   const x = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
   const y = TITLEBAR_H + HEADER_H
-  const analysisW = analysisOpen ? calcAnalysisW(sidebarOpen) : 0
-  const width = Math.max(0, window.innerWidth - x - analysisW)
+  const width = Math.max(0, window.innerWidth - x - panelW)
   const height = Math.max(0, window.innerHeight - y)
   return { x, y, width, height }
 }
@@ -600,12 +606,13 @@ function calcBounds(sidebarOpen: boolean, analysisOpen: boolean) {
 function useElectronBounds(
   active: boolean,
   sidebarOpen: boolean,
-  analysisOpen: boolean
+  analysisOpen: boolean,
+  panelWidth: number,
 ) {
   const sendBounds = useCallback(() => {
     if (!window.electronAPI) return
-    window.electronAPI.updateBounds(calcBounds(sidebarOpen, analysisOpen))
-  }, [sidebarOpen, analysisOpen])
+    window.electronAPI.updateBounds(calcBounds(sidebarOpen, analysisOpen ? panelWidth : 0))
+  }, [sidebarOpen, analysisOpen, panelWidth])
 
   useEffect(() => {
     if (!active) return
@@ -639,22 +646,41 @@ function ElectronResearchPage() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [analysisW, setAnalysisW] = useState(380)
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_W)
+  const isDragging = useRef(false)
+  const dragStartX = useRef(0)
+  const dragStartW = useRef(0)
 
-  // Keep panel width in sync with window size so it never clips
-  useEffect(() => {
-    function update() { setAnalysisW(calcAnalysisW(sidebarOpen)) }
-    update()
-    window.addEventListener("resize", update)
-    return () => window.removeEventListener("resize", update)
-  }, [sidebarOpen])
+  const handlePanelDragStart = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true
+    dragStartX.current = e.clientX
+    dragStartW.current = panelWidth
 
-  useElectronBounds(browserActive, sidebarOpen, analysisOpen)
+    function onMove(ev: MouseEvent) {
+      if (!isDragging.current) return
+      const delta = dragStartX.current - ev.clientX
+      const next = Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, dragStartW.current + delta))
+      setPanelWidth(next)
+      if (window.electronAPI) {
+        window.electronAPI.updateBounds(calcBounds(sidebarOpen, next))
+      }
+    }
+    function onUp() {
+      isDragging.current = false
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelWidth, sidebarOpen])
+
+  useElectronBounds(browserActive, sidebarOpen, analysisOpen, panelWidth)
 
   useEffect(() => {
     const api = window.electronAPI
     if (!api) return
-    api.showBrowser(calcBounds(sidebarOpen, analysisOpen)).then((state) => {
+    api.showBrowser(calcBounds(sidebarOpen, 0)).then((state) => {
       if (state?.exists && state.url) {
         setBrowserActive(true)
         setCurrentUrl(state.url)
@@ -686,12 +712,12 @@ function ElectronResearchPage() {
     const api = window.electronAPI!
     setBrowserLoading(true)
     setError(null)
-    await api.createBrowser(calcBounds(sidebarOpen, analysisOpen))
+    await api.createBrowser(calcBounds(sidebarOpen, analysisOpen ? panelWidth : 0))
     await api.navigate(url)
     setBrowserActive(true)
     setCurrentUrl(url)
     setUrlInput(url)
-  }, [sidebarOpen, analysisOpen])
+  }, [sidebarOpen, analysisOpen, panelWidth])
 
   const handleNavigate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -787,7 +813,7 @@ function ElectronResearchPage() {
       </header>
 
       {/* Body: browser pane (left) + analysis panel (right) */}
-      <div className="flex overflow-hidden" style={{ height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}>
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* Browser pane — WebContentsView layered on top by Electron */}
         <div className="flex-1 overflow-hidden relative bg-zinc-950 flex flex-col min-w-0">
@@ -820,9 +846,15 @@ function ElectronResearchPage() {
         {/* Right analysis panel — always shown when open */}
         {analysisOpen && (
           <div
-            className="flex flex-col border-l border-border bg-background overflow-hidden shrink-0"
-            style={{ width: analysisW, height: `calc(100vh - ${TITLEBAR_H + HEADER_H}px)` }}
+            className="flex flex-col border-l border-border bg-background overflow-hidden shrink-0 relative"
+            style={{ width: panelWidth }}
           >
+            {/* Drag-to-resize handle on the left edge */}
+            <div
+              onMouseDown={handlePanelDragStart}
+              className="absolute left-0 top-0 bottom-0 w-1 z-20 cursor-col-resize hover:bg-primary/30 transition-colors"
+              title="Drag to resize"
+            />
             <div className="h-10 flex items-center gap-2 px-3 border-b border-border shrink-0">
               {analysisResult ? (
                 <>
@@ -851,11 +883,11 @@ function ElectronResearchPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="relative flex-1 min-h-0">
               {analysisResult ? (
                 <ElectronResultsView result={analysisResult} onBack={() => setAnalysisOpen(false)} onViewFull={handleViewFull} />
               ) : (
-                <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground p-6 text-center">
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6 text-center">
                   <TrendingUp className="h-8 w-8 opacity-20" />
                   <div className="space-y-1">
                     <p className="text-sm font-medium">No analysis yet</p>
