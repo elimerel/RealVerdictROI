@@ -1,7 +1,7 @@
 "use client"
 
 import {
-  useState, useCallback, useEffect,
+  useState, useCallback, useEffect, useLayoutEffect,
 } from "react"
 import {
   ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X,
@@ -944,10 +944,15 @@ function WebResearchPage() {
 // ---------------------------------------------------------------------------
 
 export default function ResearchPage() {
+  // Start null so SSR and initial hydration always render the same thing.
+  // useLayoutEffect fires synchronously before the browser paints, so the
+  // correct branch is shown on the very first visible frame — no flash.
   const [isElectron, setIsElectron] = useState<boolean | null>(null)
 
-  useEffect(() => {
-    setIsElectron(typeof window !== "undefined" && !!window.electronAPI)
+  useLayoutEffect(() => {
+    // Preload.js adds the "electron" class to <html> synchronously before any
+    // page script runs, making this check instant and always accurate.
+    setIsElectron(document.documentElement.classList.contains("electron"))
   }, [])
 
   if (isElectron === null) return null
