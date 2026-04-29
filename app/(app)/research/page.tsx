@@ -536,6 +536,9 @@ function ElectronResearchPage() {
 
   // Tracks last auto-analyzed URL to avoid double-firing
   const lastAutoAnalyzedUrl = useRef("")
+  // Monotonically-increasing counter; lets us discard stale IPC results when
+  // the user navigates to a new listing before the previous analysis completes.
+  const analysisEpochRef = useRef(0)
 
   useElectronBounds(browserActive, sidebarOpen)
 
@@ -580,13 +583,18 @@ function ElectronResearchPage() {
     const api = window.electronAPI
     if (!api) return
     const unsub = api.onNavUpdate(({ url, title, isListing, loading }) => {
+      // If the URL is changing to a different listing, wipe the stale result
+      // immediately — don't wait for the auto-analyze effect to run.
+      if (url !== undefined && isListing && url !== lastAutoAnalyzedUrl.current) {
+        setAnalysisResult(null)
+      }
+
       if (url !== undefined) { setCurrentUrl(url); setUrlInput(url) }
-      if (title !== undefined) { /* title tracked but not displayed in new layout */ void title }
+      if (title !== undefined) { void title }
       if (isListing !== undefined) {
         setIsListingPage(isListing)
         if (!isListing) {
-          // Leaving a listing page — clear both the dedup guard and any
-          // previous result so the next listing always starts completely fresh.
+          // Leaving a listing page — reset the dedup guard and clear result.
           lastAutoAnalyzedUrl.current = ""
           setAnalysisResult(null)
         }
@@ -596,37 +604,45 @@ function ElectronResearchPage() {
     return unsub
   }, [])
 
-  // Auto-analyze on listing detection.
-  // Clears the previous result immediately so a stale verdict never lingers
-  // while the new extraction is running.
+  // Auto-analyze when a listing page is fully loaded.
+  //
+  // The browserLoading gate is the key: with the updated main.js, did-navigate
+  // no longer sends loading:false — only did-stop-loading does.  This means
+  // the effect is skipped while the page is still loading and only fires once
+  // the full HTML (and SSR content) is available for extraction.
+  //
+  // For SPA pushState navigations (Zillow "Similar homes", etc.) where
+  // browserLoading never becomes true, the effect fires immediately and the
+  // 600 ms delay inside browser:analyze (main.js) gives the framework time
+  // to finish re-rendering the new listing before the DOM is read.
   useEffect(() => {
     if (!isListingPage || !browserActive || !currentUrl) return
+    if (browserLoading) return   // page not finished loading — wait for it
     if (currentUrl === lastAutoAnalyzedUrl.current) return
     lastAutoAnalyzedUrl.current = currentUrl
 
-    // Clear the previous listing's result right away — never show stale data.
     setAnalysisResult(null)
     setAnalysisLoading(true)
     setError(null)
+
+    // Capture the epoch so we can drop results from superseded analyses.
+    const epoch = ++analysisEpochRef.current
     window.electronAPI!.analyze()
       .then((result) => {
+        if (epoch !== analysisEpochRef.current) return  // superseded — discard
         const r = result as ExtractPayload
         if (r.error) { setError(r.error); return }
         const built = buildAnalysisResult({ ...r, inputs: r.inputs as Partial<DealInputs> })
         setAnalysisResult(built)
       })
       .catch((err: unknown) => {
+        if (epoch !== analysisEpochRef.current) return
         setError(err instanceof Error ? err.message : "Analysis failed.")
       })
-      .finally(() => setAnalysisLoading(false))
-  }, [isListingPage, currentUrl, browserActive])
-
-  // lastAutoAnalyzedUrl is reset inside the onNavUpdate handler whenever
-  // isListing transitions to false, so the next listing always triggers a
-  // fresh analysis. We intentionally do NOT call setAnalysisResult(null)
-  // here — doing so synchronously inside an effect causes cascading renders.
-  // The panel display gate (showActive) already suppresses stale results
-  // whenever isListingPage is false, producing the correct idle state.
+      .finally(() => {
+        if (epoch === analysisEpochRef.current) setAnalysisLoading(false)
+      })
+  }, [isListingPage, currentUrl, browserActive, browserLoading])
 
   const launchBrowser = useCallback(async (url: string) => {
     const api = window.electronAPI!

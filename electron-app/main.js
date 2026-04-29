@@ -269,21 +269,27 @@ function createBrowserView() {
   )
   appWindow.contentView.addChildView(browserView)
 
-  const sendNav = () => {
+  // Send a navigation state snapshot to the renderer.
+  // ready=true is ONLY set from did-stop-loading; all other events update the
+  // URL/title but intentionally leave loading:true so the React browserLoading
+  // gate prevents analysis from firing before the page is fully rendered.
+  const sendNav = (ready = false) => {
     if (!appWindow || !browserView) return
     const url = browserView.webContents.getURL()
     appWindow.webContents.send("browser:nav-update", {
-      url, title: browserView.webContents.getTitle(),
-      isListing: LISTING_RE.test(url), loading: false,
+      url,
+      title:     browserView.webContents.getTitle(),
+      isListing: LISTING_RE.test(url),
+      ...(ready ? { loading: false } : {}),   // only did-stop-loading clears the loading flag
     })
   }
-  browserView.webContents.on("did-navigate",         sendNav)
-  browserView.webContents.on("did-navigate-in-page", sendNav)
-  browserView.webContents.on("page-title-updated",   sendNav)
+  browserView.webContents.on("did-navigate",         () => sendNav(false))
+  browserView.webContents.on("did-navigate-in-page", () => sendNav(false))
+  browserView.webContents.on("page-title-updated",   () => sendNav(false))
   browserView.webContents.on("did-start-loading", () => {
     appWindow?.webContents.send("browser:nav-update", { loading: true })
   })
-  browserView.webContents.on("did-stop-loading", sendNav)
+  browserView.webContents.on("did-stop-loading",     () => sendNav(true))
   browserView.webContents.setWindowOpenHandler(({ url }) => {
     browserView?.webContents.loadURL(url)
     return { action: "deny" }
