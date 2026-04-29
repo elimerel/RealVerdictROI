@@ -143,8 +143,8 @@ export function SavedDealCard({
           }}
           className={cn(
             "absolute top-1.5 right-1.5 flex items-center justify-center",
-            "h-5 w-5 rounded opacity-0 group-hover:opacity-100",
-            "text-muted-foreground hover:text-red-400 hover:bg-red-950/40",
+            "h-5 w-5 rounded",
+            "text-muted-foreground/40 hover:text-red-400 hover:bg-red-950/40",
             "transition-all duration-150"
           )}
         >

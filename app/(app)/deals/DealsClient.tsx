@@ -115,19 +115,9 @@ function extractPropertyFacts(facts: Record<string, unknown>): PropertyFacts {
 
 function LoadingCard() {
   return (
-    <div className="rounded-md border border-border bg-card p-3 animate-pulse border-l-[3px]">
-      <div className="h-4 w-3/4 rounded bg-muted mb-3" />
-      <div className="h-3 w-2/5 rounded bg-muted mb-3" />
-      <div className="flex justify-between mb-3">
-        <div className="h-5 w-16 rounded bg-muted" />
-        <div className="h-5 w-24 rounded bg-muted" />
-      </div>
-      <div className="flex gap-3 mb-2">
-        <div className="flex-1 h-8 rounded bg-muted" />
-        <div className="flex-1 h-8 rounded bg-muted" />
-        <div className="flex-1 h-8 rounded bg-muted" />
-      </div>
-      <div className="h-3 w-16 rounded bg-muted ml-auto" />
+    <div className="rounded-md border border-border bg-card/50 px-3 py-2.5 animate-pulse flex items-center gap-2.5">
+      <div className="h-1.5 w-1.5 rounded-full bg-muted shrink-0" />
+      <div className="h-2 bg-muted rounded w-2/3" />
     </div>
   )
 }

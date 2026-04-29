@@ -45,10 +45,7 @@ export default function StressTestPanel({
   return (
     <section className="space-y-6">
       <header>
-        <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
-          Stress test
-        </div>
-        <h2 className="mt-1 text-sm font-medium text-zinc-200">
+        <h2 className="text-sm font-medium text-zinc-200">
           {headline}
         </h2>
         <p className="mt-1 text-sm text-zinc-500">

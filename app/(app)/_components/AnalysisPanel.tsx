@@ -233,7 +233,7 @@ export default function AnalysisPanel({
           ═══════════════════════════════════ */}
           {hasNarrative && (
             <>
-              <div className="space-y-3">
+              <div className="space-y-3 max-w-[65ch]">
                 {/* Summary — the AI's headline interpretation of this deal */}
                 <p className="text-[15px] text-foreground leading-relaxed">
                   {ai_narrative!.summary}
@@ -266,50 +266,37 @@ export default function AnalysisPanel({
           )}
 
           {/* ═══════════════════════════════════
-              SECTION 2 — VERDICT + WALK-AWAY
-              Quiet supporting context. The narrative already named the verdict.
-              Left: engine verdict summary. Right: walk-away vs asking gap.
+              SECTION 2 — WALK-AWAY PRICE
+              Walk-away vs asking. Verdict summary removed — narrative covers it.
           ═══════════════════════════════════ */}
-          <div
-            className="flex items-start justify-between gap-4 pl-3"
-            style={{ borderLeft: `2px solid ${accent}25` }}
-          >
-            {/* Left: verdict summary — muted, supporting context */}
-            <p className="text-[13px] text-muted-foreground leading-relaxed min-w-0">
-              {analysis.verdict.summary}
-            </p>
-
-            {/* Right: walk-away target with list price and gap */}
-            {walkAwayPrice != null && (
-              <div className="shrink-0 text-right space-y-1">
-                <div>
-                  <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">
-                    Walk-away
-                  </p>
-                  <p className="text-xl font-mono font-bold tabular-nums text-foreground">
-                    {formatCurrency(walkAwayPrice, 0)}
-                  </p>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-[10px] text-muted-foreground font-mono tabular-nums">
-                    Asking {formatCurrency(listPrice, 0)}
-                  </p>
-                  {walkAwayDiff != null && (
-                    <p
-                      className={cn(
-                        "text-[10px] font-mono tabular-nums font-medium",
-                        walkAwayDiff >= 0 ? "text-emerald-400" : "text-amber-400"
-                      )}
-                    >
-                      {walkAwayDiff >= 0
-                        ? `+${formatCurrency(walkAwayDiff, 0)} headroom`
-                        : `${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking`}
-                    </p>
+          {walkAwayPrice != null && (
+            <div
+              className="pl-3 space-y-0.5"
+              style={{ borderLeft: `2px solid ${accent}25` }}
+            >
+              <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">
+                Walk-away
+              </p>
+              <p className="text-xl font-mono font-bold tabular-nums text-foreground">
+                {formatCurrency(walkAwayPrice, 0)}
+              </p>
+              <p className="text-[10px] text-muted-foreground font-mono tabular-nums">
+                Asking {formatCurrency(listPrice, 0)}
+              </p>
+              {walkAwayDiff != null && (
+                <p
+                  className={cn(
+                    "text-[10px] font-mono tabular-nums font-medium",
+                    walkAwayDiff >= 0 ? "text-emerald-400" : "text-amber-400"
                   )}
-                </div>
-              </div>
-            )}
-          </div>
+                >
+                  {walkAwayDiff >= 0
+                    ? `+${formatCurrency(walkAwayDiff, 0)} headroom`
+                    : `${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking`}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* ═══════════════════════════════════
               SECTION 3 — KEY METRICS
