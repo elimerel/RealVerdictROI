@@ -22,7 +22,7 @@ import {
   type VerdictTier,
   formatCurrency,
 } from "@/lib/calculations"
-import { TIER_ACCENT } from "@/lib/tier-constants"
+import { TIER_ACCENT, TIER_LABEL } from "@/lib/tier-constants"
 import { createClient } from "@/lib/supabase/client"
 import { supabaseEnv } from "@/lib/supabase/config"
 import { annotateFromProvenance, worstConfidence } from "@/lib/annotated-inputs"
@@ -170,15 +170,8 @@ function calcBounds(sidebarOpen: boolean) {
 
 // ---------------------------------------------------------------------------
 // Tier pill — shown in the toolbar next to the URL bar
+// (TIER_LABEL imported from @/lib/tier-constants)
 // ---------------------------------------------------------------------------
-
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "Strong Buy",
-  good: "Good Deal",
-  fair: "Borderline",
-  poor: "Risky",
-  avoid: "Walk Away",
-}
 
 function ListingPill({
   loading,
@@ -453,6 +446,21 @@ function ElectronResearchPage() {
       }
       payload = (await res.json()) as ResolverPayload
       sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
+    }
+
+    // Strict gate: refuse to run the engine when no real price was found.
+    const priceSource = payload.provenance?.purchasePrice?.source
+    const hasMeaningfulPrice =
+      payload.inputs.purchasePrice != null &&
+      (payload.inputs.purchasePrice as number) > 0 &&
+      priceSource != null &&
+      priceSource !== "default"
+
+    if (!hasMeaningfulPrice) {
+      throw new Error(
+        "This listing couldn't be resolved — no price was extracted. " +
+        "Try a direct listing URL (e.g. zillow.com/homedetails/…) or a full street address with city and state."
+      )
     }
 
     const merged   = { ...DEFAULT_INPUTS, ...payload.inputs } as DealInputs
@@ -736,13 +744,13 @@ function ElectronResearchPage() {
           )}
         </div>
 
-        {/* Right: dossier panel */}
-        <div
-          className="shrink-0 flex flex-col border-l border-zinc-800 bg-zinc-950 overflow-hidden"
-          style={{ width: RIGHT_PANEL_W }}
-        >
-          {viewMode === "native" ? (
-            hasNativeResult ? (
+        {/* Right: dossier panel — only rendered when a result is available */}
+        {(viewMode === "native" ? hasNativeResult : (browserShowLoading || browserShowActive)) && (
+          <div
+            className="shrink-0 flex flex-col border-l border-zinc-800 bg-zinc-950 overflow-hidden"
+            style={{ width: RIGHT_PANEL_W }}
+          >
+            {viewMode === "native" ? (
               <DossierPanel
                 analysis={nativeResult!.analysis}
                 walkAway={nativeResult!.walkAway}
@@ -767,41 +775,33 @@ function ElectronResearchPage() {
                 isSaving={isSaving}
                 savedDealId={savedDealId}
               />
+            ) : browserShowLoading ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-600">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <p className="text-xs">Running analysis…</p>
+              </div>
             ) : (
-              <IdlePanel onLaunch={nativeSubmit} />
-            )
-          ) : browserShowLoading ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-600">
-              <Loader2 className="h-6 w-6 animate-spin" />
-              <p className="text-xs">Running analysis…</p>
-            </div>
-          ) : browserShowActive ? (
-            <DossierPanel
-              analysis={browserAnalysisResult!.analysis}
-              walkAway={browserAnalysisResult!.walkAway}
-              inputs={browserAnalysisResult!.inputs}
-              address={browserAnalysisResult!.address}
-              propertyFacts={browserAnalysisResult!.propertyFacts}
-              distribution={browserAnalysisResult!.distribution}
-              probabilisticVerdict={browserAnalysisResult!.probabilisticVerdict}
-              walkAwayConfidenceNote={browserAnalysisResult!.walkAwayConfidenceNote}
-              inputProvenance={browserAnalysisResult!.inputProvenance}
-              signedIn={signedIn}
-              isPro={isPro}
-              supabaseConfigured={supabaseConfigured}
-              panelWidth={RIGHT_PANEL_W}
-              onSave={supabaseConfigured ? handleSave : undefined}
-              isSaving={isSaving}
-              savedDealId={savedDealId}
-            />
-          ) : (
-            <IdlePanel onLaunch={async (url) => {
-              setUrlInput(url)
-              if (!browserActive) { await launchBrowser(url) }
-              else { setBrowserLoading(true); setError(null); await window.electronAPI?.navigate(url) }
-            }} />
-          )}
-        </div>
+              <DossierPanel
+                analysis={browserAnalysisResult!.analysis}
+                walkAway={browserAnalysisResult!.walkAway}
+                inputs={browserAnalysisResult!.inputs}
+                address={browserAnalysisResult!.address}
+                propertyFacts={browserAnalysisResult!.propertyFacts}
+                distribution={browserAnalysisResult!.distribution}
+                probabilisticVerdict={browserAnalysisResult!.probabilisticVerdict}
+                walkAwayConfidenceNote={browserAnalysisResult!.walkAwayConfidenceNote}
+                inputProvenance={browserAnalysisResult!.inputProvenance}
+                signedIn={signedIn}
+                isPro={isPro}
+                supabaseConfigured={supabaseConfigured}
+                panelWidth={RIGHT_PANEL_W}
+                onSave={supabaseConfigured ? handleSave : undefined}
+                isSaving={isSaving}
+                savedDealId={savedDealId}
+              />
+            )}
+          </div>
+        )}
       </div>
     </SidebarInset>
   )
@@ -901,6 +901,23 @@ function WebResearchPage() {
       }
       payload = (await res.json()) as ResolverPayload
       sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
+    }
+
+    // Strict gate — refuse to run the engine on fabricated data.
+    // If the resolver couldn't find a real purchase price (provenance source
+    // is "default" or missing), no verdict should be computed.
+    const priceSource = payload.provenance?.purchasePrice?.source
+    const hasMeaningfulPrice =
+      payload.inputs.purchasePrice != null &&
+      (payload.inputs.purchasePrice as number) > 0 &&
+      priceSource != null &&
+      priceSource !== "default"
+
+    if (!hasMeaningfulPrice) {
+      throw new Error(
+        "This listing couldn't be resolved — no price was extracted. " +
+        "Try a direct listing URL (e.g. zillow.com/homedetails/…) or a full street address with city and state."
+      )
     }
 
     const merged   = { ...DEFAULT_INPUTS, ...payload.inputs } as DealInputs
@@ -1157,23 +1174,16 @@ function IdleHunting({ onSubmit }: { onSubmit: (text: string) => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 text-center select-none">
       {/* Illustration */}
-      <div className="relative">
-        <div className="h-24 w-24 rounded-2xl bg-white/3 border border-white/8 flex items-center justify-center">
-          <svg width="48" height="36" viewBox="0 0 48 36" fill="none">
-            <rect x="4" y="16" width="40" height="18" rx="2" fill="currentColor" className="text-white/8" />
-            <path d="M2 18L24 4L46 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-white/20" />
-            <rect x="10" y="22" width="10" height="12" rx="1" fill="currentColor" className="text-white/12" />
-            <rect x="28" y="22" width="10" height="8" rx="1" fill="currentColor" className="text-white/12" />
-            {/* Signal lines */}
-            <line x1="36" y1="6" x2="36" y2="2" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" />
-            <line x1="39" y1="7" x2="42" y2="4" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" />
-            <line x1="40" y1="10" x2="44" y2="10" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </div>
-        {/* Floating verdict hint */}
-        <div className="absolute -top-2 -right-2 px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-          Live
-        </div>
+      <div className="h-24 w-24 rounded-2xl bg-white/3 border border-white/8 flex items-center justify-center">
+        <svg width="48" height="36" viewBox="0 0 48 36" fill="none">
+          <rect x="4" y="16" width="40" height="18" rx="2" fill="currentColor" className="text-white/8" />
+          <path d="M2 18L24 4L46 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-white/20" />
+          <rect x="10" y="22" width="10" height="12" rx="1" fill="currentColor" className="text-white/12" />
+          <rect x="28" y="22" width="10" height="8" rx="1" fill="currentColor" className="text-white/12" />
+          <line x1="36" y1="6" x2="36" y2="2" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="39" y1="7" x2="42" y2="4" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="40" y1="10" x2="44" y2="10" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
       </div>
 
       <div className="space-y-1.5 max-w-xs">
@@ -1248,16 +1258,13 @@ function HuntingLoader() {
 
 function VerdictPill({ tier }: { tier: VerdictTier }) {
   const accent = TIER_ACCENT[tier]
-  const labels: Record<VerdictTier, string> = {
-    excellent: "Strong Buy", good: "Good Deal", fair: "Borderline", poor: "Pass", avoid: "Avoid"
-  }
   return (
     <div
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0"
       style={{ color: accent, backgroundColor: `${accent}14`, border: `1px solid ${accent}44` }}
     >
       <Zap className="h-3 w-3" />
-      {labels[tier]}
+      {TIER_LABEL[tier]}
     </div>
   )
 }

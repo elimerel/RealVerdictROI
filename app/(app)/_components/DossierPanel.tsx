@@ -432,9 +432,11 @@ export default function DossierPanel({
           <div className="mb-5 space-y-2 rv-verdict-in rv-delay-2">
             {hasNarrative ? (
               <>
-                <p className="text-[13px] text-foreground/85 leading-relaxed font-medium">
-                  {probabilisticVerdict?.headline ?? ai_narrative!.summary}
-                </p>
+                {probabilisticVerdict?.headline && probabilisticVerdict.headline !== ai_narrative!.summary && (
+                  <p className="text-[13px] text-foreground/85 leading-relaxed font-medium">
+                    {probabilisticVerdict.headline}
+                  </p>
+                )}
                 <p className="text-[13px] text-muted-foreground leading-relaxed">
                   {ai_narrative!.summary}
                 </p>

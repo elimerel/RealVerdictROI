@@ -4,30 +4,11 @@ import { cn } from "@/lib/utils"
 import { formatCurrency, formatPercent } from "@/lib/calculations"
 import type { VerdictTier } from "@/lib/calculations"
 import type { InsightsData, TopDeal, ZipInsight } from "../page"
+import { TIER_LABEL, TIER_ACCENT } from "@/lib/tier-constants"
 import {
   BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie,
 } from "recharts"
-
-// ---------------------------------------------------------------------------
-// Design tokens
-// ---------------------------------------------------------------------------
-
-const TIER_ACCENT: Record<VerdictTier, string> = {
-  excellent: "#22c55e",
-  good:      "#4ade80",
-  fair:      "#eab308",
-  poor:      "#f97316",
-  avoid:     "#ef4444",
-}
-
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "Strong Buy",
-  good:      "Good Deal",
-  fair:      "Borderline",
-  poor:      "Pass",
-  avoid:     "Avoid",
-}
 
 // ---------------------------------------------------------------------------
 // Stat card

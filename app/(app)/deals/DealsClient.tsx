@@ -35,6 +35,7 @@ import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
 import DossierPanel, { type PropertyFacts } from "../_components/DossierPanel"
 import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
+import { TIER_LABEL, TIER_ACCENT } from "@/lib/tier-constants"
 import {
   annotateFromProvenance,
   worstConfidence,
@@ -1184,21 +1185,7 @@ type TableRow = {
   gap: number | null
 }
 
-const TIER_ACCENT_MAP: Record<string, string> = {
-  excellent: "#22c55e",
-  good:      "#4ade80",
-  fair:      "#eab308",
-  poor:      "#f97316",
-  avoid:     "#ef4444",
-}
-
-const TIER_LABEL_MAP: Record<string, string> = {
-  excellent: "STRONG BUY",
-  good:      "GOOD DEAL",
-  fair:      "BORDERLINE",
-  poor:      "PASS",
-  avoid:     "AVOID",
-}
+// TIER_LABEL and TIER_ACCENT imported from @/lib/tier-constants (single source of truth)
 
 function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
   if (!active) return <ArrowUpDown className="h-3 w-3 opacity-30" />
@@ -1301,7 +1288,7 @@ function ComparisonTable({
 
           {/* Saved deal rows */}
           {rows.map(({ deal, computed, walkAwayPrice, gap }) => {
-            const accent   = TIER_ACCENT_MAP[deal.verdict] ?? "#888"
+            const accent   = TIER_ACCENT[deal.verdict as VerdictTier] ?? "#888"
             const cf       = computed.analysis.monthlyCashFlow
             const dscr     = computed.analysis.dscr
             const capRate  = computed.analysis.capRate
@@ -1404,7 +1391,7 @@ function ComparisonTable({
                     className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded"
                     style={{ color: accent, backgroundColor: `${accent}18` }}
                   >
-                    {TIER_LABEL_MAP[deal.verdict] ?? deal.verdict}
+                    {TIER_LABEL[deal.verdict as VerdictTier] ?? deal.verdict}
                   </span>
                 </td>
 
@@ -1497,7 +1484,7 @@ function PendingRow({
   }
 
   if (card.kind === "done") {
-    const accent   = TIER_ACCENT_MAP[card.verdict] ?? "#888"
+    const accent   = TIER_ACCENT[card.verdict as VerdictTier] ?? "#888"
     const cf       = card.analysis.monthlyCashFlow
     const dscr     = card.analysis.dscr
     const capRate  = card.analysis.capRate
@@ -1558,7 +1545,7 @@ function PendingRow({
         </td>
         <td className="px-3 py-3 text-right">
           <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded" style={{ color: accent, backgroundColor: `${accent}18` }}>
-            {TIER_LABEL_MAP[card.verdict] ?? card.verdict}
+            {TIER_LABEL[card.verdict as VerdictTier] ?? card.verdict}
           </span>
         </td>
         <td className="px-2 py-3" />

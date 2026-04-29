@@ -13,11 +13,11 @@ import type { VerdictTier } from "./calculations";
 // ---------------------------------------------------------------------------
 
 export const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good: "GOOD DEAL",
-  fair: "BORDERLINE",
-  poor: "PASS",
-  avoid: "AVOID",
+  excellent: "Strong Buy",
+  good:      "Good Deal",
+  fair:      "Fair",
+  poor:      "Risky",
+  avoid:     "Walk Away",
 };
 
 /** Hex accent colors — for inline `style` props and CSS variables. */
