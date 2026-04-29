@@ -90,6 +90,12 @@ STRICT RULES:
 - arvEstimate: only if an ARV or "after-repair value" is explicitly stated on the page — not estimated by you.
 - estimatedRehabCost: only if a rehab/renovation cost is explicitly stated on the page — not estimated by you.
 
+RENT — CRITICAL RULE:
+- monthlyRentEstimate: ONLY set this if the page shows a figure explicitly labeled as "Rent Zestimate", "Estimated rent", "Rental estimate", "Market rent", or a clearly identified monthly rental value.
+- NEVER use "Est. payment", "Estimated payment", "Monthly payment", "P&I", or any figure that represents a mortgage payment, loan payment, or financing estimate. These are completely different from rent.
+- On for-sale listing pages, the large monthly figure is almost always the mortgage payment — NOT rent. Do not confuse them.
+- If no explicit rental estimate is shown, return null for monthlyRentEstimate.
+
 NEGATIVE SIGNAL SCAN — scan the full text for these investor red flags:
 
 HIGH severity:
@@ -217,8 +223,9 @@ export async function POST(req: NextRequest) {
     if (extracted.propertyType)        facts.propertyType       = extracted.propertyType
 
     const modelLabel = bundle.provider === "anthropic" ? "Claude Haiku" : "GPT-4o-mini"
+    const siteName = extracted.siteName ?? new URL(body.url ?? "https://unknown").hostname
     notes.push(
-      `Read from ${extracted.siteName ?? new URL(body.url ?? "https://unknown").hostname} via ${modelLabel} · confidence: ${extracted.confidence}`
+      `Read from ${siteName} via ${modelLabel} · confidence: ${extracted.confidence}`
     )
 
     // Surface high-severity signals as warnings so they appear in the UI
@@ -228,6 +235,25 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Build per-field provenance so the distribution engine knows which inputs
+    // are solid (extracted from the listing) vs defaulted.
+    const provenance: Record<string, { source: string; confidence: string; note: string }> = {}
+    if (extracted.listPrice) {
+      provenance.purchasePrice = { source: "zillow-listing", confidence: "high", note: `List price from ${siteName}` }
+    }
+    if (extracted.monthlyRentEstimate) {
+      provenance.monthlyRent = { source: "zillow-listing", confidence: "medium", note: `Rent Zestimate from ${siteName} — verify with local rental comps before offering` }
+    }
+    if (extracted.monthlyHOA) {
+      provenance.monthlyHOA = { source: "zillow-listing", confidence: "high", note: `HOA fee stated on listing` }
+    }
+    if (extracted.annualPropertyTax) {
+      provenance.annualPropertyTax = { source: "zillow-listing", confidence: "high", note: `Property tax from listing` }
+    }
+    if (extracted.annualInsurance) {
+      provenance.annualInsurance = { source: "zillow-listing", confidence: "medium", note: `Insurance shown on listing — get a real quote before offering` }
+    }
+
     return Response.json(
       {
         address:         extracted.address ?? undefined,
@@ -235,7 +261,7 @@ export async function POST(req: NextRequest) {
         facts,
         notes,
         warnings,
-        provenance:      {},
+        provenance,
         siteName:        extracted.siteName,
         confidence:      extracted.confidence,
         negativeSignals: extracted.negativeSignals,

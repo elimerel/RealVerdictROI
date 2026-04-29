@@ -5,7 +5,7 @@ import {
 } from "react"
 import {
   ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X,
-  AlertTriangle, Save, CheckCircle2, Zap,
+  AlertTriangle, Zap,
 } from "lucide-react"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
@@ -15,18 +15,25 @@ import {
   analyseDeal,
   findOfferCeiling,
   sanitiseInputs,
-  formatCurrency,
-  formatPercent,
   DEFAULT_INPUTS,
   type DealInputs,
   type DealAnalysis,
+  type OfferCeiling,
   type VerdictTier,
 } from "@/lib/calculations"
 import { TIER_ACCENT } from "@/lib/tier-constants"
 import { createClient } from "@/lib/supabase/client"
 import { supabaseEnv } from "@/lib/supabase/config"
-import StressTestPanel from "../_components/StressTestPanel"
-import BreakdownSection from "../_components/results/BreakdownSection"
+import { annotateFromProvenance, worstConfidence } from "@/lib/annotated-inputs"
+import {
+  analyseDistribution,
+  renderProbabilisticVerdict,
+  offerCeilingConfidenceNote,
+  type DistributionResult,
+  type ProbabilisticVerdict,
+} from "@/lib/distribution-engine"
+import type { FieldProvenance } from "@/lib/types"
+import AnalysisPanel from "../_components/AnalysisPanel"
 import "@/lib/electron"
 
 // ---------------------------------------------------------------------------
@@ -43,10 +50,14 @@ type PropertyFacts = {
 
 type AnalysisResult = {
   address?: string
-  inputs: Partial<DealInputs>
+  inputs: DealInputs
   analysis: DealAnalysis
-  walkAway: number | null
+  walkAway: OfferCeiling | null
   propertyFacts?: PropertyFacts
+  distribution: DistributionResult | null
+  probabilisticVerdict: ProbabilisticVerdict | null
+  walkAwayConfidenceNote: string | null
+  inputProvenance: Partial<Record<keyof DealInputs, FieldProvenance>>
 }
 
 type ExtractPayload = {
@@ -62,58 +73,7 @@ type ExtractPayload = {
     yearBuilt?: number
     propertyType?: string
   }
-}
-
-// ---------------------------------------------------------------------------
-// Deterministic summary sentence
-// This function is Research-specific. It never calls an AI — output is
-// derived purely from the engine numbers. Max 20 words, specific numbers,
-// no generic language.
-// ---------------------------------------------------------------------------
-
-export function generateVerdictSummary(
-  tier: VerdictTier,
-  analysis: DealAnalysis,
-  walkAway: number | null,
-  askingPrice: number,
-): string {
-  const cf = Math.round(analysis.monthlyCashFlow)
-  const coc = formatPercent(analysis.cashOnCashReturn, 1)
-  const cap = formatPercent(analysis.capRate, 1)
-  const dscr = analysis.dscr.toFixed(2)
-  const grm = analysis.grossRentMultiplier.toFixed(1)
-
-  if (tier === "avoid") {
-    if (walkAway != null && walkAway < askingPrice) {
-      return `At ${formatCurrency(askingPrice)} this bleeds ${formatCurrency(cf)}/mo — the numbers require ${formatCurrency(walkAway)} to work.`
-    }
-    return `At ${formatCurrency(askingPrice)} this loses ${formatCurrency(Math.abs(cf))}/mo with a DSCR of ${dscr} — walk away.`
-  }
-
-  if (tier === "poor") {
-    if (cf < 0) {
-      return `At ${formatCurrency(askingPrice)} this bleeds ${formatCurrency(Math.abs(cf))}/mo — the numbers require ${formatCurrency(walkAway ?? askingPrice)} to break even.`
-    }
-    // Positive CF but Risky — verdict driven by DSCR and cap rate, not cash flow alone.
-    if (!isFinite(analysis.dscr)) {
-      return `Cap rate ${cap} is below threshold — verify loan terms, then offer ${formatCurrency(walkAway ?? askingPrice)} to reach Borderline.`
-    }
-    return `DSCR ${dscr}x at ${formatCurrency(askingPrice)} — serviceable but too thin. Offer ${formatCurrency(walkAway ?? askingPrice)} to reach Borderline.`
-  }
-
-  if (tier === "fair") {
-    const risk = analysis.breakEvenOccupancy >= 0.9
-      ? `${formatPercent(analysis.breakEvenOccupancy, 0)} break-even occupancy at ${formatCurrency(askingPrice)} — one vacancy wipes the margin.`
-      : `${coc} cash-on-cash at ${formatCurrency(askingPrice)} — workable if rent holds, thin if it doesn't.`
-    return risk
-  }
-
-  if (tier === "good") {
-    return `${coc} cash-on-cash with ${formatCurrency(cf)}/mo at ${formatCurrency(askingPrice)} — solid fundamentals, cap rate ${cap}.`
-  }
-
-  // excellent
-  return `${coc} CoC with DSCR ${dscr}x at ${formatCurrency(askingPrice)} — ${formatCurrency(cf)}/mo and a ${cap} cap rate.`
+  provenance?: Partial<Record<keyof DealInputs, FieldProvenance>>
 }
 
 // ---------------------------------------------------------------------------
@@ -132,29 +92,36 @@ function hostnameOf(url: string) {
 }
 
 function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
-  // Merge with DEFAULT_INPUTS so that fields not extracted from the listing
-  // (down payment %, loan rate, loan term, etc.) use sensible investor
-  // defaults rather than clamping to zero.  Extracted values always win.
+  // Merge extracted inputs with investor defaults.  Extracted values always win.
   const merged: DealInputs = { ...DEFAULT_INPUTS, ...(data.inputs as Partial<DealInputs>) }
   const sanitized = sanitiseInputs(merged)
   const analysis = analyseDeal(sanitized)
   const ceiling = findOfferCeiling(sanitized)
 
-  // Walk-away price: prefer the primary negotiation target (best tier within
-  // 15% of asking), then fall back to the fair-tier ceiling (the price at
-  // which the deal becomes at least "Borderline"), then the best achievable
-  // tier at any price.  Always show a walk-away number — it is the product.
-  const walkAway =
-    ceiling.primaryTarget?.price
-    ?? ceiling.fair
-    ?? ceiling.recommendedCeiling?.price
-    ?? null
+  const inputProvenance = (data.provenance ?? {}) as Partial<Record<keyof DealInputs, FieldProvenance>>
+
+  // Run the probabilistic engine.  Wrapped in try/catch so a bug here never
+  // prevents the deterministic verdict from rendering.
+  let distribution: DistributionResult | null = null
+  let probabilisticVerdict: ProbabilisticVerdict | null = null
+  let walkAwayConfidenceNote: string | null = null
+  try {
+    const annotated = annotateFromProvenance(sanitized, inputProvenance)
+    distribution = analyseDistribution(annotated)
+    probabilisticVerdict = renderProbabilisticVerdict(distribution, worstConfidence(annotated))
+    const rentProv = inputProvenance.monthlyRent
+    if (rentProv) {
+      walkAwayConfidenceNote = offerCeilingConfidenceNote(rentProv.confidence, rentProv.source)
+    }
+  } catch {
+    // Distribution is additive — deterministic verdict still renders.
+  }
 
   return {
     address: data.address,
-    inputs: merged,
+    inputs: sanitized,
     analysis,
-    walkAway,
+    walkAway: ceiling,
     propertyFacts: data.facts ? {
       beds: data.facts.bedrooms ?? null,
       baths: data.facts.bathrooms ?? null,
@@ -162,6 +129,10 @@ function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
       yearBuilt: data.facts.yearBuilt ?? null,
       propertyType: data.facts.propertyType ?? null,
     } : undefined,
+    distribution,
+    probabilisticVerdict,
+    walkAwayConfidenceNote,
+    inputProvenance,
   }
 }
 
@@ -182,7 +153,6 @@ const TITLEBAR_H = 28
 const HEADER_H = 56
 const SIDEBAR_OPEN_W = 256
 const SIDEBAR_ICON_W = 48
-// Right panel is always present — fixed width
 const RIGHT_PANEL_W = 400
 
 function calcBounds(sidebarOpen: boolean) {
@@ -194,7 +164,7 @@ function calcBounds(sidebarOpen: boolean) {
 }
 
 // ---------------------------------------------------------------------------
-// Tier badge
+// Tier pill — shown in the toolbar next to the URL bar
 // ---------------------------------------------------------------------------
 
 const TIER_LABEL: Record<VerdictTier, string> = {
@@ -204,22 +174,6 @@ const TIER_LABEL: Record<VerdictTier, string> = {
   poor: "Risky",
   avoid: "Walk Away",
 }
-
-function TierBadge({ tier }: { tier: VerdictTier }) {
-  const accent = TIER_ACCENT[tier]
-  return (
-    <span
-      className="inline-flex items-center px-3 py-1 rounded-md text-xs font-bold uppercase tracking-widest"
-      style={{ backgroundColor: `${accent}18`, color: accent, border: `1px solid ${accent}55` }}
-    >
-      {TIER_LABEL[tier]}
-    </span>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Toolbar pill — shows analysis state and verdict tier color
-// ---------------------------------------------------------------------------
 
 function ListingPill({
   loading,
@@ -250,26 +204,10 @@ function ListingPill({
     )
   }
 
-  // Listing detected, analysis not yet ready
   return (
     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-700 text-xs text-zinc-400 shrink-0">
       <Zap className="h-3 w-3" />
       Listing
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Metric tile
-// ---------------------------------------------------------------------------
-
-function MetricTile({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div className="flex flex-col gap-0.5 py-2">
-      <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-medium">{label}</span>
-      <span className="text-sm font-semibold tabular-nums" style={accent ? { color: accent } : { color: "#e4e4e7" }}>
-        {value}
-      </span>
     </div>
   )
 }
@@ -301,202 +239,12 @@ function IdlePanel({ onLaunch }: { onLaunch: (url: string) => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Active right panel state
-// ---------------------------------------------------------------------------
-
-type SaveStatus =
-  | { state: "idle" }
-  | { state: "saving" }
-  | { state: "saved" }
-  | { state: "error"; message: string }
-
-function ActivePanel({
-  result,
-  signedIn,
-  isPro,
-  supabaseConfigured,
-}: {
-  result: AnalysisResult
-  signedIn: boolean
-  isPro: boolean
-  supabaseConfigured: boolean
-}) {
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ state: "idle" })
-  const { analysis, walkAway, address, inputs, propertyFacts } = result
-  const tier = analysis.verdict.tier
-  const accent = TIER_ACCENT[tier]
-  const askingPrice = (inputs as DealInputs).purchasePrice ?? 0
-  const gap = walkAway != null ? askingPrice - walkAway : null
-  const ltvPct = 100 - ((inputs as DealInputs).downPaymentPercent ?? 20)
-
-  const summary = generateVerdictSummary(tier, analysis, walkAway, askingPrice)
-
-  const handleSave = async () => {
-    if (!signedIn) {
-      window.open(`/login?redirect=${encodeURIComponent("/research")}`, "_blank")
-      return
-    }
-    if (!isPro) {
-      window.open("/pricing", "_blank")
-      return
-    }
-    setSaveStatus({ state: "saving" })
-    try {
-      const res = await fetch("/api/deals/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs, address, propertyFacts }),
-      })
-      const payload = await res.json()
-      if (!res.ok) {
-        setSaveStatus({ state: "error", message: payload?.error ?? `Save failed (HTTP ${res.status})` })
-        return
-      }
-      setSaveStatus({ state: "saved" })
-    } catch (err) {
-      setSaveStatus({ state: "error", message: err instanceof Error ? err.message : "Save failed." })
-    }
-  }
-
-  return (
-    <div className="flex flex-col min-h-0 overflow-y-auto">
-      {/* Hero: verdict + walk-away price */}
-      <div className="px-5 pt-5 pb-4 border-b border-zinc-800/60 shrink-0">
-
-        {/* Verdict badge — leads the panel */}
-        <div className="mb-3">
-          <TierBadge tier={tier} />
-        </div>
-
-        {/* Walk-away price — always the headline number, always white.
-            The badge above carries the verdict signal; this number is the answer. */}
-        <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-medium mb-0.5">
-          Walk-Away Price
-        </p>
-        <p className="text-[2.8rem] font-black leading-none tabular-nums text-zinc-50">
-          {formatCurrency(walkAway ?? askingPrice)}
-        </p>
-
-        {/* Asking price + gap below the walk-away */}
-        {askingPrice > 0 && (
-          <div className="mt-1.5 flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Asking {formatCurrency(askingPrice)}</span>
-            {gap != null && gap > 0 && (
-              <span className="text-xs font-semibold" style={{ color: accent }}>
-                −{formatCurrency(gap)}
-              </span>
-            )}
-            {gap != null && gap <= 0 && (
-              <span className="text-xs font-semibold text-emerald-400">
-                At or below walk-away
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Summary sentence — explains the specific numbers driving the verdict */}
-        <p className="mt-3 text-[11px] text-zinc-400 leading-snug">{summary}</p>
-      </div>
-
-      {/* Primary metrics grid */}
-      <div className="px-4 pt-3 pb-1 shrink-0">
-        <div className="grid grid-cols-2 gap-1.5">
-          <MetricTile
-            label="Cash Flow / mo"
-            value={formatCurrency(analysis.monthlyCashFlow)}
-            accent={analysis.monthlyCashFlow >= 0 ? undefined : "#ef4444"}
-          />
-          <MetricTile
-            label="Cap Rate"
-            value={formatPercent(analysis.capRate)}
-            accent={analysis.capRate >= 0.06 ? "#22c55e" : analysis.capRate >= 0.04 ? "#eab308" : "#ef4444"}
-          />
-          <MetricTile
-            label="DSCR"
-            value={isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞"}
-            accent={!isFinite(analysis.dscr) || analysis.dscr >= 1.25 ? "#22c55e" : analysis.dscr >= 1 ? "#eab308" : "#ef4444"}
-          />
-          <MetricTile
-            label="Cash-on-Cash"
-            value={formatPercent(analysis.cashOnCashReturn)}
-            accent={analysis.cashOnCashReturn >= 0.08 ? "#22c55e" : analysis.cashOnCashReturn >= 0.04 ? "#eab308" : analysis.cashOnCashReturn < 0 ? "#ef4444" : undefined}
-          />
-        </div>
-      </div>
-
-      {/* Secondary metrics row */}
-      <div className="px-4 pb-3 shrink-0">
-        <div className="grid grid-cols-4 gap-1.5">
-          <MetricTile
-            label="GRM"
-            value={`${analysis.grossRentMultiplier.toFixed(1)}×`}
-            accent={analysis.grossRentMultiplier <= 12 ? "#22c55e" : analysis.grossRentMultiplier <= 18 ? "#eab308" : "#ef4444"}
-          />
-          <MetricTile
-            label="Break-Even"
-            value={formatPercent(analysis.breakEvenOccupancy, 0)}
-            accent={analysis.breakEvenOccupancy <= 0.75 ? "#22c55e" : analysis.breakEvenOccupancy <= 0.9 ? "#eab308" : "#ef4444"}
-          />
-          <MetricTile
-            label="IRR"
-            value={isFinite(analysis.irr) && analysis.irr > 0 ? formatPercent(analysis.irr) : "—"}
-            accent={isFinite(analysis.irr) && analysis.irr >= 0.12 ? "#22c55e" : isFinite(analysis.irr) && analysis.irr >= 0.08 ? "#eab308" : undefined}
-          />
-          <MetricTile
-            label="LTV"
-            value={`${ltvPct}%`}
-          />
-        </div>
-      </div>
-
-      {/* Save button */}
-      {supabaseConfigured && (
-        <div className="px-4 pb-3 shrink-0">
-          {saveStatus.state === "saved" ? (
-            <div className="flex items-center gap-2 h-10 px-4 rounded-lg border border-emerald-700/50 bg-emerald-950/40 text-xs font-semibold text-emerald-400">
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              Saved to Pipeline
-            </div>
-          ) : (
-            <button
-              onClick={handleSave}
-              disabled={saveStatus.state === "saving"}
-              className="flex items-center justify-center gap-2 h-10 w-full rounded-lg bg-zinc-100 text-xs font-bold text-zinc-900 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {saveStatus.state === "saving"
-                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</>
-                : <><Save className="h-3.5 w-3.5" />{!signedIn ? "Sign in to save" : !isPro ? "Save (Pro)" : "Save deal"}</>
-              }
-            </button>
-          )}
-          {saveStatus.state === "error" && (
-            <p className="mt-1.5 text-[11px] text-red-400">{saveStatus.message}</p>
-          )}
-        </div>
-      )}
-
-      {/* Scrollable detail area: stress test + monthly breakdown */}
-      <div className="border-t border-zinc-800/60 shrink-0">
-        <div className="px-4 py-3 space-y-6">
-          <StressTestPanel
-            baseInputs={sanitiseInputs(inputs as DealInputs)}
-            baseAnalysis={analysis}
-          />
-          <BreakdownSection analysis={analysis} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // ELECTRON MODE — WebContentsView via IPC
 // ---------------------------------------------------------------------------
 
 function useElectronBounds(active: boolean, sidebarOpen: boolean) {
   const sendBounds = useCallback(() => {
     if (!window.electronAPI) return
-    // Right panel is always present — always subtract its width from browser bounds
     window.electronAPI.updateBounds(calcBounds(sidebarOpen))
   }, [sidebarOpen])
 
@@ -534,10 +282,12 @@ function ElectronResearchPage() {
   const [isPro, setIsPro] = useState(false)
   const supabaseConfigured = supabaseEnv().configured
 
+  // Save state for the AnalysisPanel save button
+  const [isSaving, setIsSaving] = useState(false)
+  const [savedDealId, setSavedDealId] = useState<string | undefined>(undefined)
+
   // Tracks last auto-analyzed URL to avoid double-firing
   const lastAutoAnalyzedUrl = useRef("")
-  // Monotonically-increasing counter; lets us discard stale IPC results when
-  // the user navigates to a new listing before the previous analysis completes.
   const analysisEpochRef = useRef(0)
 
   useElectronBounds(browserActive, sidebarOpen)
@@ -583,8 +333,6 @@ function ElectronResearchPage() {
     const api = window.electronAPI
     if (!api) return
     const unsub = api.onNavUpdate(({ url, title, isListing, loading }) => {
-      // If the URL is changing to a different listing, wipe the stale result
-      // immediately — don't wait for the auto-analyze effect to run.
       if (url !== undefined && isListing && url !== lastAutoAnalyzedUrl.current) {
         setAnalysisResult(null)
       }
@@ -594,7 +342,6 @@ function ElectronResearchPage() {
       if (isListing !== undefined) {
         setIsListingPage(isListing)
         if (!isListing) {
-          // Leaving a listing page — reset the dedup guard and clear result.
           lastAutoAnalyzedUrl.current = ""
           setAnalysisResult(null)
         }
@@ -605,31 +352,21 @@ function ElectronResearchPage() {
   }, [])
 
   // Auto-analyze when a listing page is fully loaded.
-  //
-  // The browserLoading gate is the key: with the updated main.js, did-navigate
-  // no longer sends loading:false — only did-stop-loading does.  This means
-  // the effect is skipped while the page is still loading and only fires once
-  // the full HTML (and SSR content) is available for extraction.
-  //
-  // For SPA pushState navigations (Zillow "Similar homes", etc.) where
-  // browserLoading never becomes true, the effect fires immediately and the
-  // 600 ms delay inside browser:analyze (main.js) gives the framework time
-  // to finish re-rendering the new listing before the DOM is read.
   useEffect(() => {
     if (!isListingPage || !browserActive || !currentUrl) return
-    if (browserLoading) return   // page not finished loading — wait for it
+    if (browserLoading) return
     if (currentUrl === lastAutoAnalyzedUrl.current) return
     lastAutoAnalyzedUrl.current = currentUrl
 
     setAnalysisResult(null)
+    setSavedDealId(undefined)
     setAnalysisLoading(true)
     setError(null)
 
-    // Capture the epoch so we can drop results from superseded analyses.
     const epoch = ++analysisEpochRef.current
     window.electronAPI!.analyze()
       .then((result) => {
-        if (epoch !== analysisEpochRef.current) return  // superseded — discard
+        if (epoch !== analysisEpochRef.current) return
         const r = result as ExtractPayload
         if (r.error) { setError(r.error); return }
         const built = buildAnalysisResult({ ...r, inputs: r.inputs as Partial<DealInputs> })
@@ -668,7 +405,36 @@ function ElectronResearchPage() {
     }
   }
 
-  // Determine what to show in the right panel
+  const handleSave = useCallback(async () => {
+    if (!signedIn) {
+      window.open(`/login?redirect=${encodeURIComponent("/research")}`, "_blank")
+      return
+    }
+    if (!isPro) {
+      window.open("/pricing", "_blank")
+      return
+    }
+    if (!analysisResult || isSaving || savedDealId) return
+    setIsSaving(true)
+    try {
+      const res = await fetch("/api/deals/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputs: analysisResult.inputs,
+          address: analysisResult.address,
+          propertyFacts: analysisResult.propertyFacts,
+        }),
+      })
+      const payload = await res.json()
+      if (res.ok && payload?.id) {
+        setSavedDealId(payload.id as string)
+      }
+    } finally {
+      setIsSaving(false)
+    }
+  }, [signedIn, isPro, analysisResult, isSaving, savedDealId])
+
   const showActive = isListingPage && analysisResult != null
   const showLoading = isListingPage && analysisLoading
 
@@ -717,7 +483,6 @@ function ElectronResearchPage() {
           </Button>
         </form>
 
-        {/* Listing / verdict pill — reflects outcome once analysis is ready */}
         {browserActive && isListingPage && (
           <ListingPill
             loading={analysisLoading}
@@ -767,11 +532,23 @@ function ElectronResearchPage() {
               <p className="text-xs">Running analysis…</p>
             </div>
           ) : showActive ? (
-            <ActivePanel
-              result={analysisResult!}
+            <AnalysisPanel
+              analysis={analysisResult!.analysis}
+              walkAway={analysisResult!.walkAway}
+              inputs={analysisResult!.inputs}
+              address={analysisResult!.address}
+              propertyFacts={analysisResult!.propertyFacts}
+              distribution={analysisResult!.distribution}
+              probabilisticVerdict={analysisResult!.probabilisticVerdict}
+              walkAwayConfidenceNote={analysisResult!.walkAwayConfidenceNote}
+              inputProvenance={analysisResult!.inputProvenance}
               signedIn={signedIn}
               isPro={isPro}
               supabaseConfigured={supabaseConfigured}
+              panelWidth={RIGHT_PANEL_W}
+              onSave={supabaseConfigured ? handleSave : undefined}
+              isSaving={isSaving}
+              savedDealId={savedDealId}
             />
           ) : (
             <IdlePanel onLaunch={async (url) => {
@@ -831,10 +608,6 @@ export default function ResearchPage() {
   const [isElectron, setIsElectron] = useState<boolean | null>(null)
 
   useLayoutEffect(() => {
-    // Reading window.electronAPI (set by Electron's contextBridge before any
-    // page script runs) is not a React state change triggered by React — it is
-    // a one-time client-environment detection that must run synchronously
-    // before the first paint to avoid a flash.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsElectron(!!window.electronAPI)
   }, [])

@@ -375,6 +375,12 @@ STRICT RULES — read carefully:
 2. All money values must be plain numbers — no $ signs, no commas.
 3. This data feeds a financial engine. Wrong numbers produce wrong verdicts. Accuracy over completeness.
 
+RENT — CRITICAL RULE:
+- "monthlyRent" must ONLY be set to a figure explicitly labeled as "Rent Zestimate", "Estimated rent", "Rental estimate", "Market rent", or a clearly labeled monthly rental value.
+- NEVER use "Est. payment", "Estimated payment", "Monthly payment", "P&I", or any figure that represents a mortgage payment, loan payment, or financing estimate as rent. These are completely different numbers.
+- On for-sale listing pages, the large monthly figure shown is almost always the mortgage payment — NOT rent. Do not confuse them.
+- If no explicit rental estimate is shown on the page, return null for monthlyRent.
+
 Return exactly this JSON shape (no markdown, no explanation — only the JSON object):
 {
   "address": "full street address with city, state, zip — or null",
@@ -384,7 +390,7 @@ Return exactly this JSON shape (no markdown, no explanation — only the JSON ob
   "sqft": square footage as number or null,
   "yearBuilt": year built as number or null,
   "propertyType": "Single Family" / "Condo" / "Townhouse" / "Multi-Family" / etc or null,
-  "monthlyRent": monthly rent estimate IF explicitly shown on page or null,
+  "monthlyRent": Rent Zestimate or explicit rental estimate ONLY — never mortgage payment — or null,
   "monthlyHOA": monthly HOA fee IF explicitly shown or null,
   "annualPropertyTax": annual property tax IF explicitly shown or null,
   "annualInsurance": annual homeowners insurance IF explicitly shown or null,
@@ -549,10 +555,29 @@ ipcMain.handle("browser:analyze", async () => {
         pendingPageComps = extracted.pageComps
       }
 
+      // Build per-field provenance so the distribution engine knows which
+      // inputs are solid (from the listing page) vs defaulted.
+      const provenance = {}
+      if (extracted.price) {
+        provenance.purchasePrice = { source: "zillow-listing", confidence: "high", note: `List price from ${siteName}` }
+      }
+      if (extracted.monthlyRent) {
+        provenance.monthlyRent = { source: "zillow-listing", confidence: "medium", note: `Rent Zestimate from ${siteName} — verify with local rental comps before offering` }
+      }
+      if (extracted.monthlyHOA) {
+        provenance.monthlyHOA = { source: "zillow-listing", confidence: "high", note: `HOA fee stated on listing` }
+      }
+      if (extracted.annualPropertyTax) {
+        provenance.annualPropertyTax = { source: "zillow-listing", confidence: "high", note: `Property tax from listing` }
+      }
+      if (extracted.annualInsurance) {
+        provenance.annualInsurance = { source: "zillow-listing", confidence: "medium", note: `Insurance shown on listing — get a real quote before offering` }
+      }
+
       return {
         address:          extracted.address ?? undefined,
         inputs, facts, notes, warnings,
-        provenance:       {},
+        provenance,
         siteName,
         confidence,
         negativeSignals:  extracted.negativeSignals ?? [],
