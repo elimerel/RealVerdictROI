@@ -16,6 +16,9 @@ import { TIER_ACCENT, TIER_LABEL } from "@/app/(app)/_components/results/tier-st
 import { Save, CheckCircle2, Loader2 } from "lucide-react"
 import BreakdownSection from "./results/BreakdownSection"
 import StressTestPanel from "./StressTestPanel"
+import type { DistributionResult, ProbabilisticVerdict } from "@/lib/distribution-engine"
+import type { FieldProvenance } from "@/lib/types"
+import AnnotatedValue from "./AnnotatedValue"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,6 +41,15 @@ export type AnalysisPanelProps = {
 
   // AI-generated narrative (null = not yet generated, renders nothing)
   ai_narrative?: AiNarrative | null
+
+  // Probabilistic analysis data — when present, replaces the deterministic
+  // verdict headline and enriches the StressTestPanel.
+  distribution?: DistributionResult | null
+  probabilisticVerdict?: ProbabilisticVerdict | null
+  /** Short note explaining how confident the walk-away price is. */
+  walkAwayConfidenceNote?: string | null
+  /** Per-field input provenance — used for confidence indicators on metric tiles. */
+  inputProvenance?: Partial<Record<keyof DealInputs, FieldProvenance>> | null
 
   // Optional rich data (available when livecomps ran)
   comps?: CompsResult | null
@@ -95,11 +107,14 @@ function MetricTile({
   value,
   colored,
   good,
+  provenance,
 }: {
   label: string
   value: string
   colored?: boolean
   good?: boolean
+  /** Optional provenance — when provided and confidence < high, shows a dot indicator */
+  provenance?: FieldProvenance | null
 }) {
   return (
     <div>
@@ -111,7 +126,7 @@ function MetricTile({
           !colored && "text-foreground"
         )}
       >
-        {value}
+        <AnnotatedValue value={value} provenance={provenance} />
       </p>
       <p className="mt-1 text-[10px] text-muted-foreground/60 uppercase tracking-wider leading-none">
         {label}
@@ -138,6 +153,10 @@ export default function AnalysisPanel({
   address,
   inputs,
   ai_narrative,
+  distribution,
+  probabilisticVerdict,
+  walkAwayConfidenceNote,
+  inputProvenance,
   supabaseConfigured,
   panelWidth,
   onSave,
@@ -298,6 +317,12 @@ export default function AnalysisPanel({
                       : `${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking`}
                   </p>
                 )}
+                {/* Confidence note — shown when walk-away is based on estimated data */}
+                {walkAwayConfidenceNote && (
+                  <p className="text-[11px] text-amber-400/70 leading-snug max-w-[40ch]">
+                    {walkAwayConfidenceNote}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -313,7 +338,34 @@ export default function AnalysisPanel({
             >
               {TIER_LABEL[tier] ?? tier}
             </span>
+            {/* Confidence fraction badge — shown when probabilistic verdict is available */}
+            {probabilisticVerdict && probabilisticVerdict.dominantTierFraction < 0.99 && (
+              <span className="ml-2 text-[10px] text-muted-foreground/60 font-mono tabular-nums">
+                {Math.round(probabilisticVerdict.dominantTierFraction * probabilisticVerdict.scenarioCount)}/{probabilisticVerdict.scenarioCount} scenarios
+              </span>
+            )}
           </div>
+
+          {/* ═══════════════════════════════════
+              PROBABILISTIC HEADLINE — when distribution is available
+          ═══════════════════════════════════ */}
+          {probabilisticVerdict && (
+            <div className="space-y-1">
+              <p className="text-[13px] text-foreground/90 font-medium leading-relaxed max-w-[65ch]">
+                {probabilisticVerdict.headline}
+              </p>
+              {probabilisticVerdict.conditionForOutlier && (
+                <p className="text-[12px] text-muted-foreground/70 leading-relaxed max-w-[65ch]">
+                  {probabilisticVerdict.conditionForOutlier}
+                </p>
+              )}
+              {!compact && (
+                <p className="text-[11px] text-muted-foreground/50 font-mono leading-relaxed max-w-[65ch]">
+                  {probabilisticVerdict.cashFlowRangeNote}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* ═══════════════════════════════════
               NARRATIVE — AI summary or inline computed sentence
@@ -356,18 +408,21 @@ export default function AnalysisPanel({
                   value={`${cashFlow >= 0 ? "+" : ""}${formatCurrency(cashFlow, 0)}/mo`}
                   colored
                   good={cashFlow >= 0}
+                  provenance={inputProvenance?.monthlyRent}
                 />
                 <MetricTile
                   label="Cap rate"
                   value={formatPercent(capRate, 2)}
                   colored
                   good={capRate >= 0.05}
+                  provenance={inputProvenance?.monthlyRent}
                 />
                 <MetricTile
                   label="DSCR"
                   value={dscrStr}
                   colored
                   good={isFinite(dscr) ? dscr >= 1.2 : true}
+                  provenance={inputProvenance?.loanInterestRate}
                 />
                 <MetricTile
                   label="Cash-on-cash"
@@ -397,7 +452,11 @@ export default function AnalysisPanel({
           {!compact && (
             <>
               <Divider />
-              <StressTestPanel baseInputs={inputs} baseAnalysis={analysis} />
+              <StressTestPanel
+                baseInputs={inputs}
+                baseAnalysis={analysis}
+                distribution={distribution ?? undefined}
+              />
             </>
           )}
 

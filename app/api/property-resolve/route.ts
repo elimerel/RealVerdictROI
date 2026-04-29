@@ -27,30 +27,10 @@ import {
 import { enforceRateLimit } from "@/lib/ratelimit";
 import { withErrorReporting, logEvent, captureError } from "@/lib/observability";
 import { extractZpidAndSlug, addressFromSlug } from "@/lib/zillow-url";
+import type { ProvenanceSource, FieldProvenance } from "@/lib/types";
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
-export type ProvenanceSource =
-  | "rentcast"           // pulled from RentCast property/AVM data
-  | "rent-comps"         // median of nearby long-term rent comps
-  | "zillow-listing"     // scraped from a Zillow listing
-  | "state-average"      // computed from per-state rate tables
-  | "state-investor-rate" // per-state non-homestead tax rate (overrides current-owner homestead line-item)
-  | "national-average"   // last-resort national fallback
-  | "fred"               // FRED macro series (e.g. Freddie Mac PMMS 30yr fixed)
-  | "fhfa-hpi"           // FHFA Purchase-Only HPI metro-level trailing CAGR
-  | "fema-nfhl"          // FEMA National Flood Hazard Layer (flood zone → insurance bump)
-  | "default"            // canonical default from DEFAULT_INPUTS
-  | "user";              // user has overridden — NOT set by server, only client
-
-export type FieldProvenance = {
-  source: ProvenanceSource;
-  confidence: "high" | "medium" | "low";
-  /** Short human-readable explanation, surfaced as a tooltip. */
-  note: string;
-};
+// Re-export so existing consumers of this route's types keep working.
+export type { ProvenanceSource, FieldProvenance };
 
 export type ResolveResult = {
   /** Canonical address echoed back. */

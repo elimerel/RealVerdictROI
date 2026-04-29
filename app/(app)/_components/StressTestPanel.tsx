@@ -12,22 +12,124 @@ import {
 } from "@/lib/calculations";
 import { TIER_LABEL, TIER_TAILWIND_TEXT as TIER_COLOR } from "@/lib/tier-constants";
 import { STRESS_SCENARIOS as SCENARIOS } from "@/lib/stress-scenarios";
+import type { DistributionResult } from "@/lib/distribution-engine";
+
+// ---------------------------------------------------------------------------
+// Distribution bar — visual representation of tier counts across scenarios
+// ---------------------------------------------------------------------------
+
+function DistributionBar({
+  tierCounts,
+  total,
+}: {
+  tierCounts: DistributionResult["tierCounts"];
+  total: number;
+}) {
+  const tiers: VerdictTier[] = ["excellent", "good", "fair", "poor", "avoid"];
+  const colors: Record<VerdictTier, string> = {
+    excellent: "bg-emerald-500",
+    good: "bg-emerald-400",
+    fair: "bg-amber-400",
+    poor: "bg-red-400",
+    avoid: "bg-red-600",
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex h-2 w-full overflow-hidden rounded-full gap-px">
+        {tiers.map((t) => {
+          const pct = total > 0 ? (tierCounts[t] / total) * 100 : 0;
+          if (pct === 0) return null;
+          return (
+            <div
+              key={t}
+              className={`${colors[t]} transition-all`}
+              style={{ width: `${pct}%` }}
+              title={`${TIER_LABEL[t]}: ${tierCounts[t]} of ${total} scenarios`}
+            />
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {tiers.map((t) => {
+          if (tierCounts[t] === 0) return null;
+          return (
+            <span key={t} className={`text-[10px] font-mono tabular-nums ${TIER_COLOR[t]}`}>
+              {TIER_LABEL[t]} {tierCounts[t]}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Metric range row — P10 / P50 / P90 for one metric
+// ---------------------------------------------------------------------------
+
+function MetricRange({
+  label,
+  p10,
+  p50,
+  p90,
+  format,
+  positiveIsGood = true,
+}: {
+  label: string;
+  p10: number;
+  p50: number;
+  p90: number;
+  format: (n: number) => string;
+  positiveIsGood?: boolean;
+}) {
+  const p50Good = positiveIsGood ? p50 >= 0 : p50 <= 0;
+  return (
+    <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline">
+      <span className="text-xs text-zinc-500">{label}</span>
+      <span className="text-[10px] text-zinc-600 font-mono tabular-nums text-right">
+        {format(p10)}
+      </span>
+      <span
+        className={`text-xs font-mono tabular-nums font-semibold text-right ${
+          p50Good ? "text-emerald-400" : "text-red-400"
+        }`}
+      >
+        {format(p50)}
+      </span>
+      <span className="text-[10px] text-zinc-600 font-mono tabular-nums text-right">
+        {format(p90)}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export default function StressTestPanel({
   baseInputs,
   baseAnalysis,
+  distribution,
 }: {
   baseInputs: DealInputs;
   baseAnalysis: DealAnalysis;
+  distribution?: DistributionResult;
 }) {
-  const results = useMemo(
-    () =>
-      SCENARIOS.map((s) => ({
-        scenario: s,
-        analysis: safeAnalyse(s.apply(baseInputs)),
-      })),
-    [baseInputs],
-  );
+  // Use named scenarios from the distribution when available; otherwise run them fresh.
+  const results = useMemo(() => {
+    if (distribution) {
+      return distribution.namedScenarios.map((ns) => ({
+        scenario: { key: ns.key, label: ns.label, description: ns.description },
+        analysis: ns.analysis,
+      }));
+    }
+    return SCENARIOS.map((s) => ({
+      scenario: s,
+      analysis: safeAnalyse(s.apply(baseInputs)),
+    }));
+  }, [baseInputs, distribution]);
 
   const survivors = results.filter(
     (r) => r.analysis && r.analysis.monthlyCashFlow >= 0,
@@ -45,6 +147,10 @@ export default function StressTestPanel({
           ? `Cash-flow positive in ${survivors} of ${results.length} shocks. Watch the failures.`
           : `Cash-flow positive in only ${survivors} of ${results.length} shocks. Thin margin.`;
 
+  const total = distribution
+    ? Object.values(distribution.tierCounts).reduce((s, c) => s + c, 0)
+    : 0;
+
   return (
     <section className="space-y-6">
       <header>
@@ -57,6 +163,66 @@ export default function StressTestPanel({
         </p>
       </header>
 
+      {/* ── Distribution bar — only when probabilistic data is available ── */}
+      {distribution && total > 0 && (
+        <div className="space-y-2 rounded-lg border border-zinc-800 px-4 py-3">
+          <div className="flex items-baseline justify-between">
+            <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+              Verdict distribution across {total} scenarios
+            </p>
+            <div className="flex gap-3 text-[10px] text-zinc-600 font-mono">
+              <span>worst</span>
+              <span className="text-zinc-400 font-semibold">base</span>
+              <span>best</span>
+            </div>
+          </div>
+          <DistributionBar tierCounts={distribution.tierCounts} total={total} />
+
+          {/* Metric ranges — P10 / P50 / P90 */}
+          <div className="mt-3 space-y-1.5 border-t border-zinc-800 pt-3">
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 mb-1">
+              <span className="text-[10px] text-zinc-600" />
+              <span className="text-[10px] text-zinc-600 text-right">pessimistic</span>
+              <span className="text-[10px] text-zinc-600 text-right font-medium">base</span>
+              <span className="text-[10px] text-zinc-600 text-right">optimistic</span>
+            </div>
+            <MetricRange
+              label="Cash flow / mo"
+              p10={distribution.monthlyCashFlow.p10}
+              p50={distribution.monthlyCashFlow.p50}
+              p90={distribution.monthlyCashFlow.p90}
+              format={(n) => `${n >= 0 ? "+" : ""}${formatCurrency(n, 0)}`}
+              positiveIsGood
+            />
+            <MetricRange
+              label="Cap rate"
+              p10={distribution.capRate.p10}
+              p50={distribution.capRate.p50}
+              p90={distribution.capRate.p90}
+              format={(n) => formatPercent(n, 2)}
+              positiveIsGood
+            />
+            <MetricRange
+              label="DSCR"
+              p10={distribution.dscr.p10}
+              p50={distribution.dscr.p50}
+              p90={distribution.dscr.p90}
+              format={(n) => n.toFixed(2)}
+              positiveIsGood
+            />
+            <MetricRange
+              label="IRR"
+              p10={distribution.irr.p10}
+              p50={distribution.irr.p50}
+              p90={distribution.irr.p90}
+              format={(n) => `${(n * 100).toFixed(1)}%`}
+              positiveIsGood
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Named stress scenario table (always shown) ── */}
       <div className="overflow-hidden rounded-xl border border-zinc-800">
         <div className="hidden sm:grid sm:grid-cols-[1.6fr_0.95fr_0.7fr_0.85fr_0.85fr_0.95fr_1fr] divide-x divide-zinc-800 bg-zinc-900/40">
           <Th>Scenario</Th>

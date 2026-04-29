@@ -12,6 +12,8 @@ import {
   formatPercent,
 } from "@/lib/calculations";
 import type { AiNarrative } from "@/lib/lead-adapter";
+import type { DistributionResult } from "@/lib/distribution-engine";
+import { TIER_LABEL } from "@/lib/tier-constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,6 +25,9 @@ type PostBody = {
   inputs: DealInputs;
   walkAway: OfferCeiling | null;
   address?: string;
+  /** Optional probabilistic distribution — when present, the narrative will
+   *  reference scenario confidence instead of a single deterministic verdict. */
+  distribution?: DistributionResult | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -41,16 +46,18 @@ const NarrativeSchema = z.object({
 
 const SYSTEM_PROMPT = `You are a sharp analyst giving an investor the 30-second briefing before a meeting. Write short declarative sentences. One idea per sentence. No semicolons. No em dashes. No compound clauses joined with "while" or "meaning." No filler phrases like "it is worth noting" or "overall." No generic real estate advice. No hedging. Reference only numbers from the data provided — never hallucinate.
 
+When SCENARIO DISTRIBUTION data is provided: lead the summary with confidence language that reflects how many scenarios agree. Write "9 of 10 scenarios" or "all 100 scenarios" not "most scenarios." If there is a condition under which a minority of scenarios produces a better verdict, state it in one clause. Do not repeat the scenario count in all three fields.
+
 Return exactly three fields:
 
-summary: One sentence. Name the verdict and the single biggest reason for it. Reference the walk-away price or the key metric that drives the verdict. Be direct.
+summary: One sentence. When distribution data is present, state how many scenarios produce the dominant verdict and name the single biggest driver. When no distribution data is present, name the verdict and the single biggest reason. Reference the walk-away price or the key metric that drives the verdict. Be direct.
 
 opportunity: Two sentences maximum. Name the specific upside with real numbers. Reference cap rate, DSCR, IRR, cash-on-cash, total ROI, equity at exit, or walk-away headroom — whichever is the strongest signal. If year-1 cash flow is negative but the deal exits profitably, state the specific exit numbers and the year cash flow turns positive.
 
-risk: Two sentences maximum. Name the single biggest threat with real numbers. If year-1 cash flow is negative, state exactly how much the investor is out-of-pocket per month. If DSCR is below 1.0, state that number. If IRR is below 6%, state that. Do not invent risks not in the data.`;
+risk: Two sentences maximum. Name the single biggest threat with real numbers. If scenario distribution shows wide spread (large P10–P90 gap), name the inputs that drive the variance. If year-1 cash flow is negative, state exactly how much the investor is out-of-pocket per month. If DSCR is below 1.0, state that number. If IRR is below 6%, state that. Do not invent risks not in the data.`;
 
 function buildUserMessage(body: PostBody): string {
-  const { analysis, inputs, walkAway, address } = body;
+  const { analysis, inputs, walkAway, address, distribution } = body;
   const v = analysis.verdict;
   const ceiling = walkAway?.recommendedCeiling;
   const primary = walkAway?.primaryTarget;
@@ -128,6 +135,48 @@ function buildUserMessage(body: PostBody): string {
     lines.push(
       `Primary target price: ${formatCurrency(primary.price, 0)} (${primary.discountPercent.toFixed(1)}% off asking)`,
     );
+  }
+
+  // ── Scenario distribution block ──────────────────────────────────────────
+  // When probabilistic data is available, add it so Claude can produce a
+  // confidence-aware narrative rather than treating point values as certain.
+  if (distribution) {
+    const n = distribution.scenarios.length;
+    const tierEntries = (
+      Object.entries(distribution.tierCounts) as [string, number][]
+    )
+      .filter(([, c]) => c > 0)
+      .sort(([, a], [, b]) => b - a)
+      .map(
+        ([t, c]) =>
+          `${TIER_LABEL[t as keyof typeof TIER_LABEL] ?? t} ${c}/${n}`,
+      )
+      .join(", ");
+
+    const fmtCF = (v: number) =>
+      `${v >= 0 ? "+" : ""}${formatCurrency(v, 0)}/mo`;
+
+    lines.push(`\n--- SCENARIO DISTRIBUTION (N=${n} scenarios) ---`);
+    lines.push(`Verdict across scenarios: ${tierEntries}`);
+    lines.push(
+      `Cash flow P10/P50/P90: ${fmtCF(distribution.monthlyCashFlow.p10)} / ${fmtCF(distribution.monthlyCashFlow.p50)} / ${fmtCF(distribution.monthlyCashFlow.p90)}`,
+    );
+    lines.push(
+      `Cap rate P10/P50/P90: ${formatPercent(distribution.capRate.p10, 2)} / ${formatPercent(distribution.capRate.p50, 2)} / ${formatPercent(distribution.capRate.p90, 2)}`,
+    );
+    lines.push(
+      `DSCR P10/P50/P90: ${distribution.dscr.p10.toFixed(2)} / ${distribution.dscr.p50.toFixed(2)} / ${distribution.dscr.p90.toFixed(2)}`,
+    );
+    lines.push(
+      `IRR P10/P50/P90: ${formatPercent(distribution.irr.p10, 1)} / ${formatPercent(distribution.irr.p50, 1)} / ${formatPercent(distribution.irr.p90, 1)}`,
+    );
+    if (distribution.outlierCondition) {
+      const outlierCount =
+        n - (distribution.tierCounts[distribution.dominantTier] ?? 0);
+      lines.push(
+        `Condition for the ${outlierCount} outlier scenario${outlierCount !== 1 ? "s" : ""}: ${distribution.outlierCondition}`,
+      );
+    }
   }
 
   return lines.join("\n");

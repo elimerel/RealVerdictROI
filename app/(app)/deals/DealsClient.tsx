@@ -26,6 +26,18 @@ import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
 import AnalysisPanel, { type PropertyFacts } from "../_components/AnalysisPanel"
 import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
+import {
+  annotateFromProvenance,
+  worstConfidence,
+} from "@/lib/annotated-inputs"
+import {
+  analyseDistribution,
+  renderProbabilisticVerdict,
+  offerCeilingConfidenceNote,
+  type DistributionResult,
+  type ProbabilisticVerdict,
+} from "@/lib/distribution-engine"
+import type { FieldProvenance } from "@/lib/types"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -55,7 +67,7 @@ type ResolverPayload = {
   notes: string[]
   warnings: string[]
   facts: Record<string, unknown>
-  provenance: Record<string, unknown>
+  provenance: Partial<Record<keyof DealInputs, FieldProvenance>>
 }
 
 type ResolvedResult = {
@@ -65,6 +77,11 @@ type ResolvedResult = {
   walkAway: OfferCeiling | null
   propertyFacts: PropertyFacts
   verdict: VerdictTier
+  // Probabilistic enrichment — computed from resolver provenance.
+  distribution: DistributionResult | null
+  probabilisticVerdict: ProbabilisticVerdict | null
+  walkAwayConfidenceNote: string | null
+  inputProvenance: Partial<Record<keyof DealInputs, FieldProvenance>>
 }
 
 type PendingCard =
@@ -85,6 +102,11 @@ type PendingCard =
       badInputs?: boolean
       /** True once auto-save has been initiated — hides the manual Save button. */
       autoSaveInitiated?: boolean
+      // Probabilistic enrichment fields.
+      distribution?: DistributionResult | null
+      probabilisticVerdict?: ProbabilisticVerdict | null
+      walkAwayConfidenceNote?: string | null
+      inputProvenance?: Partial<Record<keyof DealInputs, FieldProvenance>>
     }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +294,10 @@ export function DealsClient({
         badInputs: pendingCard.badInputs ?? false,
         autoSaveInitiated: pendingCard.autoSaveInitiated ?? false,
         isPending: true,
+        distribution: pendingCard.distribution ?? null,
+        probabilisticVerdict: pendingCard.probabilisticVerdict ?? null,
+        walkAwayConfidenceNote: pendingCard.walkAwayConfidenceNote ?? null,
+        inputProvenance: pendingCard.inputProvenance ?? null,
       }
     }
 
@@ -294,6 +320,12 @@ export function DealsClient({
         badInputs: false,
         autoSaveInitiated: false,
         isPending: false,
+        // Saved deals don't have per-field provenance stored in the DB yet.
+        // Distribution and confidence indicators are only shown for fresh analyses.
+        distribution: null,
+        probabilisticVerdict: null,
+        walkAwayConfidenceNote: null,
+        inputProvenance: null,
       }
     }
 
@@ -613,6 +645,31 @@ export function DealsClient({
         }
       })()
 
+      // Build annotated inputs from the provenance the resolver already returns,
+      // then run the distribution engine over them.
+      const inputProvenance = payload.provenance ?? {}
+      let distribution: DistributionResult | null = null
+      let probabilisticVerdict: ProbabilisticVerdict | null = null
+      let walkAwayConfidenceNote: string | null = null
+      try {
+        const annotated = annotateFromProvenance(inputs, inputProvenance)
+        distribution = analyseDistribution(annotated)
+        probabilisticVerdict = renderProbabilisticVerdict(
+          distribution,
+          worstConfidence(annotated),
+        )
+        const rentProv = inputProvenance.monthlyRent
+        if (rentProv) {
+          walkAwayConfidenceNote = offerCeilingConfidenceNote(
+            rentProv.confidence,
+            rentProv.source,
+          )
+        }
+      } catch {
+        // Distribution is additive — if it throws, the deterministic
+        // analysis still renders normally with no probabilistic data.
+      }
+
       return {
         address: payload.address,
         inputs,
@@ -620,6 +677,10 @@ export function DealsClient({
         walkAway,
         propertyFacts: extractPropertyFacts(payload.facts ?? {}),
         verdict: analysis.verdict.tier,
+        distribution,
+        probabilisticVerdict,
+        walkAwayConfidenceNote,
+        inputProvenance,
       }
     },
     []
@@ -663,6 +724,10 @@ export function DealsClient({
           createdAt: new Date().toISOString(),
           badInputs,
           autoSaveInitiated: shouldAutoSave,
+          distribution: result.distribution,
+          probabilisticVerdict: result.probabilisticVerdict,
+          walkAwayConfidenceNote: result.walkAwayConfidenceNote,
+          inputProvenance: result.inputProvenance,
         })
         setSelectedId(pendingId)
 
@@ -951,6 +1016,10 @@ export function DealsClient({
               isPro={isPro}
               supabaseConfigured={supabaseConfigured}
               panelWidth={panelWidth}
+              distribution={panelData.distribution}
+              probabilisticVerdict={panelData.probabilisticVerdict}
+              walkAwayConfidenceNote={panelData.walkAwayConfidenceNote}
+              inputProvenance={panelData.inputProvenance}
               onSave={
                 panelData.isPending &&
                 !panelData.autoSaveInitiated &&

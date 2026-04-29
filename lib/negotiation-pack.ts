@@ -368,7 +368,7 @@ export function pickWeakAssumptions(args: {
         current: `${formatCurrency(inputs.annualInsurance, 0)}/yr (estimate)`,
         realistic: "Get a real NFIP / private flood quote before you offer",
         gap: "Could be ±30% of estimate",
-        reason: insProv.note,
+        reason: insProv.note ?? insProv.tooltip ?? "Flood zone affects insurance costs significantly.",
         severity: "high",
       });
     } else if (isStateAvg || insProv.confidence === "low") {
