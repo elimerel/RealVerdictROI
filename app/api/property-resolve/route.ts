@@ -26,7 +26,7 @@ import {
 } from "@/lib/flood";
 import { enforceRateLimit } from "@/lib/ratelimit";
 import { withErrorReporting, logEvent, captureError } from "@/lib/observability";
-import { extractZpidAndSlug, addressFromSlug } from "@/lib/zillow-url";
+import { extractZpidAndSlug, addressFromSlug, stateFromSlugAddress } from "@/lib/zillow-url";
 import type { ProvenanceSource, FieldProvenance } from "@/lib/types";
 
 // Re-export so existing consumers of this route's types keep working.
@@ -373,6 +373,37 @@ async function resolveByZillowUrl(
   })();
   result.state =
     explicitState ?? detectStateFromAddress(result.address ?? "");
+
+  // ---------------------------------------------------------------------------
+  // Correspondence check
+  //
+  // Zillow resolves listings by zpid, not by the address slug in the URL.
+  // A modified or recycled zpid silently returns a real property in a
+  // completely different location while the slug says something else.
+  //
+  // If the URL slug contains a parseable state code AND the scraped listing
+  // is in a different state, the URL is invalid — return empty data so the
+  // frontend gate blocks the verdict rather than producing a verdict for the
+  // wrong property.
+  //
+  // Only applied when zillow-parse succeeded via ScraperAPI (source="scraperapi").
+  // The url-fallback path (scraping failed entirely) already produces no price,
+  // so the frontend gate catches it without this check.
+  // ---------------------------------------------------------------------------
+  if (zillow?.source === "scraperapi" && result.state) {
+    const zpidParsed = extractZpidAndSlug(url);
+    if (zpidParsed?.slug) {
+      const slugAddr  = addressFromSlug(zpidParsed.slug);
+      const slugState = stateFromSlugAddress(slugAddr);
+      if (slugState && slugState !== result.state) {
+        const bad = emptyResult();
+        bad.warnings.push(
+          `This Zillow URL appears to be invalid — the listing is in ${result.state} but the URL address says ${slugState}. Copy the URL directly from Zillow and try again.`,
+        );
+        return bad;
+      }
+    }
+  }
 
   if (zillow?.facts) {
     result.facts = {

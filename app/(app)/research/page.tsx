@@ -448,6 +448,14 @@ function ElectronResearchPage() {
       sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
     }
 
+    // Surface any resolver-detected mismatch warning as an immediate error.
+    const resolverMismatch = payload.warnings?.find((w: string) =>
+      w.includes("appears to be invalid") || w.includes("URL address says")
+    )
+    if (resolverMismatch) {
+      throw new Error(resolverMismatch)
+    }
+
     // Strict gate: refuse to run the engine when no real price was found.
     const priceSource = payload.provenance?.purchasePrice?.source
     const hasMeaningfulPrice =
@@ -458,8 +466,8 @@ function ElectronResearchPage() {
 
     if (!hasMeaningfulPrice) {
       throw new Error(
-        "This listing couldn't be resolved — no price was extracted. " +
-        "Try a direct listing URL (e.g. zillow.com/homedetails/…) or a full street address with city and state."
+        "This listing couldn't be resolved — no price was found. " +
+        "Try a direct Zillow listing URL (zillow.com/homedetails/…) or a full street address including city and state."
       )
     }
 
@@ -913,10 +921,20 @@ function WebResearchPage() {
       priceSource != null &&
       priceSource !== "default"
 
+    // Surface any resolver-detected mismatch warning as an immediate error.
+    // The resolver sets warnings (not HTTP errors) when it detects a state
+    // mismatch to keep the shape consistent; the price will be absent.
+    const resolverMismatch = payload.warnings?.find(w =>
+      w.includes("appears to be invalid") || w.includes("URL address says")
+    )
+    if (resolverMismatch) {
+      throw new Error(resolverMismatch)
+    }
+
     if (!hasMeaningfulPrice) {
       throw new Error(
-        "This listing couldn't be resolved — no price was extracted. " +
-        "Try a direct listing URL (e.g. zillow.com/homedetails/…) or a full street address with city and state."
+        "This listing couldn't be resolved — no price was found. " +
+        "Try a direct Zillow listing URL (zillow.com/homedetails/…) or a full street address including city and state."
       )
     }
 
