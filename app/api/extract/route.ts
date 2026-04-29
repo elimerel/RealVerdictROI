@@ -79,44 +79,36 @@ const InvestorExtractionSchema = z.object({
 // ---------------------------------------------------------------------------
 
 function buildPrompt(title: string, url: string, text: string): string {
-  return `You are a professional real estate deal underwriter for high-velocity investors (wholesalers and flippers). Your job is to extract structured data from this listing page with maximum precision.
+  return `You are a real estate data extractor for a financial deal engine. Your job is to read listing page text and extract facts with exact accuracy.
 
-EXTRACTION RULES:
-- Return null for any field not found. All money values = plain numbers (no $ signs).
+STRICT RULES:
+- Return null for ANY field not explicitly stated on the page. Never estimate, infer, or invent values.
+- All money values must be plain numbers — no $ signs, no commas, no formatting.
+- This data feeds a financial engine. Wrong numbers produce wrong verdicts. Accuracy over completeness.
 - siteName: the platform name (e.g. "Zillow", "Redfin", "Realtor.com", "MLS").
-- confidence: "high" if you found the address and list price clearly, "medium" if you inferred values, "low" if the page is sparse.
+- confidence: "high" if address and price are clearly present, "medium" if one is unclear, "low" if both are missing.
+- arvEstimate: only if an ARV or "after-repair value" is explicitly stated on the page — not estimated by you.
+- estimatedRehabCost: only if a rehab/renovation cost is explicitly stated on the page — not estimated by you.
 
-NEGATIVE SIGNAL SCAN — CRITICAL:
-Search the FULL page text for these investor red flags and list EVERY one you find. Be thorough — these signals can kill a deal.
+NEGATIVE SIGNAL SCAN — scan the full text for these investor red flags:
 
-HIGH severity (walk away immediately):
-  - Probate/estate: "subject to probate", "probate sale", "estate sale", "court approval"
-  - Foundation: "foundation", "foundation issue", "foundation crack", "structural"
+HIGH severity:
+  - Probate/estate: "subject to probate", "probate sale", "estate sale", "court approval required"
+  - Foundation/structural: "foundation issue", "foundation crack", "structural damage", "structural repair"
   - Title: "encroachment", "title issues", "quiet title", "boundary dispute"
   - Liens: "tax lien", "back taxes", "judgment lien", "mechanic's lien"
 
-MEDIUM severity (investigate before offering):
+MEDIUM severity:
   - Financing: "cash only", "cash buyers only", "no financing", "as-is", "sold as-is"
   - Damage: "fire damage", "water damage", "flood damage", "mold", "asbestos", "lead paint"
   - Condition: "needs work", "investor special", "TLC", "major repairs", "gut renovation"
 
-LOW severity (note for due diligence):
+LOW severity:
   - "short sale", "bank owned", "REO", "pre-foreclosure", "auction"
   - "easement", "right of way", "deed restriction", "HOA violation"
 
 NEARBY RECENTLY SOLD PROPERTIES:
-If the page lists "recently sold", "similar homes sold", "comparable sales", or any nearby sold properties, extract up to 10 as pageComps. Each should have address, soldPrice, beds, baths, sqft (if visible), and soldDate. These are sale comps that help anchor fair value. Extract them even if they're only partially visible.
-
-ARV ESTIMATE:
-Based on all visible data (neighborhood, comps, Zestimate, sold prices nearby, $/sqft patterns), estimate the After Repair Value — what this property is worth fully renovated. If you see a "Zestimate", nearby sold prices, or $/sqft data, use it. If the listing says "recently renovated", the ARV ≈ list price.
-
-REHAB COST ESTIMATE:
-Based on condition signals in the listing, estimate rehab cost:
-- "Move-in ready", "fully renovated", "turnkey" → $0–$5,000
-- "Needs cosmetic updates", "dated kitchen/bath" → $15,000–$40,000
-- "Needs work", "TLC", "investor special" → $40,000–$80,000
-- "Major repairs", "gut renovation", fire/water damage → $80,000–$150,000+
-Return null if you cannot make a reasonable estimate.
+If the page lists recently sold or comparable nearby properties, extract up to 10 as pageComps. Each needs address, soldPrice (number), and whatever else is visible (beds, baths, sqft, soldDate).
 
 Page title: ${title}
 Page URL: ${url}
@@ -192,7 +184,7 @@ export async function POST(req: NextRequest) {
     if (bundle.provider === "anthropic") {
       const anthropic = createAnthropic({ apiKey: bundle.key })
       const result = await generateObject({
-        model: anthropic("claude-sonnet-4-6"),
+        model: anthropic("claude-haiku-4-5"),
         schema: InvestorExtractionSchema,
         prompt,
       })
@@ -224,42 +216,10 @@ export async function POST(req: NextRequest) {
     if (extracted.yearBuilt)           facts.yearBuilt          = extracted.yearBuilt
     if (extracted.propertyType)        facts.propertyType       = extracted.propertyType
 
-    const modelLabel = bundle.provider === "anthropic" ? "Claude" : "GPT-4o-mini"
+    const modelLabel = bundle.provider === "anthropic" ? "Claude Haiku" : "GPT-4o-mini"
     notes.push(
       `Read from ${extracted.siteName ?? new URL(body.url ?? "https://unknown").hostname} via ${modelLabel} · confidence: ${extracted.confidence}`
     )
-
-    // Step 3: Fill gaps via property-resolve.
-    // skipRentcast=true — /api/extract is an automatic analysis path;
-    // RentCast must never fire automatically (cost leak prevention).
-    if (extracted.address) {
-      try {
-        const origin = new URL(req.url).origin
-        const res = await fetch(
-          `${origin}/api/property-resolve?address=${encodeURIComponent(extracted.address)}&skipRentcast=true`,
-          { signal: AbortSignal.timeout(15000) },
-        )
-        if (res.ok) {
-          const resolved = await res.json() as {
-            inputs?: Partial<DealInputs>
-            notes?: string[]
-            warnings?: string[]
-            facts?: Record<string, unknown>
-          }
-          for (const [k, v] of Object.entries(resolved.inputs ?? {})) {
-            const key = k as keyof DealInputs
-            if (inputs[key] == null && v != null) {
-              (inputs as Record<string, unknown>)[key] = v
-            }
-          }
-          Object.assign(facts, resolved.facts)
-          notes.push(...(resolved.notes ?? []))
-          warnings.push(...(resolved.warnings ?? []))
-        }
-      } catch {
-        warnings.push("Supplemental estimates unavailable — using listing data only.")
-      }
-    }
 
     // Surface high-severity signals as warnings so they appear in the UI
     for (const sig of extracted.negativeSignals) {

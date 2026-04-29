@@ -325,314 +325,99 @@ ipcMain.handle("browser:extract-dom", async () => {
 })
 
 // ---------------------------------------------------------------------------
-// Structured page extractors — run in the page's JS context via
-// executeJavaScript, then return the same shape as /api/extract so the
-// renderer (research/page.tsx) works identically regardless of path.
+// Claude Haiku extraction — called directly from the Electron main process.
 //
-// Each extractor runs entirely client-side in the listing page's JS context,
-// accessing window.__NEXT_DATA__, window.__reactInitialState__, or JSON-LD
-// script tags. No ScraperAPI, no AI tokens used.
+// Reads page text from the already-loaded webview (no scraping, no outbound
+// URL fetch) and sends it to Anthropic's API.  Returns a parsed JSON object
+// with exact field names or null on failure.
 //
-// Returns null when structured extraction fails → falls back to AI path.
+// Using Haiku: small payload (a listing page as plain text ≈ 3–5k tokens),
+// fast (~1–2 s), cheap.  No round trip to the Next.js server.
 // ---------------------------------------------------------------------------
 
-// Zillow — reads window.__NEXT_DATA__ (all the data Zillow ships to React)
-const ZILLOW_EXTRACTOR_JS = `(function() {
-  try {
-    var nd = window.__NEXT_DATA__;
-    if (!nd) return null;
-    var pageProps = nd.props && nd.props.pageProps;
-    if (!pageProps) return null;
+const HAIKU_EXTRACTION_PROMPT = `You are a real estate data extractor. Your only job is to read this listing page text and return a single valid JSON object.
 
-    // gdpClientCache may be a JSON-encoded string
-    var cache = (pageProps.componentProps && pageProps.componentProps.gdpClientCache)
-      || pageProps.gdpClientCache || null;
-    if (typeof cache === 'string') { try { cache = JSON.parse(cache); } catch(e) { cache = null; } }
+STRICT RULES — read carefully:
+1. Return null for ANY field not explicitly stated on the page. Never estimate, infer, or invent values.
+2. All money values must be plain numbers — no $ signs, no commas.
+3. This data feeds a financial engine. Wrong numbers produce wrong verdicts. Accuracy over completeness.
 
-    // Walk any object tree for the first object that looks like a property listing
-    function walk(obj, depth) {
-      if (!obj || typeof obj !== 'object' || depth > 9) return null;
-      var hasPriceSignal = (typeof obj.price === 'number' || typeof obj.zestimate === 'number'
-        || typeof obj.unformattedPrice === 'number' || typeof obj.rentZestimate === 'number');
-      var hasIdentity = (typeof obj.bedrooms === 'number' || typeof obj.zpid !== 'undefined'
-        || typeof obj.streetAddress !== 'undefined' || typeof obj.livingArea === 'number');
-      if (hasPriceSignal && hasIdentity && Object.keys(obj).length >= 5) return obj;
-      var vals = Array.isArray(obj) ? obj : Object.values(obj);
-      for (var i = 0; i < vals.length; i++) {
-        var f = walk(vals[i], depth + 1);
-        if (f) return f;
-      }
-      return null;
-    }
+Return exactly this JSON shape (no markdown, no explanation — only the JSON object):
+{
+  "address": "full street address with city, state, zip — or null",
+  "price": list price as number or null,
+  "beds": bedroom count as number or null,
+  "baths": bathroom count as number or null,
+  "sqft": square footage as number or null,
+  "yearBuilt": year built as number or null,
+  "propertyType": "Single Family" / "Condo" / "Townhouse" / "Multi-Family" / etc or null,
+  "monthlyRent": monthly rent estimate IF explicitly shown on page or null,
+  "monthlyHOA": monthly HOA fee IF explicitly shown or null,
+  "annualPropertyTax": annual property tax IF explicitly shown or null,
+  "annualInsurance": annual homeowners insurance IF explicitly shown or null,
+  "arvEstimate": after-repair value IF explicitly stated (not estimated by you) or null,
+  "rehabCost": rehab/renovation cost IF explicitly stated (not estimated by you) or null,
+  "siteName": platform name e.g. "Zillow" / "Redfin" / "Realtor.com" or null,
+  "confidence": "high" if address and price are clearly present, "medium" if one is unclear, "low" if both are missing,
+  "negativeSignals": [
+    Objects with { "signal": "short description", "severity": "high"|"medium"|"low" } for any of:
+    HIGH — probate/estate sale, foundation/structural issues, title problems, tax liens, mechanic liens
+    MEDIUM — as-is/cash-only, fire/water/flood damage, mold, asbestos, lead paint, needs major work
+    LOW — short sale, REO/bank-owned, pre-foreclosure, auction, easement, HOA violation
+    Empty array [] if none found.
+  ],
+  "pageComps": [
+    Objects with { "address": string, "soldPrice": number, "beds": number|null, "baths": number|null, "sqft": number|null, "soldDate": string|null }
+    for nearby recently-sold properties IF listed on the page. Up to 10. Empty array [] if none.
+  ]
+}`
 
-    var prop = walk(cache, 0) || walk(pageProps, 0);
-    if (!prop) return null;
+/**
+ * Call Anthropic's claude-haiku-4-5 directly from the Electron main process.
+ * Bypasses the Next.js server entirely — the page text is already on this
+ * machine and goes straight to Anthropic.
+ *
+ * @param {string} apiKey  Anthropic API key from local config
+ * @param {{ url: string, title: string, text: string }} dom  Page content
+ * @returns {Promise<object|null>}  Parsed extraction JSON or null
+ */
+async function callAnthropicHaiku(apiKey, dom) {
+  const userMessage =
+    `Page title: ${dom.title}\nPage URL: ${dom.url}\n\nPage text:\n${dom.text.slice(0, 25000)}`
 
-    // Address
-    var address = null;
-    if (typeof prop.streetAddress === 'string' && prop.streetAddress) {
-      address = prop.streetAddress + ', ' + (prop.city||'') + ', ' + (prop.state||'') + ' ' + (prop.zipcode||'');
-    } else if (prop.address && typeof prop.address === 'object') {
-      var a = prop.address;
-      address = ((a.streetAddress||'') + ', ' + (a.city||'') + ', ' + (a.state||'') + ' ' + (a.zipcode||a.postalCode||'')).trim();
-    } else if (typeof prop.address === 'string') {
-      address = prop.address;
-    }
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5",
+      max_tokens: 1024,
+      system: HAIKU_EXTRACTION_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+    }),
+    signal: AbortSignal.timeout(15_000),
+  })
 
-    // Annual property tax from taxHistory or rate
-    var annualTax = null;
-    if (Array.isArray(prop.taxHistory) && prop.taxHistory.length) {
-      var sorted = prop.taxHistory
-        .filter(function(t) { return t && t.taxPaid > 0; })
-        .sort(function(a, b) { return (b.time||0) - (a.time||0); });
-      if (sorted[0]) annualTax = sorted[0].taxPaid;
-    }
-    var price = prop.price || prop.unformattedPrice || null;
-    if (!annualTax && prop.propertyTaxRate && price) {
-      annualTax = Math.round((prop.propertyTaxRate / 100) * price);
-    }
-
-    // Annual insurance
-    var annualIns = prop.annualHomeownersInsurance || null;
-    if (!annualIns && prop.monthlyCosts && prop.monthlyCosts.homeInsurance) {
-      annualIns = Math.round(prop.monthlyCosts.homeInsurance * 12);
-    }
-
-    // Nearby sold homes (page comps)
-    var pageComps = [];
-    var nearby = prop.nearbyHomes || prop.comps || prop.recentlySoldHomes || [];
-    if (Array.isArray(nearby)) {
-      nearby.slice(0, 10).forEach(function(h) {
-        if (!h || typeof h !== 'object') return;
-        var sp = h.price || h.unformattedPrice || h.lastSoldPrice || null;
-        if (!sp || sp <= 0) return;
-        var ca = h.streetAddress || (h.address && (typeof h.address === 'string' ? h.address : h.address.streetAddress)) || '';
-        pageComps.push({ address: ca, soldPrice: sp,
-          beds: h.bedrooms||null, baths: h.bathrooms||null,
-          sqft: h.livingArea||h.livingAreaValue||null, soldDate: h.dateSold||h.soldDate||null });
-      });
-    }
-
-    return {
-      address: address ? address.replace(/\\s+/g, ' ').trim() : null,
-      price: price, rentEstimate: prop.rentZestimate || null,
-      beds: prop.bedrooms||null, baths: prop.bathrooms||null,
-      sqft: prop.livingArea||prop.livingAreaValue||null,
-      yearBuilt: prop.yearBuilt||null, hoa: prop.monthlyHoaFee||prop.hoaFee||null,
-      annualTax: annualTax, annualInsurance: annualIns,
-      propertyType: prop.homeType||null, pageComps: pageComps,
-    };
-  } catch(e) { return null; }
-})()`
-
-// Redfin — reads window.__reactInitialState__ or JSON-LD listing data
-const REDFIN_EXTRACTOR_JS = `(function() {
-  try {
-    // Try __reactInitialState__ first
-    var s = window.__reactInitialState__;
-    var listing = null;
-    if (s && s.propertyDetails) {
-      listing = s.propertyDetails;
-    } else if (s && s.listingInfo) {
-      listing = s.listingInfo;
-    }
-    // Fallback: JSON-LD
-    if (!listing) {
-      var scripts = document.querySelectorAll('script[type="application/ld+json"]');
-      for (var i = 0; i < scripts.length; i++) {
-        try {
-          var d = JSON.parse(scripts[i].textContent);
-          if (d && (d['@type'] === 'RealEstateListing' || d['@type'] === 'Product' || d.price)) {
-            listing = d; break;
-          }
-        } catch(e) {}
-      }
-    }
-    if (!listing) return null;
-
-    // Extract from Redfin's propertyDetails structure
-    var pd = listing.basicInfo || listing;
-    var address = null;
-    if (pd.streetLine && pd.city && pd.state) {
-      address = pd.streetLine + ', ' + pd.city + ', ' + pd.state + ' ' + (pd.zip||'');
-    } else if (typeof listing.name === 'string') {
-      address = listing.name;
-    } else if (typeof listing.address === 'object' && listing.address) {
-      var a = listing.address;
-      address = (a.streetAddress||'') + ', ' + (a.addressLocality||'') + ', ' + (a.addressRegion||'') + ' ' + (a.postalCode||'');
-    }
-
-    var price = pd.listingPrice || pd.price || (listing.offers && listing.offers.price) || null;
-    if (typeof price === 'string') price = parseFloat(price.replace(/[$,]/g,'')) || null;
-
-    var rentEst = pd.rentEstimate || pd.rentZestimate || null;
-    var beds = pd.beds || pd.bedrooms || null;
-    var baths = pd.baths || pd.bathrooms || null;
-    var sqft = pd.sqFt || pd.squareFeet || pd.livingArea || null;
-    if (sqft && sqft.value) sqft = sqft.value;
-    var yearBuilt = pd.yearBuilt || null;
-    var hoa = pd.hoa && pd.hoa.fee ? pd.hoa.fee : null;
-    var annualTax = pd.propertyTaxInfo && pd.propertyTaxInfo.taxesDue ? pd.propertyTaxInfo.taxesDue : null;
-
-    // Nearby sold comps from Redfin
-    var pageComps = [];
-    var similar = (s && (s.recentlySoldHomes || s.nearbyHomes)) || [];
-    if (Array.isArray(similar)) {
-      similar.slice(0, 10).forEach(function(h) {
-        var hp = h.basicInfo || h;
-        var sp = hp.soldPrice || hp.listingPrice || hp.price || null;
-        if (!sp || sp <= 0) return;
-        var ca = hp.streetLine || '';
-        if (hp.city) ca += ', ' + hp.city;
-        pageComps.push({ address: ca, soldPrice: sp,
-          beds: hp.beds||null, baths: hp.baths||null, sqft: hp.sqFt||null, soldDate: hp.soldDate||null });
-      });
-    }
-
-    return {
-      address: address ? address.replace(/\\s+/g,' ').trim() : null,
-      price: price, rentEstimate: rentEst, beds: beds, baths: baths,
-      sqft: sqft ? Math.round(Number(sqft)) : null, yearBuilt: yearBuilt,
-      hoa: hoa, annualTax: annualTax, annualInsurance: null,
-      propertyType: pd.propertyType||null, pageComps: pageComps,
-    };
-  } catch(e) { return null; }
-})()`
-
-// Realtor.com — reads JSON-LD <script> tags + window.__renderedProps__
-const REALTOR_EXTRACTOR_JS = `(function() {
-  try {
-    // JSON-LD first (most reliable on Realtor.com)
-    var data = null;
-    var scripts = document.querySelectorAll('script[type="application/ld+json"]');
-    for (var i = 0; i < scripts.length; i++) {
-      try {
-        var d = JSON.parse(scripts[i].textContent);
-        if (d && (d['@type'] === 'RealEstateListing' || d['@type'] === 'SingleFamilyResidence'
-            || d['@type'] === 'Apartment' || d['@type'] === 'Residence')) {
-          data = d; break;
-        }
-      } catch(e) {}
-    }
-    // Fallback: window.__NEXT_DATA__ (Realtor.com also uses Next.js)
-    if (!data) {
-      var nd = window.__NEXT_DATA__;
-      if (nd && nd.props && nd.props.pageProps) {
-        var pp = nd.props.pageProps;
-        data = pp.listing || pp.property || pp.propertyDetails || null;
-      }
-    }
-    if (!data) return null;
-
-    var address = null;
-    if (data.address && typeof data.address === 'object') {
-      var a = data.address;
-      address = (a.streetAddress||'') + ', ' + (a.addressLocality||a.city||'')
-        + ', ' + (a.addressRegion||a.state||'') + ' ' + (a.postalCode||a.zipCode||'');
-    } else if (typeof data.address === 'string') {
-      address = data.address;
-    } else if (data.streetLine || data.street_address) {
-      address = (data.streetLine||data.street_address||'') + ', '
-        + (data.city||'') + ', ' + (data.state||'') + ' ' + (data.zip_code||data.postal_code||'');
-    }
-
-    var price = null;
-    if (data.offers) {
-      price = typeof data.offers.price === 'string'
-        ? parseFloat(data.offers.price.replace(/[$,]/g,'')) : data.offers.price || null;
-    }
-    if (!price) price = data.listPrice || data.price || data.list_price || null;
-
-    var beds = data.numberOfRooms || data.bedrooms || data.beds || null;
-    var baths = data.bathrooms || data.baths || null;
-    var sqft = data.floorSize ? (data.floorSize.value || data.floorSize) : (data.sqFt || data.square_feet || null);
-    var yearBuilt = data.yearBuilt || data.year_built || null;
-    var hoa = (data.hoa_fee && data.hoa_fee.fee) || data.monthlyHoa || null;
-    var annualTax = data.tax_history && data.tax_history[0] ? data.tax_history[0].tax : null;
-
-    // Nearby sold from Realtor.com (usually in __NEXT_DATA__ nearbyHomes)
-    var pageComps = [];
-    var nearby = (window.__NEXT_DATA__ && window.__NEXT_DATA__.props && window.__NEXT_DATA__.props.pageProps
-      && (window.__NEXT_DATA__.props.pageProps.nearbyHomes || window.__NEXT_DATA__.props.pageProps.soldHomes)) || [];
-    if (Array.isArray(nearby)) {
-      nearby.slice(0, 10).forEach(function(h) {
-        var sp = h.soldPrice || h.list_price || h.price || null;
-        if (!sp || sp <= 0) return;
-        var ca = h.location && h.location.address ? h.location.address.line : (h.streetLine || h.address || '');
-        pageComps.push({ address: ca, soldPrice: sp,
-          beds: h.beds||null, baths: h.baths||null,
-          sqft: h.building_size && h.building_size.size ? h.building_size.size : null, soldDate: h.last_sold_date||null });
-      });
-    }
-
-    return {
-      address: address ? address.replace(/\\s+/g,' ').trim() : null,
-      price: price, rentEstimate: null, beds: beds, baths: baths,
-      sqft: sqft ? Math.round(Number(sqft)) : null, yearBuilt: yearBuilt,
-      hoa: hoa, annualTax: annualTax, annualInsurance: null,
-      propertyType: data['@type'] || data.propertyType || null, pageComps: pageComps,
-    };
-  } catch(e) { return null; }
-})()`
-
-// Build the /api/extract-compatible response from a structured extraction result.
-// Returns the full response object (same shape as what /api/extract returns) or null.
-async function buildStructuredResponse(structured, dom, config) {
-  if (!structured || !structured.price) return null
-
-  const inputs = {}
-  const facts = {}
-  const notes = []
-  const warnings = []
-
-  if (structured.price)         inputs.purchasePrice     = Math.round(structured.price)
-  if (structured.rentEstimate)  inputs.monthlyRent       = Math.round(structured.rentEstimate)
-  if (structured.hoa)           inputs.monthlyHOA        = Math.round(structured.hoa)
-  if (structured.annualTax)     inputs.annualPropertyTax = Math.round(structured.annualTax)
-  if (structured.annualInsurance) inputs.annualInsurance = Math.round(structured.annualInsurance)
-  if (structured.beds)          facts.bedrooms    = structured.beds
-  if (structured.baths)         facts.bathrooms   = structured.baths
-  if (structured.sqft)          facts.squareFeet  = structured.sqft
-  if (structured.yearBuilt)     facts.yearBuilt   = structured.yearBuilt
-  if (structured.propertyType)  facts.propertyType = structured.propertyType
-
-  const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.","") } catch { return "listing" } })()
-  notes.push(`Extracted from ${hostname} page JSON (no AI token used)`)
-
-  // Fill gaps via property-resolve when we have an address.
-  // skipRentcast=true — this is an automatic analysis path; RentCast must
-  // never be called automatically (cost leak prevention).
-  if (structured.address) {
-    try {
-      const res = await fetch(`${BASE_URL}/api/property-resolve?address=${encodeURIComponent(structured.address)}&skipRentcast=true`, {
-        signal: AbortSignal.timeout(15_000),
-      })
-      if (res.ok) {
-        const resolved = await res.json()
-        for (const [k, v] of Object.entries(resolved.inputs ?? {})) {
-          if (inputs[k] == null && v != null) inputs[k] = v
-        }
-        Object.assign(facts, resolved.facts ?? {})
-        notes.push(...(resolved.notes ?? []))
-        warnings.push(...(resolved.warnings ?? []))
-      }
-    } catch {
-      warnings.push("Supplemental estimates unavailable — using listing data only.")
-    }
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "")
+    throw new Error(`Anthropic API ${res.status}: ${errText.slice(0, 200)}`)
   }
 
-  return {
-    address: structured.address ?? undefined,
-    inputs, facts, notes, warnings,
-    provenance: {},
-    siteName: hostname,
-    confidence: "high",
-    negativeSignals: [],
-    arvEstimate: undefined,
-    rehabCostEstimate: undefined,
-    modelUsed: "structured",
-    pageComps: Array.isArray(structured.pageComps) && structured.pageComps.length > 0
-      ? structured.pageComps : undefined,
+  const response = await res.json()
+  const text = response.content?.[0]?.text ?? ""
+
+  // Strip optional markdown fences before parsing
+  const jsonText = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
+  const match = jsonText.match(/\{[\s\S]*\}/)
+  if (!match) return null
+
+  try {
+    return JSON.parse(match[0])
+  } catch {
+    return null
   }
 }
 
@@ -640,72 +425,114 @@ async function buildStructuredResponse(structured, dom, config) {
 // Used by the will-navigate intercept to add pagecomps to the /results URL.
 let pendingPageComps = null
 
+// ---------------------------------------------------------------------------
+// IPC — browser:analyze
+//
+// Extracts the fully-loaded page text from the embedded webview and sends it
+// to Claude Haiku for structured extraction.  No scraping, no URL fetching,
+// no round trip to the Next.js server.  The data is already on the machine.
+//
+// Key points:
+// - Always uses Claude Haiku (fast, cheap, markup-agnostic)
+// - Works on Zillow, Redfin, Realtor.com, and any other listing site
+// - Falls back to /api/extract (OpenAI) only when no Anthropic key is set
+// - RentCast is never called automatically (cost leak prevention)
+// ---------------------------------------------------------------------------
+
 ipcMain.handle("browser:analyze", async () => {
   if (!browserView) return { error: "No browser session active." }
-  pendingPageComps = null  // clear previous
+  pendingPageComps = null
 
+  // Extract full page text from the already-loaded webview DOM
   let dom
   try {
     dom = await browserView.webContents.executeJavaScript(`
       (() => {
-        const url = window.location.href
-        const title = document.title
         const clone = document.body.cloneNode(true)
         clone.querySelectorAll('nav,header,footer,script,style,[aria-hidden="true"]').forEach(el => el.remove())
-        return { url, title, text: (clone.innerText||"").slice(0,30000) }
+        return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,25000) }
       })()
     `)
   } catch { return { error: "Could not read the page. Try reloading it." } }
 
-  if (!dom) return { error: "Could not read the page. Try reloading it." }
-
-  // Attempt structured extraction for known listing sites first
-  const url = dom.url || ""
-  let structured = null
-  try {
-    if (/zillow\.com/i.test(url)) {
-      structured = await browserView.webContents.executeJavaScript(ZILLOW_EXTRACTOR_JS)
-    } else if (/redfin\.com/i.test(url)) {
-      structured = await browserView.webContents.executeJavaScript(REDFIN_EXTRACTOR_JS)
-    } else if (/realtor\.com/i.test(url)) {
-      structured = await browserView.webContents.executeJavaScript(REALTOR_EXTRACTOR_JS)
-    }
-  } catch {
-    structured = null
-  }
-
-  if (structured && structured.price) {
-    // Structured extraction succeeded — no AI call needed
-    const config = readConfig()
-    const result = await buildStructuredResponse(structured, dom, config)
-    if (result) {
-      // Stash page comps so the will-navigate interceptor can add them to the URL
-      if (result.pageComps && result.pageComps.length > 0) {
-        pendingPageComps = result.pageComps
-      }
-      return result
-    }
-    // If buildStructuredResponse failed (e.g. no price after resolve), fall through to AI
-  }
-
-  // AI fallback — for unknown sites or when structured extraction failed
-  if (!dom.text || dom.text.length < 50)
+  if (!dom || !dom.text || dom.text.length < 50)
     return { error: "Not enough page content. Make sure you're on a property listing." }
 
   const config = readConfig()
-  const headers = { "Content-Type": "application/json" }
-  if (config.anthropicApiKey) headers["X-Anthropic-Key"] = config.anthropicApiKey
-  if (config.openaiApiKey)    headers["X-OpenAI-Key"]    = config.openaiApiKey
+  const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.", "") } catch { return "listing" } })()
+
+  // Prefer Anthropic: call Haiku directly (no server round trip)
+  if (config.anthropicApiKey) {
+    try {
+      const extracted = await callAnthropicHaiku(config.anthropicApiKey, dom)
+      if (!extracted) return { error: "Claude could not extract property data from this page." }
+
+      const inputs = {}
+      const facts  = {}
+
+      if (extracted.price)             inputs.purchasePrice     = Math.round(extracted.price)
+      if (extracted.monthlyRent)       inputs.monthlyRent       = Math.round(extracted.monthlyRent)
+      if (extracted.monthlyHOA)        inputs.monthlyHOA        = Math.round(extracted.monthlyHOA)
+      if (extracted.annualPropertyTax) inputs.annualPropertyTax = Math.round(extracted.annualPropertyTax)
+      if (extracted.annualInsurance)   inputs.annualInsurance   = Math.round(extracted.annualInsurance)
+      if (extracted.beds)              facts.bedrooms           = extracted.beds
+      if (extracted.baths)             facts.bathrooms          = extracted.baths
+      if (extracted.sqft)              facts.squareFeet         = extracted.sqft
+      if (extracted.yearBuilt)         facts.yearBuilt          = extracted.yearBuilt
+      if (extracted.propertyType)      facts.propertyType       = extracted.propertyType
+
+      const siteName   = extracted.siteName ?? hostname
+      const confidence = extracted.confidence ?? "medium"
+      const notes      = [`Extracted from ${siteName} via Claude Haiku · confidence: ${confidence}`]
+      const warnings   = []
+
+      for (const sig of (extracted.negativeSignals ?? [])) {
+        if (sig.severity === "high") warnings.push(`⚠ ${sig.signal}`)
+      }
+
+      if (Array.isArray(extracted.pageComps) && extracted.pageComps.length > 0) {
+        pendingPageComps = extracted.pageComps
+      }
+
+      return {
+        address:          extracted.address ?? undefined,
+        inputs, facts, notes, warnings,
+        provenance:       {},
+        siteName,
+        confidence,
+        negativeSignals:  extracted.negativeSignals ?? [],
+        arvEstimate:      extracted.arvEstimate  ?? undefined,
+        rehabCostEstimate: extracted.rehabCost   ?? undefined,
+        modelUsed:        "anthropic",
+        pageComps:        Array.isArray(extracted.pageComps) && extracted.pageComps.length > 0
+                            ? extracted.pageComps : undefined,
+      }
+    } catch (err) {
+      console.error("[browser:analyze] Haiku error:", err)
+      return { error: err instanceof Error ? err.message : "Extraction failed." }
+    }
+  }
+
+  // Fallback: no Anthropic key — forward to /api/extract (uses OpenAI)
+  if (!config.openaiApiKey) {
+    return { error: "No AI API key configured. Add an Anthropic or OpenAI key in Settings." }
+  }
 
   try {
     const res = await fetch(`${BASE_URL}/api/extract`, {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json",
+        "X-OpenAI-Key": config.openaiApiKey,
+      },
       body: JSON.stringify({ url: dom.url, title: dom.title, text: dom.text }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(30_000),
     })
     const body = await res.json()
     if (!res.ok) return { error: body?.error ?? `Server error ${res.status}` }
+    if (Array.isArray(body.pageComps) && body.pageComps.length > 0) {
+      pendingPageComps = body.pageComps
+    }
     return body
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Network error." }
