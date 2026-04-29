@@ -720,7 +720,7 @@ function ElectronResearchPage() {
                 <ListingCard data={nativeResult!.listingData} />
               </div>
             ) : (
-              <IdleHunting onSubmit={nativeSubmit} />
+              <NativeIdleState onSetQuery={setNativeQuery} />
             )
           ) : (
             /* Browser mode: this div is the placeholder that Electron's
@@ -1162,6 +1162,70 @@ function WebResearchPage() {
 
 // ---------------------------------------------------------------------------
 // Idle hunting state — shown before any search
+// ---------------------------------------------------------------------------
+// Native mode idle state (Electron)
+//
+// Does NOT have site pills — those only make sense in browser mode.
+// Shows exactly what inputs the resolver accepts and lets the user
+// click to pre-fill the search bar with the right format.
+// ---------------------------------------------------------------------------
+
+function NativeIdleState({ onSetQuery }: { onSetQuery: (q: string) => void }) {
+  const ZILLOW_EXAMPLE  = "https://www.zillow.com/homedetails/123-main-st-reno-nv-89501/12345678_zpid/"
+  const ADDRESS_EXAMPLE = "123 Main St, Reno, NV 89501"
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 text-center select-none">
+      {/* Illustration */}
+      <div className="h-24 w-24 rounded-2xl bg-white/3 border border-white/8 flex items-center justify-center shrink-0">
+        <svg width="48" height="36" viewBox="0 0 48 36" fill="none">
+          <rect x="4" y="16" width="40" height="18" rx="2" fill="currentColor" className="text-white/8" />
+          <path d="M2 18L24 4L46 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-white/20" />
+          <rect x="10" y="22" width="10" height="12" rx="1" fill="currentColor" className="text-white/12" />
+          <rect x="28" y="22" width="10" height="8" rx="1" fill="currentColor" className="text-white/12" />
+          <line x1="36" y1="6" x2="36" y2="2" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="39" y1="7" x2="42" y2="4" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="40" y1="10" x2="44" y2="10" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
+
+      <div className="space-y-1.5 max-w-xs">
+        <p className="text-sm font-semibold text-foreground">Search for a property above</p>
+        <p className="text-[13px] text-muted-foreground leading-relaxed">
+          Paste a Zillow listing URL or type a full street address. RealVerdict pulls the real numbers and analyzes the deal — no Zillow chrome.
+        </p>
+      </div>
+
+      {/* Format examples */}
+      <div className="w-full max-w-sm space-y-2 text-left">
+        <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider px-1">Accepted formats</p>
+
+        <button
+          type="button"
+          onClick={() => onSetQuery(ZILLOW_EXAMPLE)}
+          className="w-full text-left px-3 py-2.5 rounded-lg border border-white/8 hover:border-white/16 hover:bg-white/4 transition-all group"
+        >
+          <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mb-1">Zillow listing URL</p>
+          <p className="text-[11px] font-mono text-muted-foreground/70 group-hover:text-muted-foreground truncate leading-relaxed">
+            zillow.com/homedetails/…
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onSetQuery(ADDRESS_EXAMPLE)}
+          className="w-full text-left px-3 py-2.5 rounded-lg border border-white/8 hover:border-white/16 hover:bg-white/4 transition-all group"
+        >
+          <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mb-1">Street address</p>
+          <p className="text-[11px] font-mono text-muted-foreground/70 group-hover:text-muted-foreground leading-relaxed">
+            {ADDRESS_EXAMPLE}
+          </p>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 
 function IdleHunting({ onSubmit }: { onSubmit: (text: string) => void }) {
