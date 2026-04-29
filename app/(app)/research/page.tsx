@@ -17,6 +17,7 @@ import {
   sanitiseInputs,
   formatCurrency,
   formatPercent,
+  DEFAULT_INPUTS,
   type DealInputs,
   type DealAnalysis,
   type VerdictTier,
@@ -92,9 +93,14 @@ export function generateVerdictSummary(
 
   if (tier === "poor") {
     if (cf < 0) {
-      return `Negative cash flow of ${formatCurrency(cf)}/mo. Walk-away at ${formatCurrency(walkAway ?? askingPrice)} to break even.`
+      return `Negative cash flow of ${formatCurrency(cf)}/mo. Walk-away ${formatCurrency(walkAway ?? askingPrice)} gets this to Borderline.`
     }
-    return `Cap rate ${cap} is below threshold. Cash flow ${formatCurrency(cf)}/mo — thin margin for vacancy or repairs.`
+    // Positive CF but still Risky — explain the actual risk driver with numbers.
+    // The verdict is driven by cap rate + DSCR, not cash flow alone.
+    if (!isFinite(analysis.dscr)) {
+      return `DSCR not calculable — verify loan terms. Walk-away ${formatCurrency(walkAway ?? askingPrice)} gets this to Borderline.`
+    }
+    return `DSCR ${dscr}x and cap rate ${cap} are below threshold. Walk-away: ${formatCurrency(walkAway ?? askingPrice)}.`
   }
 
   if (tier === "fair") {
@@ -128,15 +134,29 @@ function hostnameOf(url: string) {
 }
 
 function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
-  const sanitized = sanitiseInputs(data.inputs as DealInputs)
+  // Merge with DEFAULT_INPUTS so that fields not extracted from the listing
+  // (down payment %, loan rate, loan term, etc.) use sensible investor
+  // defaults rather than clamping to zero.  Extracted values always win.
+  const merged: DealInputs = { ...DEFAULT_INPUTS, ...(data.inputs as Partial<DealInputs>) }
+  const sanitized = sanitiseInputs(merged)
   const analysis = analyseDeal(sanitized)
   const ceiling = findOfferCeiling(sanitized)
 
+  // Walk-away price: prefer the primary negotiation target (best tier within
+  // 15% of asking), then fall back to the fair-tier ceiling (the price at
+  // which the deal becomes at least "Borderline"), then the best achievable
+  // tier at any price.  Always show a walk-away number — it is the product.
+  const walkAway =
+    ceiling.primaryTarget?.price
+    ?? ceiling.fair
+    ?? ceiling.recommendedCeiling?.price
+    ?? null
+
   return {
     address: data.address,
-    inputs: data.inputs,
+    inputs: merged,
     analysis,
-    walkAway: ceiling.primaryTarget?.price ?? null,
+    walkAway,
     propertyFacts: data.facts ? {
       beds: data.facts.bedrooms ?? null,
       baths: data.facts.bathrooms ?? null,
@@ -191,8 +211,8 @@ function TierBadge({ tier }: { tier: VerdictTier }) {
   const accent = TIER_ACCENT[tier]
   return (
     <span
-      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide"
-      style={{ backgroundColor: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}
+      className="inline-flex items-center px-3 py-1 rounded-md text-xs font-bold uppercase tracking-widest"
+      style={{ backgroundColor: `${accent}18`, color: accent, border: `1px solid ${accent}55` }}
     >
       {TIER_LABEL[tier]}
     </span>
@@ -205,9 +225,9 @@ function TierBadge({ tier }: { tier: VerdictTier }) {
 
 function MetricTile({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="flex flex-col gap-0.5 p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800/60">
+    <div className="flex flex-col gap-0.5 py-2">
       <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-medium">{label}</span>
-      <span className="text-sm font-semibold tabular-nums" style={accent ? { color: accent } : undefined}>
+      <span className="text-sm font-semibold tabular-nums" style={accent ? { color: accent } : { color: "#e4e4e7" }}>
         {value}
       </span>
     </div>
@@ -300,51 +320,44 @@ function ActivePanel({
 
   return (
     <div className="flex flex-col min-h-0 overflow-y-auto">
-      {/* Hero: walk-away price */}
-      <div className="px-5 pt-5 pb-3 border-b border-zinc-800/60 shrink-0">
-        {walkAway != null ? (
-          <>
-            <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-medium mb-0.5">Walk-Away Price</p>
-            <p
-              className="text-[2.6rem] font-black leading-none tabular-nums"
-              style={{ color: accent }}
-            >
-              {formatCurrency(walkAway)}
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-medium mb-0.5">Asking Price</p>
-            <p className="text-[2.6rem] font-black leading-none tabular-nums text-zinc-200">
-              {formatCurrency(askingPrice)}
-            </p>
-          </>
-        )}
+      {/* Hero: verdict + walk-away price */}
+      <div className="px-5 pt-5 pb-4 border-b border-zinc-800/60 shrink-0">
 
-        {/* Asking price + gap */}
-        {walkAway != null && askingPrice > 0 && (
+        {/* Verdict badge — leads the panel */}
+        <div className="mb-3">
+          <TierBadge tier={tier} />
+        </div>
+
+        {/* Walk-away price — always the headline number */}
+        <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-medium mb-0.5">
+          Walk-Away Price
+        </p>
+        <p
+          className="text-[2.8rem] font-black leading-none tabular-nums"
+          style={{ color: accent }}
+        >
+          {formatCurrency(walkAway ?? askingPrice)}
+        </p>
+
+        {/* Asking price + gap below the walk-away */}
+        {askingPrice > 0 && (
           <div className="mt-1.5 flex items-center gap-2">
             <span className="text-xs text-zinc-500">Asking {formatCurrency(askingPrice)}</span>
             {gap != null && gap > 0 && (
-              <span className="text-xs font-semibold text-amber-400">
+              <span className="text-xs font-semibold" style={{ color: accent }}>
                 −{formatCurrency(gap)}
               </span>
             )}
             {gap != null && gap <= 0 && (
               <span className="text-xs font-semibold text-emerald-400">
-                +{formatCurrency(-gap)} room
+                At or below walk-away
               </span>
             )}
           </div>
         )}
 
-        {/* Tier badge */}
-        <div className="mt-2.5">
-          <TierBadge tier={tier} />
-        </div>
-
-        {/* Summary sentence */}
-        <p className="mt-2.5 text-[11px] text-zinc-400 leading-snug">{summary}</p>
+        {/* Summary sentence — explains the specific numbers driving the verdict */}
+        <p className="mt-3 text-[11px] text-zinc-400 leading-snug">{summary}</p>
       </div>
 
       {/* Primary metrics grid */}

@@ -45,7 +45,7 @@ export default async function DealsPage() {
         <SidebarTrigger className="-ml-1" />
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <LayoutList className="h-4 w-4" />
-          <span>Deals</span>
+          <span>Pipeline</span>
           {deals.length > 0 && (
             <span className="ml-1 text-xs bg-muted px-1.5 py-0.5 rounded">
               {deals.length}

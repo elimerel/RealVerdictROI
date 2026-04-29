@@ -33,11 +33,14 @@ export default function StressTestPanel({
     (r) => r.analysis && r.analysis.monthlyCashFlow >= 0,
   ).length;
 
+  const tier = baseAnalysis.verdict.tier;
   const headline =
     survivors === results.length
-      ? "Holds up across every shock we ran."
+      ? tier === "excellent" || tier === "good"
+        ? "Holds up across every shock we ran."
+        : `Stays cash-flow positive under every scenario — but the base verdict is ${tier === "poor" ? "Risky" : tier === "fair" ? "Borderline" : "Avoid"}.`
       : survivors >= results.length - 1
-        ? `Holds up in ${survivors} of ${results.length} shocks. One soft spot to know about.`
+        ? `Cash-flow positive in ${survivors} of ${results.length} shocks. One scenario fails.`
         : survivors >= 2
           ? `Cash-flow positive in ${survivors} of ${results.length} shocks. Watch the failures.`
           : `Cash-flow positive in only ${survivors} of ${results.length} shocks. Thin margin.`;

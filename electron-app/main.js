@@ -182,7 +182,26 @@ function createAppWindow() {
  */
 function expandToMainApp() {
   if (!appWindow || appWindow.isDestroyed()) return
-  if (isMainMode) { appWindow.focus(); return }
+
+  if (isMainMode) {
+    appWindow.focus()
+    // Guard against the hot-reload / session-restore scenario: the renderer
+    // may have reloaded on a non-research page (e.g. /deals) while the main
+    // process never restarted and isMainMode stayed true.  If the current URL
+    // is not /research, navigate there now.  This is safe because
+    // ElectronExpand (the only caller path that reaches here with
+    // isMainMode=true) only fires once per layout mount, so this does NOT
+    // loop back from /research itself.
+    try {
+      const currentUrl = appWindow.webContents.getURL()
+      const u = new URL(currentUrl)
+      if (u.pathname !== "/research") {
+        appWindow.loadURL(`${BASE_URL}/research`)
+      }
+    } catch { /* ignore unparseable URL */ }
+    return
+  }
+
   isMainMode = true
 
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
