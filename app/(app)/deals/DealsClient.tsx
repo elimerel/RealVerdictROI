@@ -9,6 +9,13 @@ import {
   Loader2,
   LayoutList,
   X,
+  LayoutGrid,
+  Table2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
@@ -21,10 +28,12 @@ import {
   type DealInputs,
   type OfferCeiling,
   type VerdictTier,
+  formatCurrency,
+  formatPercent,
 } from "@/lib/calculations"
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
-import AnalysisPanel, { type PropertyFacts } from "../_components/AnalysisPanel"
+import DossierPanel, { type PropertyFacts } from "../_components/DossierPanel"
 import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
 import {
   annotateFromProvenance,
@@ -185,6 +194,14 @@ export function DealsClient({
   supabaseConfigured: boolean
 }) {
   const router = useRouter()
+
+  // ── View mode ──
+  const [viewMode, setViewMode] = useState<"table" | "grid">("table")
+
+  // ── Sort state for comparison table ──
+  type SortKey = "address" | "asking" | "walkaway" | "gap" | "cashflow" | "dscr" | "caprate" | "verdict" | "date"
+  const [sortKey, setSortKey] = useState<SortKey>("gap")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
   // ── Search state ──
   const [query, setQuery] = useState("")
@@ -551,6 +568,61 @@ export function DealsClient({
     return live.filter((d) => d.verdict === activeFilter)
   }, [deals, activeFilter, deletedDealIds])
 
+  // ── Sorted table rows ──
+  const tierRank: Record<string, number> = { excellent: 5, good: 4, fair: 3, poor: 2, avoid: 1 }
+
+  const sortedTableRows = useMemo(() => {
+    const rows = filteredDeals.map((d) => {
+      const computed = dealData.get(d.id)
+      if (!computed) return null
+      const walkAwayPrice = computed.walkAway?.recommendedCeiling?.price ?? null
+      const gap = walkAwayPrice != null ? walkAwayPrice - d.inputs.purchasePrice : null
+      return { deal: d, computed, walkAwayPrice, gap }
+    }).filter((r): r is NonNullable<typeof r> => r !== null)
+
+    rows.sort((a, b) => {
+      let cmp = 0
+      switch (sortKey) {
+        case "address":
+          cmp = (a.deal.address ?? "").localeCompare(b.deal.address ?? "")
+          break
+        case "asking":
+          cmp = (a.deal.inputs.purchasePrice ?? 0) - (b.deal.inputs.purchasePrice ?? 0)
+          break
+        case "walkaway":
+          cmp = (a.walkAwayPrice ?? -Infinity) - (b.walkAwayPrice ?? -Infinity)
+          break
+        case "gap":
+          cmp = (a.gap ?? -Infinity) - (b.gap ?? -Infinity)
+          break
+        case "cashflow":
+          cmp = a.computed.analysis.monthlyCashFlow - b.computed.analysis.monthlyCashFlow
+          break
+        case "dscr":
+          cmp = (isFinite(a.computed.analysis.dscr) ? a.computed.analysis.dscr : 999)
+              - (isFinite(b.computed.analysis.dscr) ? b.computed.analysis.dscr : 999)
+          break
+        case "caprate":
+          cmp = a.computed.analysis.capRate - b.computed.analysis.capRate
+          break
+        case "verdict":
+          cmp = (tierRank[a.deal.verdict] ?? 0) - (tierRank[b.deal.verdict] ?? 0)
+          break
+        case "date":
+          cmp = new Date(a.deal.created_at).getTime() - new Date(b.deal.created_at).getTime()
+          break
+      }
+      return sortDir === "asc" ? cmp : -cmp
+    })
+    return rows
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredDeals, dealData, sortKey, sortDir])
+
+  const toggleSort = useCallback((key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => d === "asc" ? "desc" : "asc")
+    else { setSortKey(key); setSortDir("asc") }
+  }, [sortKey])
+
   // ── Address autocomplete ──
   useEffect(() => {
     if (isListingUrl || query.length < 4) {
@@ -879,7 +951,7 @@ export function DealsClient({
           </form>
         </div>
 
-        {/* Filter pills — hidden when no deals */}
+        {/* Filter pills + view toggle — hidden when no deals */}
         {hasDeals && (
           <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-border overflow-x-auto whitespace-nowrap scrollbar-hide">
             {FILTER_PILLS.map(({ label, tier }) => {
@@ -899,21 +971,59 @@ export function DealsClient({
                 </button>
               )
             })}
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* View toggle */}
+            <div className="flex items-center gap-0.5 shrink-0 rounded-md border border-border p-0.5">
+              <button
+                onClick={() => setViewMode("table")}
+                className={cn(
+                  "h-5 w-5 flex items-center justify-center rounded text-muted-foreground transition-colors",
+                  viewMode === "table" ? "bg-muted text-foreground" : "hover:text-foreground"
+                )}
+                title="Comparison table"
+              >
+                <Table2 className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => setViewMode("grid")}
+                className={cn(
+                  "h-5 w-5 flex items-center justify-center rounded text-muted-foreground transition-colors",
+                  viewMode === "grid" ? "bg-muted text-foreground" : "hover:text-foreground"
+                )}
+                title="Card grid"
+              >
+                <LayoutGrid className="h-3 w-3" />
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Card grid or empty state */}
+        {/* Content area: empty state, comparison table, or card grid */}
         {!hasDeals ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
-            <LayoutList className="h-10 w-10 text-muted-foreground/20" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">No deals yet</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Paste a Zillow URL or address above
-                <br />
-                to analyze your first deal
-              </p>
-            </div>
+          <EmptyPipeline />
+        ) : viewMode === "table" ? (
+          <div className="flex-1 overflow-auto">
+            <ComparisonTable
+              rows={sortedTableRows}
+              pendingCard={pendingCard}
+              showPendingInGrid={showPendingInGrid}
+              selectedId={selectedId}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggleSort={toggleSort}
+              onSelectDeal={(id) => {
+                const deal = filteredDeals.find((d) => d.id === id)
+                const computed = dealData.get(id)
+                if (deal && computed) handleSelectSavedDeal(deal, computed)
+                else setSelectedId(id)
+              }}
+              onSelectPending={(id) => setSelectedId(id)}
+              onDelete={handleDelete}
+              onRetry={(text) => submitSearch(text)}
+            />
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
@@ -1002,7 +1112,7 @@ export function DealsClient({
               <X className="h-3.5 w-3.5" />
             </button>
 
-            <AnalysisPanel
+            <DossierPanel
               analysis={panelData.analysis}
               walkAway={panelData.walkAway}
               inputs={panelData.inputs}
@@ -1034,4 +1144,427 @@ export function DealsClient({
       </div>
     </div>
   )
+}
+
+// ---------------------------------------------------------------------------
+// EmptyPipeline — no deals yet
+// ---------------------------------------------------------------------------
+
+function EmptyPipeline() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 p-8 text-center">
+      <div className="h-20 w-20 rounded-2xl bg-white/3 border border-white/8 flex items-center justify-center">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+          {/* Three stacked property bars — comparison surface illustration */}
+          <rect x="4"  y="28" width="10" height="8" rx="1" fill="currentColor" className="text-white/10" />
+          <rect x="15" y="20" width="10" height="16" rx="1" fill="currentColor" className="text-white/15" />
+          <rect x="26" y="14" width="10" height="22" rx="1" fill="currentColor" className="text-white/20" />
+          {/* Green signal on best bar */}
+          <circle cx="31" cy="10" r="3" fill="#22c55e" opacity="0.7" />
+        </svg>
+      </div>
+      <div className="space-y-1.5">
+        <p className="text-sm font-semibold text-foreground">No deals in your Pipeline</p>
+        <p className="text-[13px] text-muted-foreground leading-relaxed max-w-xs">
+          Analyze a property on the Research page, or paste a Zillow URL or address in the search bar above.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ComparisonTable — side-by-side metrics for all saved deals
+// ---------------------------------------------------------------------------
+
+type TableRow = {
+  deal: SavedDeal
+  computed: { analysis: DealAnalysis; walkAway: OfferCeiling | null }
+  walkAwayPrice: number | null
+  gap: number | null
+}
+
+const TIER_ACCENT_MAP: Record<string, string> = {
+  excellent: "#22c55e",
+  good:      "#4ade80",
+  fair:      "#eab308",
+  poor:      "#f97316",
+  avoid:     "#ef4444",
+}
+
+const TIER_LABEL_MAP: Record<string, string> = {
+  excellent: "STRONG BUY",
+  good:      "GOOD DEAL",
+  fair:      "BORDERLINE",
+  poor:      "PASS",
+  avoid:     "AVOID",
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
+  if (!active) return <ArrowUpDown className="h-3 w-3 opacity-30" />
+  return dir === "asc"
+    ? <ArrowUp   className="h-3 w-3 text-[oklch(0.62_0.22_265)]" />
+    : <ArrowDown className="h-3 w-3 text-[oklch(0.62_0.22_265)]" />
+}
+
+type SortKey = "address" | "asking" | "walkaway" | "gap" | "cashflow" | "dscr" | "caprate" | "verdict" | "date"
+
+function Th({
+  label,
+  sortKey: sk,
+  activeSortKey,
+  sortDir,
+  onToggle,
+  align = "right",
+}: {
+  label: string
+  sortKey: SortKey
+  activeSortKey: SortKey
+  sortDir: "asc" | "desc"
+  onToggle: (k: SortKey) => void
+  align?: "left" | "right"
+}) {
+  const active = activeSortKey === sk
+  return (
+    <th
+      className={cn(
+        "px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50 whitespace-nowrap",
+        align === "right" ? "text-right" : "text-left",
+        "cursor-pointer hover:text-muted-foreground transition-colors select-none"
+      )}
+      onClick={() => onToggle(sk)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {align === "left" ? (
+          <><SortIcon active={active} dir={sortDir} />{label}</>
+        ) : (
+          <>{label}<SortIcon active={active} dir={sortDir} /></>
+        )}
+      </span>
+    </th>
+  )
+}
+
+function ComparisonTable({
+  rows,
+  pendingCard,
+  showPendingInGrid,
+  selectedId,
+  sortKey,
+  sortDir,
+  onToggleSort,
+  onSelectDeal,
+  onSelectPending,
+  onDelete,
+  onRetry,
+}: {
+  rows: TableRow[]
+  pendingCard: PendingCard | null
+  showPendingInGrid: boolean
+  selectedId: string | null
+  sortKey: SortKey
+  sortDir: "asc" | "desc"
+  onToggleSort: (k: SortKey) => void
+  onSelectDeal: (id: string) => void
+  onSelectPending: (id: string) => void
+  onDelete: (id: string) => void
+  onRetry: (text: string) => void
+}) {
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+
+  return (
+    <div className="min-w-0">
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-white/6 bg-muted/20 sticky top-0 z-10">
+            <Th label="Property"  sortKey="address"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} align="left" />
+            <Th label="Asking"    sortKey="asking"   activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Walk-Away" sortKey="walkaway" activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Gap"       sortKey="gap"      activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="CF/mo"     sortKey="cashflow" activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="DSCR"      sortKey="dscr"     activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Cap"       sortKey="caprate"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Verdict"   sortKey="verdict"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <th className="w-8" />
+          </tr>
+        </thead>
+        <tbody>
+          {/* Pending card row */}
+          {showPendingInGrid && pendingCard && (
+            <PendingRow
+              card={pendingCard}
+              isSelected={selectedId === pendingCard.id}
+              onSelect={() => pendingCard.kind !== "loading" && onSelectPending(pendingCard.id)}
+              onRetry={onRetry}
+            />
+          )}
+
+          {/* Saved deal rows */}
+          {rows.map(({ deal, computed, walkAwayPrice, gap }) => {
+            const accent   = TIER_ACCENT_MAP[deal.verdict] ?? "#888"
+            const cf       = computed.analysis.monthlyCashFlow
+            const dscr     = computed.analysis.dscr
+            const capRate  = computed.analysis.capRate
+            const isSelected = selectedId === deal.id
+            const isDeleting = confirmingDelete === deal.id
+
+            return (
+              <tr
+                key={deal.id}
+                onClick={() => { if (!isDeleting) onSelectDeal(deal.id) }}
+                className={cn(
+                  "border-b border-white/4 cursor-pointer transition-colors group",
+                  isSelected
+                    ? "bg-white/6"
+                    : "hover:bg-white/3"
+                )}
+                style={isSelected ? { borderLeft: `3px solid ${accent}` } : { borderLeft: "3px solid transparent" }}
+              >
+                {/* Address */}
+                <td className="px-3 py-3 max-w-[180px]">
+                  <p className="text-[13px] font-medium text-foreground truncate">
+                    {deal.address ?? "Unknown address"}
+                  </p>
+                  {deal.property_facts && (
+                    <p className="text-[10px] text-muted-foreground/50 font-mono mt-0.5">
+                      {[
+                        deal.property_facts.beds   != null && `${deal.property_facts.beds}bd`,
+                        deal.property_facts.baths  != null && `${deal.property_facts.baths}ba`,
+                        deal.property_facts.sqft   != null && `${(deal.property_facts.sqft / 1000).toFixed(1)}k sqft`,
+                      ].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                </td>
+
+                {/* Asking */}
+                <td className="px-3 py-3 text-right">
+                  <span className="text-[13px] font-mono tabular-nums text-muted-foreground">
+                    {formatCurrency(deal.inputs.purchasePrice, 0)}
+                  </span>
+                </td>
+
+                {/* Walk-away */}
+                <td className="px-3 py-3 text-right">
+                  <span className="text-[13px] font-mono tabular-nums font-semibold text-foreground">
+                    {walkAwayPrice != null ? formatCurrency(walkAwayPrice, 0) : "—"}
+                  </span>
+                </td>
+
+                {/* Gap */}
+                <td className="px-3 py-3 text-right">
+                  {gap != null ? (
+                    <span
+                      className={cn(
+                        "text-[13px] font-mono tabular-nums font-semibold",
+                        gap >= 0 ? "text-emerald-400" : "text-amber-400"
+                      )}
+                    >
+                      {gap >= 0 ? "+" : ""}{formatCurrency(gap, 0)}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground/30 text-[13px]">—</span>
+                  )}
+                </td>
+
+                {/* Cash flow */}
+                <td className="px-3 py-3 text-right">
+                  <span
+                    className={cn(
+                      "text-[13px] font-mono tabular-nums",
+                      cf >= 0 ? "text-emerald-400" : "text-red-400"
+                    )}
+                  >
+                    {cf >= 0 ? "+" : ""}{formatCurrency(cf, 0)}
+                  </span>
+                </td>
+
+                {/* DSCR */}
+                <td className="px-3 py-3 text-right">
+                  <span
+                    className={cn(
+                      "text-[13px] font-mono tabular-nums",
+                      !isFinite(dscr) || dscr >= 1.25 ? "text-foreground/80" :
+                      dscr >= 1.0 ? "text-amber-400" : "text-red-400"
+                    )}
+                  >
+                    {isFinite(dscr) ? dscr.toFixed(2) : "∞"}
+                  </span>
+                </td>
+
+                {/* Cap rate */}
+                <td className="px-3 py-3 text-right">
+                  <span className="text-[13px] font-mono tabular-nums text-foreground/80">
+                    {formatPercent(capRate, 1)}
+                  </span>
+                </td>
+
+                {/* Verdict */}
+                <td className="px-3 py-3 text-right">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded"
+                    style={{ color: accent, backgroundColor: `${accent}18` }}
+                  >
+                    {TIER_LABEL_MAP[deal.verdict] ?? deal.verdict}
+                  </span>
+                </td>
+
+                {/* Delete */}
+                <td className="px-2 py-3">
+                  {isDeleting ? (
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); onDelete(deal.id) }}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-red-600/80 text-white hover:bg-red-500 transition-colors"
+                      >
+                        Rm
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null) }}
+                        className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmingDelete(deal.id) }}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-red-400 transition-all"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+
+      {rows.length === 0 && (
+        <div className="py-12 text-center text-sm text-muted-foreground/40">
+          No deals match the current filter.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Pending row in the comparison table
+// ---------------------------------------------------------------------------
+
+function PendingRow({
+  card,
+  isSelected,
+  onSelect,
+  onRetry,
+}: {
+  card: PendingCard
+  isSelected: boolean
+  onSelect: () => void
+  onRetry: (text: string) => void
+}) {
+  if (card.kind === "loading") {
+    return (
+      <tr className="border-b border-white/4">
+        <td colSpan={9} className="px-3 py-3">
+          <div className="flex items-center gap-2 text-muted-foreground/50">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span className="text-xs">Analyzing…</span>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  if (card.kind === "error") {
+    return (
+      <tr className="border-b border-white/4">
+        <td colSpan={9} className="px-3 py-3">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+            <span className="text-xs text-red-400 flex-1 truncate">{card.message}</span>
+            <button
+              onClick={() => onRetry(card.inputText)}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  if (card.kind === "done") {
+    const accent   = TIER_ACCENT_MAP[card.verdict] ?? "#888"
+    const cf       = card.analysis.monthlyCashFlow
+    const dscr     = card.analysis.dscr
+    const capRate  = card.analysis.capRate
+    const walkAwayPrice = card.walkAway?.recommendedCeiling?.price ?? null
+    const gap = walkAwayPrice != null ? walkAwayPrice - card.analysis.inputs.purchasePrice : null
+
+    return (
+      <tr
+        onClick={onSelect}
+        className={cn(
+          "border-b border-white/4 cursor-pointer transition-colors group",
+          isSelected ? "bg-white/6" : "hover:bg-white/3"
+        )}
+        style={isSelected ? { borderLeft: `3px solid ${accent}` } : { borderLeft: "3px solid transparent" }}
+      >
+        <td className="px-3 py-3 max-w-[180px]">
+          <p className="text-[13px] font-medium text-foreground truncate">
+            {card.address ?? "New analysis"}
+          </p>
+          <p className="text-[10px] text-muted-foreground/50 font-mono mt-0.5">
+            {card.propertyFacts && [
+              card.propertyFacts.beds  != null && `${card.propertyFacts.beds}bd`,
+              card.propertyFacts.baths != null && `${card.propertyFacts.baths}ba`,
+            ].filter(Boolean).join(" · ")}
+          </p>
+        </td>
+        <td className="px-3 py-3 text-right">
+          <span className="text-[13px] font-mono tabular-nums text-muted-foreground">
+            {formatCurrency(card.analysis.inputs.purchasePrice, 0)}
+          </span>
+        </td>
+        <td className="px-3 py-3 text-right">
+          <span className="text-[13px] font-mono tabular-nums font-semibold text-foreground">
+            {walkAwayPrice != null ? formatCurrency(walkAwayPrice, 0) : "—"}
+          </span>
+        </td>
+        <td className="px-3 py-3 text-right">
+          {gap != null ? (
+            <span className={cn("text-[13px] font-mono tabular-nums font-semibold", gap >= 0 ? "text-emerald-400" : "text-amber-400")}>
+              {gap >= 0 ? "+" : ""}{formatCurrency(gap, 0)}
+            </span>
+          ) : <span className="text-muted-foreground/30 text-[13px]">—</span>}
+        </td>
+        <td className="px-3 py-3 text-right">
+          <span className={cn("text-[13px] font-mono tabular-nums", cf >= 0 ? "text-emerald-400" : "text-red-400")}>
+            {cf >= 0 ? "+" : ""}{formatCurrency(cf, 0)}
+          </span>
+        </td>
+        <td className="px-3 py-3 text-right">
+          <span className={cn("text-[13px] font-mono tabular-nums", !isFinite(dscr) || dscr >= 1.25 ? "text-foreground/80" : dscr >= 1.0 ? "text-amber-400" : "text-red-400")}>
+            {isFinite(dscr) ? dscr.toFixed(2) : "∞"}
+          </span>
+        </td>
+        <td className="px-3 py-3 text-right">
+          <span className="text-[13px] font-mono tabular-nums text-foreground/80">
+            {formatPercent(capRate, 1)}
+          </span>
+        </td>
+        <td className="px-3 py-3 text-right">
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded" style={{ color: accent, backgroundColor: `${accent}18` }}>
+            {TIER_LABEL_MAP[card.verdict] ?? card.verdict}
+          </span>
+        </td>
+        <td className="px-2 py-3" />
+      </tr>
+    )
+  }
+
+  return null
 }

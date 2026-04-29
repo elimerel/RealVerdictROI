@@ -54,6 +54,44 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   RealVerdict Design Tokens
+   Financial-terminal typography & brand color system.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Brand accent — electric indigo; visible against both light and dark */
+  --rv-accent: oklch(0.62 0.22 265);
+  --rv-accent-subtle: oklch(0.62 0.22 265 / 12%);
+  --rv-accent-border: oklch(0.62 0.22 265 / 30%);
+
+  /* Signal palette — semantic colors for verdict display */
+  --rv-buy:      #22c55e;
+  --rv-buy-sub:  oklch(0.53 0.15 145 / 12%);
+  --rv-caution:  #eab308;
+  --rv-caution-sub: oklch(0.75 0.15 85 / 10%);
+  --rv-avoid:    #ef4444;
+  --rv-avoid-sub: oklch(0.57 0.22 27 / 12%);
+
+  /* Typography scale — financial density */
+  --rv-size-display: clamp(2.75rem, 6vw, 4rem);
+  --rv-size-xl:      1.5rem;
+  --rv-size-lg:      1.125rem;
+  --rv-size-base:    0.875rem;
+  --rv-size-sm:      0.8125rem;
+  --rv-size-xs:      0.75rem;
+  --rv-size-2xs:     0.6875rem;
+
+  /* Letter-spacing for financial labels */
+  --rv-tracking-label: 0.07em;
+  --rv-tracking-tight: -0.02em;
+
+  /* Timing */
+  --rv-dur-fast: 120ms;
+  --rv-dur-base: 200ms;
+  --rv-dur-slow: 350ms;
+}
+
 /* Hide the ugly default spinners on number inputs — we lay the form out ourselves. */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
@@ -73,6 +111,10 @@ input[type="number"] {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   shadcn theme tokens
+   ──────────────────────────────────────────────────────────────────────────── */
 
 :root {
   --background: oklch(1 0 0);
@@ -111,38 +153,95 @@ input[type="number"] {
 
 .dark {
   /* Deep cool near-black — hue 250° (blue-slate), chroma just enough to read as intentional */
-  --background: oklch(0.095 0.012 250);
+  --background: oklch(0.088 0.014 252);
   --foreground: oklch(0.96 0.005 250);
-  --card: oklch(0.135 0.011 250);
+  --card: oklch(0.125 0.013 252);
   --card-foreground: oklch(0.96 0.005 250);
-  --popover: oklch(0.135 0.011 250);
+  --popover: oklch(0.125 0.013 252);
   --popover-foreground: oklch(0.96 0.005 250);
   --primary: oklch(0.92 0.005 250);
-  --primary-foreground: oklch(0.12 0.012 250);
-  --secondary: oklch(0.185 0.010 250);
+  --primary-foreground: oklch(0.10 0.014 252);
+  --secondary: oklch(0.175 0.012 252);
   --secondary-foreground: oklch(0.96 0.005 250);
-  --muted: oklch(0.185 0.010 250);
-  --muted-foreground: oklch(0.55 0.008 250);
-  --accent: oklch(0.185 0.010 250);
+  --muted: oklch(0.175 0.012 252);
+  --muted-foreground: oklch(0.52 0.009 252);
+  --accent: oklch(0.175 0.012 252);
   --accent-foreground: oklch(0.96 0.005 250);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 10%);
-  --ring: oklch(0.48 0.010 250);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.110 0.012 250);
+  --border: oklch(1 0 0 / 7%);
+  --input: oklch(1 0 0 / 9%);
+  --ring: oklch(0.62 0.22 265 / 50%);
+  /* Chart colors tuned for financial signals */
+  --chart-1: #22c55e;
+  --chart-2: #eab308;
+  --chart-3: #ef4444;
+  --chart-4: oklch(0.62 0.22 265);
+  --chart-5: oklch(0.55 0.012 252);
+  --sidebar: oklch(0.102 0.014 252);
   --sidebar-foreground: oklch(0.96 0.005 250);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: oklch(0.62 0.22 265);
   --sidebar-primary-foreground: oklch(0.96 0.005 250);
-  --sidebar-accent: oklch(0.160 0.010 250);
+  --sidebar-accent: oklch(0.155 0.012 252);
   --sidebar-accent-foreground: oklch(0.96 0.005 250);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.48 0.010 250);
+  --sidebar-border: oklch(1 0 0 / 6%);
+  --sidebar-ring: oklch(0.62 0.22 265 / 50%);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   RealVerdict Animations
+   ──────────────────────────────────────────────────────────────────────────── */
+
+@keyframes rv-verdict-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes rv-number-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes rv-bar-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+@keyframes rv-pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; }
+  50%       { box-shadow: 0 0 0 4px currentColor; }
+}
+
+.rv-verdict-in {
+  animation: rv-verdict-in var(--rv-dur-slow) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.rv-number-in {
+  animation: rv-number-in var(--rv-dur-base) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.rv-bar-grow {
+  transform-origin: left;
+  animation: rv-bar-grow var(--rv-dur-slow) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Stagger helpers */
+.rv-delay-1 { animation-delay: 60ms; }
+.rv-delay-2 { animation-delay: 120ms; }
+.rv-delay-3 { animation-delay: 180ms; }
+.rv-delay-4 { animation-delay: 240ms; }
+.rv-delay-5 { animation-delay: 300ms; }
 
 @layer base {
   * {

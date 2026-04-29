@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
-import { LayoutList, BarChart3, Settings, TrendingUp, Globe, LogOut, ChevronUp } from "lucide-react"
+import { LayoutList, BarChart3, Settings, LogOut, ChevronUp, Search, Zap } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -26,10 +26,10 @@ import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 
 const navItems = [
-  { title: "Research", icon: Globe,      href: "/research" },
-  { title: "Pipeline", icon: LayoutList, href: "/deals" },
-  { title: "Insights", icon: BarChart3,  href: "/insights" },
-  { title: "Settings", icon: Settings,   href: "/settings" },
+  { title: "Research",  icon: Search,     href: "/research",  hint: "Hunt for deals" },
+  { title: "Pipeline",  icon: LayoutList, href: "/deals",     hint: "Compare saved deals" },
+  { title: "Insights",  icon: BarChart3,  href: "/insights",  hint: "Portfolio intelligence" },
+  { title: "Settings",  icon: Settings,   href: "/settings",  hint: undefined },
 ]
 
 type Props = {
@@ -50,7 +50,7 @@ export function AppSidebar({ userEmail, isPro }: Props) {
     const supabase = createClient()
     await supabase.auth.signOut()
     if (api?.signedOut) {
-      api.signedOut()  // Electron: tell main process to swap windows
+      api.signedOut()
     } else {
       router.push("/login")
       router.refresh()
@@ -59,20 +59,27 @@ export function AppSidebar({ userEmail, isPro }: Props) {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      {/* Header — also a drag region so the window is draggable from the sidebar.
-           pt-7 pushes logo content below the macOS traffic light zone (y=0–28px).
-           This gives the traffic lights natural breathing room above the logo. */}
+      {/* Header — drag region for macOS; traffic lights sit above this zone */}
       <SidebarHeader className="pt-7 pb-3 flex items-center px-3 border-b border-sidebar-border select-none drag-region">
         <Link
           href="/research"
-          className="no-drag-region flex items-center gap-2 group-data-[collapsible=icon]:justify-center"
+          className="no-drag-region flex items-center gap-2.5 group-data-[collapsible=icon]:justify-center"
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground shrink-0">
-            <TrendingUp className="h-4 w-4 text-background" />
+          {/* Logo mark — indigo signal tower */}
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-lg shrink-0"
+            style={{ background: "oklch(0.62 0.22 265)" }}
+          >
+            <Zap className="h-3.5 w-3.5 text-white" />
           </div>
-          <span className="font-semibold text-sm tracking-tight group-data-[collapsible=icon]:hidden">
-            RealVerdict
-          </span>
+          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+            <span className="font-bold text-[13px] tracking-tight text-foreground leading-none">
+              RealVerdict
+            </span>
+            <span className="text-[9px] text-muted-foreground/40 uppercase tracking-[0.15em] leading-none mt-0.5">
+              Investor intelligence
+            </span>
+          </div>
         </Link>
       </SidebarHeader>
 
@@ -91,9 +98,15 @@ export function AppSidebar({ userEmail, isPro }: Props) {
                       isActive={isActive}
                       tooltip={item.title}
                       className={cn(
-                        "relative",
-                        isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+                        "relative transition-all duration-150",
+                        isActive
+                          ? "text-foreground font-medium"
+                          : "text-sidebar-foreground/60 hover:text-sidebar-foreground/90",
                       )}
+                      style={isActive ? {
+                        background: "oklch(0.62 0.22 265 / 12%)",
+                        borderLeft: "2px solid oklch(0.62 0.22 265)",
+                      } : { borderLeft: "2px solid transparent" }}
                     >
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
@@ -109,17 +122,22 @@ export function AppSidebar({ userEmail, isPro }: Props) {
       <SidebarFooter className="border-t border-sidebar-border p-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center">
-              <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground shrink-0">
+            <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-all hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center">
+              <div
+                className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                style={{ background: "oklch(0.62 0.22 265 / 20%)", color: "oklch(0.62 0.22 265)" }}
+              >
                 {initials}
               </div>
               <div className="flex flex-col group-data-[collapsible=icon]:hidden min-w-0 flex-1">
                 <span className="text-xs font-medium truncate">{userEmail ?? "Guest"}</span>
-                <span className="text-[10px] text-muted-foreground">
-                  {isPro ? "Pro Plan" : "Free Plan"}
+                <span className="text-[10px] text-muted-foreground/50">
+                  {isPro ? (
+                    <span className="text-emerald-500/70">Pro</span>
+                  ) : "Free"}
                 </span>
               </div>
-              <ChevronUp className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-data-[collapsible=icon]:hidden" />
+              <ChevronUp className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-data-[collapsible=icon]:hidden" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-56 mb-1">
