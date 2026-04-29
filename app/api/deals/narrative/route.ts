@@ -30,9 +30,9 @@ type PostBody = {
 // ---------------------------------------------------------------------------
 
 const NarrativeSchema = z.object({
-  summary: z.string(),
-  opportunity: z.string(),
-  risk: z.string(),
+  summary: z.string().min(20),
+  opportunity: z.string().min(20),
+  risk: z.string().min(20),
 });
 
 // ---------------------------------------------------------------------------
@@ -41,14 +41,16 @@ const NarrativeSchema = z.object({
 
 const SYSTEM_PROMPT = `You are an AI analyst embedded inside RealVerdict, a desktop CRM for active rental property investors. Your job is to interpret deal analysis data and write a plain-English narrative that helps the investor make a decision — not explain what the numbers are, but what they mean.
 
-You have access to the complete engine output for this deal. Every statement you make must reference specific numbers from the data. Never use generic real estate advice. Never say "this could be a good investment" without grounding it in the actual metrics. Never hallucinate numbers that aren't in the data provided.
+Every statement you make must reference specific numbers from the data provided. Never use generic real estate advice. Never say "this could be a good investment" without grounding it in the actual metrics. Never hallucinate numbers that aren't in the data provided.
 
-The investor using this app is actively shopping for rental properties. They look at 20-30 listings a week. They need to know fast: should I pursue this deal, and what should I offer?
+The investor looks at 20-30 listings a week. They need to know fast: should I pursue this deal, what is the real story behind the numbers, and what should I offer?
 
-For each field:
+You will receive both year-1 metrics AND full hold-period projections. Use both. A deal that is negative year-1 but exits at 2× equity in 10 years has a completely different story than a deal that is negative year-1 and also exits at a loss. Distinguish them.
+
+For each field, you MUST write substantive content — these fields are required and must not be empty:
 - summary: One sentence. The verdict in plain English. Reference the actual verdict tier, walk-away price, and one key reason. Example: "This deal clears at asking — walk-away is $312k against a $299k list price, driven by solid rent coverage at $2,100/mo."
-- opportunity: 1-2 sentences. What is working in this deal's favor. Reference actual numbers: cap rate, cash flow, DSCR, appreciation rate, walk-away headroom. Be specific.
-- risk: 1-2 sentences. The single biggest thing that could break this deal. Reference the actual weak point — if DSCR is below 1.0 say that and the number. If cash flow is negative say by how much. If the cap rate is low for the market say that. Never invent risks not supported by the data.`;
+- opportunity: 1-2 sentences. What is working in this deal's favor over the full hold period. If year-1 cash flow is negative but the deal appreciates and exits profitably, say so with the specific exit numbers (sale price, net proceeds, total profit, year cash flow first turns positive). Reference cap rate, DSCR, IRR, total ROI, equity at exit, or walk-away headroom — whichever is the strongest signal. Be specific with dollar amounts and percentages.
+- risk: 1-2 sentences. The single biggest threat to this deal's viability. If year-1 cash flow is negative, state exactly how much the investor is out-of-pocket per month and for how many years. If DSCR is below 1.0, say that with the number. If IRR is below 6%, say that. If the hold period is long with thin margins, say that. Reference the actual numbers. Never invent risks not in the data.`;
 
 function buildUserMessage(body: PostBody): string {
   const { analysis, inputs, walkAway, address } = body;
@@ -56,39 +58,80 @@ function buildUserMessage(body: PostBody): string {
   const ceiling = walkAway?.recommendedCeiling;
   const primary = walkAway?.primaryTarget;
 
+  // Find first year where annual cash flow turns non-negative
+  const firstPositiveYear =
+    analysis.projection.find((y) => y.cashFlow >= 0)?.year ?? null;
+
+  // Year-1 cash flow is negative: compute total out-of-pocket carry
+  const negativeCFYears = analysis.projection.filter((y) => y.cashFlow < 0);
+  const totalNegativeCF = negativeCFYears.reduce(
+    (sum, y) => sum + y.cashFlow,
+    0,
+  );
+
   const lines: string[] = [];
   if (address) lines.push(`Address: ${address}`);
+
+  lines.push(`\n--- DEAL INPUTS ---`);
   lines.push(`Purchase price: ${formatCurrency(inputs.purchasePrice, 0)}`);
   lines.push(`Monthly rent: ${formatCurrency(inputs.monthlyRent, 0)}`);
   lines.push(`Down payment: ${inputs.downPaymentPercent}%`);
   lines.push(`Interest rate: ${inputs.loanInterestRate}%`);
+  lines.push(`Hold period: ${inputs.holdPeriodYears} years`);
+  lines.push(`Annual appreciation assumption: ${inputs.annualAppreciationPercent}%`);
+  lines.push(`Annual rent growth assumption: ${inputs.annualRentGrowthPercent}%`);
+
+  lines.push(`\n--- YEAR-1 METRICS ---`);
   lines.push(
-    `Monthly cash flow: ${analysis.monthlyCashFlow >= 0 ? "+" : ""}${formatCurrency(analysis.monthlyCashFlow, 0)}`
+    `Monthly cash flow: ${analysis.monthlyCashFlow >= 0 ? "+" : ""}${formatCurrency(analysis.monthlyCashFlow, 0)}`,
   );
   lines.push(`Cap rate: ${formatPercent(analysis.capRate, 2)}`);
   lines.push(`Cash-on-cash: ${formatPercent(analysis.cashOnCashReturn, 2)}`);
   lines.push(
-    `DSCR: ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞ (no debt)"}`
+    `DSCR: ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞ (no debt)"}`,
   );
   lines.push(`GRM: ${analysis.grossRentMultiplier.toFixed(1)}x`);
-  lines.push(`IRR: ${formatPercent(analysis.irr, 1)}`);
   lines.push(
-    `Break-even occupancy: ${formatPercent(analysis.breakEvenOccupancy, 0)}`
+    `Break-even occupancy: ${formatPercent(analysis.breakEvenOccupancy, 0)}`,
   );
   lines.push(`Total cash invested: ${formatCurrency(analysis.totalCashInvested, 0)}`);
+
+  lines.push(`\n--- HOLD-PERIOD PROJECTIONS (${inputs.holdPeriodYears}-year hold) ---`);
+  lines.push(`IRR (annualised): ${formatPercent(analysis.irr, 1)}`);
+  lines.push(`Total cash flow over hold: ${formatCurrency(analysis.totalCashFlow, 0)}`);
+  lines.push(`Total principal paydown: ${formatCurrency(analysis.totalPrincipalPaydown, 0)}`);
+  lines.push(`Projected sale price at exit: ${formatCurrency(analysis.salePrice, 0)}`);
+  lines.push(`Net sale proceeds (after loan payoff + selling costs): ${formatCurrency(analysis.netSaleProceeds, 0)}`);
+  lines.push(`Total profit (cash flow + net proceeds − cash invested): ${formatCurrency(analysis.totalProfit, 0)}`);
+  lines.push(`Total ROI: ${formatPercent(analysis.totalROI, 1)}`);
+  lines.push(`Average annual return: ${formatPercent(analysis.averageAnnualReturn, 1)}`);
+  if (firstPositiveYear != null) {
+    lines.push(`First year cash flow turns positive: Year ${firstPositiveYear}`);
+  } else if (analysis.monthlyCashFlow < 0) {
+    lines.push(
+      `Cash flow never turns positive in the hold period (negative throughout)`,
+    );
+  }
+  if (negativeCFYears.length > 0) {
+    lines.push(
+      `Cumulative out-of-pocket carry during negative CF years: ${formatCurrency(totalNegativeCF, 0)} (investor must fund this from reserves)`,
+    );
+  }
+
+  lines.push(`\n--- VERDICT ---`);
   lines.push(`Verdict tier: ${v.tier}`);
   lines.push(`Verdict score: ${v.score}/100`);
+  lines.push(`Verdict headline: ${v.headline}`);
   if (ceiling) {
     lines.push(
-      `Walk-away ceiling: ${formatCurrency(ceiling.price, 0)} (${ceiling.tier} tier)`
+      `Walk-away ceiling: ${formatCurrency(ceiling.price, 0)} (${ceiling.tier} tier)`,
     );
   }
   if (primary) {
     lines.push(
-      `Primary target price: ${formatCurrency(primary.price, 0)} (${primary.discountPercent.toFixed(1)}% off asking)`
+      `Primary target price: ${formatCurrency(primary.price, 0)} (${primary.discountPercent.toFixed(1)}% off asking)`,
     );
   }
-  lines.push(`Annual appreciation assumption: ${inputs.annualAppreciationPercent}%`);
 
   return lines.join("\n");
 }
@@ -154,14 +197,14 @@ export async function POST(req: Request) {
   // Generate narrative
   let narrative: AiNarrative;
   try {
-    console.log("[narrative] Calling Claude claude-haiku-4-5 for dealId:", body.dealId);
+    console.log("[narrative] Calling claude-haiku-4-5 for dealId:", body.dealId);
     const anthropic = createAnthropic({ apiKey });
     const { object } = await generateObject({
       model: anthropic("claude-haiku-4-5"),
       schema: NarrativeSchema,
       system: SYSTEM_PROMPT,
       prompt: buildUserMessage(body),
-      maxOutputTokens: 700,
+      maxOutputTokens: 1000,
       temperature: 0,
     });
     console.log("[narrative] Claude response:", JSON.stringify(object));
