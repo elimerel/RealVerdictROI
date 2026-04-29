@@ -100,11 +100,13 @@ function createAppWindow() {
     ...centeredBounds(LOGIN_W, LOGIN_H),
     resizable: false,
     show: false,
-    backgroundColor: "#09090b",
+    backgroundColor: "#08080f",
     // hiddenInset from the start so traffic lights are always in place
     // and the window can expand into main-app mode without recreating it.
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 8 },
+    // x=14: slight inset from window edge. y=10: vertically centered in
+    // the 28px drag zone, matching the sidebar logo's clear breathing room.
+    trafficLightPosition: { x: 14, y: 10 },
     // macOS: pass the first click straight to the web content instead of
     // just focusing the window.  Without this the user has to click twice
     // before any button or input responds, making the login form feel broken.

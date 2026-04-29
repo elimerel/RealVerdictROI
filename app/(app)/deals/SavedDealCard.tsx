@@ -35,7 +35,7 @@ function MetricTile({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] text-zinc-500 leading-none">{label}</span>
+      <span className="text-[10px] text-muted-foreground/70 leading-none">{label}</span>
       <span
         className={cn(
           "text-xs font-mono tabular-nums font-semibold leading-none",
@@ -96,7 +96,7 @@ export function SavedDealCard({
     facts &&
     (facts.beds != null || facts.baths != null || facts.sqft != null)
 
-  const borderColor = isBadData ? "rgb(113,113,122)" : accent
+  const borderColor = isBadData ? "oklch(0.35 0.009 264)" : accent
 
   return (
     // Outer div — handles card selection click, hosts the delete affordance.
@@ -114,8 +114,8 @@ export function SavedDealCard({
         "group relative w-full text-left rounded-md p-3",
         "transition-colors duration-150 cursor-pointer",
         isBadData
-          ? "bg-zinc-800/50 hover:bg-zinc-800"
-          : "bg-zinc-900 hover:bg-zinc-800/80"
+          ? "bg-muted/40 hover:bg-muted/60"
+          : "bg-card hover:bg-muted/30"
       )}
       style={{
         borderStyle: "solid",
@@ -123,16 +123,16 @@ export function SavedDealCard({
         borderRightWidth: "1px",
         borderBottomWidth: "1px",
         borderLeftWidth: "3px",
-        borderTopColor: isSelected ? borderColor : "rgb(39,39,42)",
-        borderRightColor: isSelected ? borderColor : "rgb(39,39,42)",
-        borderBottomColor: isSelected ? borderColor : "rgb(39,39,42)",
+        borderTopColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
+        borderRightColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
+        borderBottomColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
         borderLeftColor: borderColor,
         boxShadow: isSelected
           ? `0 0 0 1px ${borderColor}30, 0 2px 8px rgba(0,0,0,.4)`
           : "0 1px 3px rgba(0,0,0,.3)",
       }}
     >
-      {/* ── Delete affordance (only on persisted/saved deals) ── */}
+      {/* ── Delete affordance — visible on hover, always present for saved deals ── */}
       {onDelete && !confirmingDelete && (
         <button
           type="button"
@@ -144,7 +144,7 @@ export function SavedDealCard({
           className={cn(
             "absolute top-1.5 right-1.5 flex items-center justify-center",
             "h-5 w-5 rounded opacity-0 group-hover:opacity-100",
-            "text-zinc-500 hover:text-red-400 hover:bg-red-950/40",
+            "text-muted-foreground hover:text-red-400 hover:bg-red-950/40",
             "transition-all duration-150"
           )}
         >
@@ -155,7 +155,7 @@ export function SavedDealCard({
       {/* ── Inline delete confirmation ── */}
       {confirmingDelete && (
         <div
-          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-zinc-900/95 px-3"
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-card/95 px-3"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center gap-1.5 text-red-400">
@@ -180,7 +180,7 @@ export function SavedDealCard({
                 e.stopPropagation()
                 setConfirmingDelete(false)
               }}
-              className="rounded px-3 py-1 text-xs font-medium border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors"
+              className="rounded px-3 py-1 text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
             >
               Cancel
             </button>
@@ -195,7 +195,7 @@ export function SavedDealCard({
 
       {/* Property facts strip */}
       {!isBadData && hasFacts && (
-        <p className="text-[10px] text-zinc-500 mb-1.5 font-mono">
+        <p className="text-[10px] text-muted-foreground mb-1.5 font-mono">
           {[
             facts!.beds != null && `${facts!.beds} bd`,
             facts!.baths != null && `${facts!.baths} ba`,
@@ -207,7 +207,7 @@ export function SavedDealCard({
       )}
 
       {isBadData ? (
-        <p className="text-xs text-zinc-500 italic mt-1 mb-2">
+        <p className="text-xs text-muted-foreground italic mt-1 mb-2">
           Analysis incomplete — click to review inputs
         </p>
       ) : (
@@ -241,7 +241,7 @@ export function SavedDealCard({
         ) : (
           <span />
         )}
-        <span className="text-[10px] text-zinc-500 shrink-0">
+        <span className="text-[10px] text-muted-foreground/60 shrink-0">
           {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
         </span>
       </div>

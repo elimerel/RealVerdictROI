@@ -59,8 +59,10 @@ export function AppSidebar({ userEmail, isPro }: Props) {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      {/* Header — also a drag region so the window is draggable from the sidebar */}
-      <SidebarHeader className="h-14 flex items-center px-3 border-b border-sidebar-border select-none drag-region">
+      {/* Header — also a drag region so the window is draggable from the sidebar.
+           pt-7 pushes logo content below the macOS traffic light zone (y=0–28px).
+           This gives the traffic lights natural breathing room above the logo. */}
+      <SidebarHeader className="pt-7 pb-3 flex items-center px-3 border-b border-sidebar-border select-none drag-region">
         <Link
           href="/deals"
           className="no-drag-region flex items-center gap-2 group-data-[collapsible=icon]:justify-center"

@@ -102,19 +102,19 @@ function extractPropertyFacts(facts: Record<string, unknown>): PropertyFacts {
 
 function LoadingCard() {
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900 p-3 animate-pulse border-l-[3px]">
-      <div className="h-4 w-3/4 rounded bg-zinc-800 mb-3" />
-      <div className="h-3 w-2/5 rounded bg-zinc-800 mb-3" />
+    <div className="rounded-md border border-border bg-card p-3 animate-pulse border-l-[3px]">
+      <div className="h-4 w-3/4 rounded bg-muted mb-3" />
+      <div className="h-3 w-2/5 rounded bg-muted mb-3" />
       <div className="flex justify-between mb-3">
-        <div className="h-5 w-16 rounded bg-zinc-800" />
-        <div className="h-5 w-24 rounded bg-zinc-800" />
+        <div className="h-5 w-16 rounded bg-muted" />
+        <div className="h-5 w-24 rounded bg-muted" />
       </div>
       <div className="flex gap-3 mb-2">
-        <div className="flex-1 h-8 rounded bg-zinc-800" />
-        <div className="flex-1 h-8 rounded bg-zinc-800" />
-        <div className="flex-1 h-8 rounded bg-zinc-800" />
+        <div className="flex-1 h-8 rounded bg-muted" />
+        <div className="flex-1 h-8 rounded bg-muted" />
+        <div className="flex-1 h-8 rounded bg-muted" />
       </div>
-      <div className="h-3 w-16 rounded bg-zinc-800 ml-auto" />
+      <div className="h-3 w-16 rounded bg-muted ml-auto" />
     </div>
   )
 }
@@ -131,7 +131,7 @@ function ErrorCard({
   onRetry: () => void
 }) {
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900 p-3 border-l-[3px] border-l-red-500">
+    <div className="rounded-md border border-border bg-card p-3 border-l-[3px] border-l-red-500">
       <p className="text-sm font-medium text-foreground mb-1">Could not load property</p>
       <p className="text-xs text-red-400 mb-3 leading-relaxed">{message}</p>
       <button
@@ -177,6 +177,9 @@ export function DealsClient({
   // ── Right panel width ──
   const rightPanelRef = useRef<HTMLDivElement>(null)
   const [panelWidth, setPanelWidth] = useState(460)
+
+  // ── Optimistic deletion — deal ids removed in this session before router.refresh()
+  const [deletedDealIds, setDeletedDealIds] = useState<Set<string>>(new Set)
 
   // ── Local narrative cache — holds narratives returned from the API this session.
   //    Takes priority over DB data so the narrative appears immediately when the
@@ -368,13 +371,14 @@ export function DealsClient({
   // ── Delete a saved deal ──
   const handleDelete = useCallback(
     async (id: string) => {
+      // Optimistically hide the card and close the panel immediately.
+      setDeletedDealIds((prev) => new Set(prev).add(id))
+      if (selectedId === id) setSelectedId(null)
       try {
         await fetch(`/api/deals/${id}`, { method: "DELETE" })
       } catch {
-        // non-critical — optimistic remove + refresh will reflect reality
+        // non-critical — the router.refresh() below will reconcile state
       }
-      // Close the panel immediately if the deleted deal was open.
-      if (selectedId === id) setSelectedId(null)
       router.refresh()
     },
     [selectedId, router]
@@ -435,11 +439,12 @@ export function DealsClient({
     [router, localNarratives]
   )
 
-  // ── Filtered saved deals ──
+  // ── Filtered saved deals — exclude optimistically deleted and apply verdict filter ──
   const filteredDeals = useMemo(() => {
-    if (activeFilter === null) return deals
-    return deals.filter((d) => d.verdict === activeFilter)
-  }, [deals, activeFilter])
+    const live = deals.filter((d) => !deletedDealIds.has(d.id))
+    if (activeFilter === null) return live
+    return live.filter((d) => d.verdict === activeFilter)
+  }, [deals, activeFilter, deletedDealIds])
 
   // ── Address autocomplete ──
   useEffect(() => {
@@ -618,7 +623,7 @@ export function DealsClient({
   // ── Render ──
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-zinc-950">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
 
       {/* ═══════════════════════════════════════════════
           LEFT ZONE — search + filter + grid
@@ -626,19 +631,19 @@ export function DealsClient({
       <div
         className={cn(
           "flex flex-col transition-all duration-200 overflow-hidden",
-          "border-r border-zinc-800",
+          "border-r border-border",
           panelOpen ? "w-[340px] shrink-0" : "flex-1"
         )}
       >
         {/* Search bar */}
-        <div className="shrink-0 p-3 border-b border-zinc-800">
+        <div className="shrink-0 p-3 border-b border-border">
           <form ref={formRef} onSubmit={handleSubmit} className="relative">
             <div
               className={cn(
-                "flex items-center gap-2 rounded-md border bg-zinc-900 px-3 py-2 transition-colors",
+                "flex items-center gap-2 rounded-md border bg-card px-3 py-2 transition-colors",
                 searchError
                   ? "border-amber-500/50"
-                  : "border-zinc-700 focus-within:border-zinc-500"
+                  : "border-border focus-within:border-border/60"
               )}
             >
               {isListingUrl ? (
@@ -684,7 +689,7 @@ export function DealsClient({
 
             {/* Autocomplete dropdown */}
             {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-md border border-zinc-700 bg-zinc-900 shadow-xl overflow-hidden">
+              <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-md border border-border bg-card shadow-xl overflow-hidden">
                 {suggestions.map((s, i) => (
                   <button
                     key={s.placeId}
@@ -694,9 +699,9 @@ export function DealsClient({
                       handleSuggestionSelect(s)
                     }}
                     className={cn(
-                      "w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-zinc-800 transition-colors",
-                      i === activeSuggestion && "bg-zinc-800",
-                      i < suggestions.length - 1 && "border-b border-zinc-800"
+                      "w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-muted transition-colors",
+                      i === activeSuggestion && "bg-muted",
+                      i < suggestions.length - 1 && "border-b border-border"
                     )}
                   >
                     <span className="text-xs font-medium">{s.primary}</span>
@@ -712,7 +717,7 @@ export function DealsClient({
 
         {/* Filter pills — hidden when no deals */}
         {hasDeals && (
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-zinc-800 overflow-x-auto whitespace-nowrap scrollbar-hide">
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-border overflow-x-auto whitespace-nowrap scrollbar-hide">
             {FILTER_PILLS.map(({ label, tier }) => {
               const isActive = activeFilter === tier
               return (
@@ -723,7 +728,7 @@ export function DealsClient({
                     "shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors duration-150",
                     isActive
                       ? "bg-foreground text-background border-foreground"
-                      : "bg-transparent text-muted-foreground border-zinc-700 hover:border-zinc-500 hover:text-foreground"
+                      : "bg-transparent text-muted-foreground border-border hover:border-border/60 hover:text-foreground"
                   )}
                 >
                   {label}
@@ -827,7 +832,7 @@ export function DealsClient({
             {/* Close button */}
             <button
               onClick={() => setSelectedId(null)}
-              className="absolute top-3 right-3 z-20 flex items-center justify-center h-7 w-7 rounded-md border border-zinc-700 bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-500 transition-colors"
+              className="absolute top-3 right-3 z-20 flex items-center justify-center h-7 w-7 rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:border-border/60 transition-colors"
               aria-label="Close panel"
             >
               <X className="h-3.5 w-3.5" />

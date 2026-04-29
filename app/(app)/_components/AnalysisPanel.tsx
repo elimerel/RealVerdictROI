@@ -12,7 +12,7 @@ import type { CompsResult } from "@/lib/comps"
 import type { ComparablesAnalysis } from "@/lib/comparables"
 import type { ChatAnalysisContext } from "@/app/api/chat/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
-import { TIER_ACCENT, TIER_LABEL } from "@/app/(app)/_components/results/tier-style"
+import { TIER_ACCENT } from "@/app/(app)/_components/results/tier-style"
 import { Save, CheckCircle2, Loader2 } from "lucide-react"
 import BreakdownSection from "./results/BreakdownSection"
 import StressTestPanel from "./StressTestPanel"
@@ -72,12 +72,12 @@ export type AnalysisPanelProps = {
 function LoadingSkeleton() {
   return (
     <div className="p-5 space-y-4 animate-pulse">
-      <div className="h-4 bg-zinc-800 rounded w-3/4" />
-      <div className="h-3 bg-zinc-800 rounded w-1/2" />
-      <div className="h-16 bg-zinc-800 rounded" />
+      <div className="h-4 bg-muted rounded w-3/4" />
+      <div className="h-3 bg-muted rounded w-1/2" />
+      <div className="h-16 bg-muted rounded" />
       <div className="grid grid-cols-2 gap-2">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-14 bg-zinc-800 rounded" />
+          <div key={i} className="h-14 bg-muted rounded" />
         ))}
       </div>
     </div>
@@ -85,7 +85,7 @@ function LoadingSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// Metric tile
+// Metric tile — part of the unified data block
 // ---------------------------------------------------------------------------
 
 function MetricTile({
@@ -100,11 +100,11 @@ function MetricTile({
   good?: boolean
 }) {
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2.5 space-y-0.5">
-      <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}</p>
+    <div className="px-3 py-2.5 space-y-0.5">
+      <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">{label}</p>
       <p
         className={cn(
-          "text-base font-mono font-semibold",
+          "text-base font-mono font-semibold tabular-nums",
           colored && good && "text-emerald-400",
           colored && !good && "text-red-400",
           !colored && "text-foreground"
@@ -121,7 +121,7 @@ function MetricTile({
 // ---------------------------------------------------------------------------
 
 function Divider() {
-  return <div className="border-t border-zinc-800" />
+  return <div className="border-t border-border" />
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +147,6 @@ export default function AnalysisPanel({
   const compact = panelWidth < 360
   const tier = analysis.verdict.tier
   const accent = TIER_ACCENT[tier] ?? "#888"
-  const tierLabel = TIER_LABEL[tier] ?? tier
 
   const walkAwayCeiling = walkAway?.recommendedCeiling
   const walkAwayPrice = walkAwayCeiling?.price ?? null
@@ -165,7 +164,7 @@ export default function AnalysisPanel({
     ai_narrative != null && ai_narrative.summary.trim().length > 0
 
   return (
-    <div className="h-full flex flex-col bg-zinc-950">
+    <div className="h-full flex flex-col bg-background">
 
       {/* ── Scrollable body ── */}
       <div className="flex-1 overflow-y-auto min-h-0">
@@ -175,12 +174,12 @@ export default function AnalysisPanel({
           {(address || pf) && (
             <div className="space-y-1">
               {address && (
-                <h2 className="text-sm font-semibold text-zinc-100 leading-snug">
+                <h2 className="text-sm font-semibold text-foreground leading-snug">
                   {address}
                 </h2>
               )}
               {pf && (pf.beds != null || pf.baths != null || pf.sqft != null) && (
-                <p className="text-[10px] text-zinc-500 font-mono">
+                <p className="text-[10px] text-muted-foreground font-mono">
                   {[
                     pf.beds != null && `${pf.beds} bd`,
                     pf.baths != null && `${pf.baths} ba`,
@@ -197,37 +196,31 @@ export default function AnalysisPanel({
           {/* ═══════════════════════════════════
               SECTION 1 — AI NARRATIVE
               Only rendered when a real AI narrative (with summary text) has
-              been generated. This is entirely separate from the engine's own
-              verdict.summary shown in SECTION 2 below.
+              been generated. Content speaks for itself — no section label.
           ═══════════════════════════════════ */}
           {hasNarrative && (
             <>
-              <div className="space-y-2.5">
-                {/* Section label — makes it unambiguous this is AI-generated */}
-                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                  AI Analysis
-                </p>
-
+              <div className="space-y-3">
                 {/* Summary — the AI's headline interpretation of this deal */}
-                <p className="text-[15px] text-zinc-100 leading-snug">
+                <p className="text-[15px] text-foreground leading-relaxed">
                   {ai_narrative!.summary}
                 </p>
 
                 {/* Opportunity + Risk — only in full mode */}
                 {!compact && (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     {ai_narrative!.opportunity && (
-                      <div className="flex gap-2">
-                        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-                        <p className="text-xs text-zinc-400 leading-relaxed">
+                      <div className="flex gap-2.5">
+                        <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                        <p className="text-[13px] text-muted-foreground leading-relaxed">
                           {ai_narrative!.opportunity}
                         </p>
                       </div>
                     )}
                     {ai_narrative!.risk && (
-                      <div className="flex gap-2">
-                        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                        <p className="text-xs text-zinc-400 leading-relaxed">
+                      <div className="flex gap-2.5">
+                        <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                        <p className="text-[13px] text-muted-foreground leading-relaxed">
                           {ai_narrative!.risk}
                         </p>
                       </div>
@@ -240,96 +233,88 @@ export default function AnalysisPanel({
           )}
 
           {/* ═══════════════════════════════════
-              SECTION 2 — DECISION
+              SECTION 2 — VERDICT + WALK-AWAY
+              Quiet supporting context. The narrative already named the verdict.
+              Left: engine verdict summary. Right: walk-away vs asking gap.
           ═══════════════════════════════════ */}
           <div
-            className="rounded-md px-4 py-3"
-            style={{
-              borderWidth: 1,
-              borderStyle: "solid",
-              borderColor: accent + "30",
-              backgroundColor: accent + "06",
-            }}
+            className="flex items-start justify-between gap-4 pl-3"
+            style={{ borderLeft: `2px solid ${accent}25` }}
           >
-            <div className="flex items-start justify-between gap-4">
-              {/* Left: verdict (engine-computed, not AI narrative) */}
-              <div className="space-y-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p
-                    className="text-xs font-bold uppercase tracking-wider"
-                    style={{ color: accent }}
-                  >
-                    {tierLabel}
-                  </p>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">
-                    Decision
-                  </p>
-                </div>
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  {analysis.verdict.summary}
-                </p>
-              </div>
+            {/* Left: verdict summary — muted, supporting context */}
+            <p className="text-[13px] text-muted-foreground leading-relaxed min-w-0">
+              {analysis.verdict.summary}
+            </p>
 
-              {/* Right: walk-away price */}
-              {walkAwayPrice != null && (
-                <div className="shrink-0 text-right space-y-0.5">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">
+            {/* Right: walk-away target with list price and gap */}
+            {walkAwayPrice != null && (
+              <div className="shrink-0 text-right space-y-1">
+                <div>
+                  <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">
                     Walk-away
                   </p>
-                  <p className="text-xl font-mono font-bold text-zinc-100">
+                  <p className="text-xl font-mono font-bold tabular-nums text-foreground">
                     {formatCurrency(walkAwayPrice, 0)}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[10px] text-muted-foreground font-mono tabular-nums">
+                    Asking {formatCurrency(listPrice, 0)}
                   </p>
                   {walkAwayDiff != null && (
                     <p
                       className={cn(
-                        "text-[10px] font-mono",
+                        "text-[10px] font-mono tabular-nums font-medium",
                         walkAwayDiff >= 0 ? "text-emerald-400" : "text-amber-400"
                       )}
                     >
                       {walkAwayDiff >= 0
-                        ? "Deal works at asking"
-                        : `Need ${Math.abs(Math.round((walkAwayDiff / listPrice) * 100))}% off asking`}
+                        ? `+${formatCurrency(walkAwayDiff, 0)} headroom`
+                        : `${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking`}
                     </p>
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* ═══════════════════════════════════
               SECTION 3 — KEY METRICS
+              Unified data block — no individual card borders.
           ═══════════════════════════════════ */}
           <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <MetricTile
-                label="Cash flow"
-                value={`${cashFlow >= 0 ? "+" : ""}${formatCurrency(cashFlow, 0)}/mo`}
-                colored
-                good={cashFlow >= 0}
-              />
-              <MetricTile
-                label="Cap rate"
-                value={formatPercent(capRate, 2)}
-                colored
-                good={capRate >= 0.05}
-              />
-              <MetricTile
-                label="DSCR"
-                value={dscrStr}
-                colored
-                good={isFinite(dscr) ? dscr >= 1.2 : true}
-              />
-              <MetricTile
-                label="Cash-on-cash"
-                value={formatPercent(coc, 2)}
-                colored
-                good={coc >= 0.07}
-              />
+            <div className="rounded-md border border-border bg-card overflow-hidden">
+              <div className="grid grid-cols-2 divide-x divide-y divide-border">
+                <MetricTile
+                  label="Cash flow"
+                  value={`${cashFlow >= 0 ? "+" : ""}${formatCurrency(cashFlow, 0)}/mo`}
+                  colored
+                  good={cashFlow >= 0}
+                />
+                <MetricTile
+                  label="Cap rate"
+                  value={formatPercent(capRate, 2)}
+                  colored
+                  good={capRate >= 0.05}
+                />
+                <MetricTile
+                  label="DSCR"
+                  value={dscrStr}
+                  colored
+                  good={isFinite(dscr) ? dscr >= 1.2 : true}
+                />
+                <MetricTile
+                  label="Cash-on-cash"
+                  value={formatPercent(coc, 2)}
+                  colored
+                  good={coc >= 0.07}
+                />
+              </div>
             </div>
 
             {/* Secondary metrics row — hidden in compact mode */}
             {!compact && (
-              <p className="text-[10px] text-zinc-500 font-mono px-1">
+              <p className="text-[10px] text-muted-foreground font-mono tabular-nums px-1">
                 {[
                   `GRM ${analysis.grossRentMultiplier.toFixed(1)}x`,
                   `Break-even ${formatPercent(analysis.breakEvenOccupancy, 0)}`,
@@ -369,7 +354,7 @@ export default function AnalysisPanel({
           SECTION 6 — STICKY BOTTOM BAR
       ═══════════════════════════════════ */}
       {onSave && supabaseConfigured && (
-        <div className="shrink-0 border-t border-zinc-800 px-5 py-3 bg-zinc-950">
+        <div className="shrink-0 border-t border-border px-5 py-3 bg-background">
           <button
             type="button"
             onClick={onSave}
@@ -379,8 +364,8 @@ export default function AnalysisPanel({
               savedDealId
                 ? "border-emerald-700 text-emerald-400 bg-emerald-950/20 cursor-default"
                 : isSaving
-                  ? "border-zinc-600 text-zinc-400 bg-zinc-800 cursor-default"
-                  : "border-zinc-600 text-zinc-200 bg-zinc-800 hover:bg-zinc-700 hover:border-zinc-500"
+                  ? "border-border text-muted-foreground bg-muted cursor-default"
+                  : "border-border text-foreground bg-card hover:bg-muted hover:border-border/80"
             )}
           >
             {savedDealId ? (
