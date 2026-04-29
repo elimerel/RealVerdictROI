@@ -5,7 +5,7 @@ import {
 } from "react"
 import {
   ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X,
-  AlertTriangle, Save, CheckCircle2,
+  AlertTriangle, Save, CheckCircle2, Zap,
 } from "lucide-react"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
@@ -85,37 +85,35 @@ export function generateVerdictSummary(
 
   if (tier === "avoid") {
     if (walkAway != null && walkAway < askingPrice) {
-      const gap = formatCurrency(askingPrice - walkAway)
-      return `Walk-away is ${formatCurrency(walkAway)} — ${gap} below asking. Cash flow: ${formatCurrency(cf)}/mo.`
+      return `At ${formatCurrency(askingPrice)} this bleeds ${formatCurrency(cf)}/mo — the numbers require ${formatCurrency(walkAway)} to work.`
     }
-    return `Cash flow is ${formatCurrency(cf)}/mo at this price. DSCR ${dscr} — deal does not cash-flow.`
+    return `At ${formatCurrency(askingPrice)} this loses ${formatCurrency(Math.abs(cf))}/mo with a DSCR of ${dscr} — walk away.`
   }
 
   if (tier === "poor") {
     if (cf < 0) {
-      return `Negative cash flow of ${formatCurrency(cf)}/mo. Walk-away ${formatCurrency(walkAway ?? askingPrice)} gets this to Borderline.`
+      return `At ${formatCurrency(askingPrice)} this bleeds ${formatCurrency(Math.abs(cf))}/mo — the numbers require ${formatCurrency(walkAway ?? askingPrice)} to break even.`
     }
-    // Positive CF but still Risky — explain the actual risk driver with numbers.
-    // The verdict is driven by cap rate + DSCR, not cash flow alone.
+    // Positive CF but Risky — verdict driven by DSCR and cap rate, not cash flow alone.
     if (!isFinite(analysis.dscr)) {
-      return `DSCR not calculable — verify loan terms. Walk-away ${formatCurrency(walkAway ?? askingPrice)} gets this to Borderline.`
+      return `Cap rate ${cap} is below threshold — verify loan terms, then offer ${formatCurrency(walkAway ?? askingPrice)} to reach Borderline.`
     }
-    return `DSCR ${dscr}x and cap rate ${cap} are below threshold. Walk-away: ${formatCurrency(walkAway ?? askingPrice)}.`
+    return `DSCR ${dscr}x at ${formatCurrency(askingPrice)} — serviceable but too thin. Offer ${formatCurrency(walkAway ?? askingPrice)} to reach Borderline.`
   }
 
   if (tier === "fair") {
     const risk = analysis.breakEvenOccupancy >= 0.9
-      ? `Break-even occupancy ${formatPercent(analysis.breakEvenOccupancy, 0)} — needs near-full occupancy.`
-      : `GRM ${grm}× is elevated. Needs rent growth or price reduction to hit 8% CoC.`
+      ? `${formatPercent(analysis.breakEvenOccupancy, 0)} break-even occupancy at ${formatCurrency(askingPrice)} — one vacancy wipes the margin.`
+      : `${coc} cash-on-cash at ${formatCurrency(askingPrice)} — workable if rent holds, thin if it doesn't.`
     return risk
   }
 
   if (tier === "good") {
-    return `${coc} cash-on-cash at ${formatCurrency(askingPrice)}. Cash flow ${formatCurrency(cf)}/mo with ${cap} cap rate.`
+    return `${coc} cash-on-cash with ${formatCurrency(cf)}/mo at ${formatCurrency(askingPrice)} — solid fundamentals, cap rate ${cap}.`
   }
 
   // excellent
-  return `Strong ${coc} CoC return. ${formatCurrency(cf)}/mo cash flow — cap rate ${cap}, DSCR ${dscr}.`
+  return `${coc} CoC with DSCR ${dscr}x at ${formatCurrency(askingPrice)} — ${formatCurrency(cf)}/mo and a ${cap} cap rate.`
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +214,48 @@ function TierBadge({ tier }: { tier: VerdictTier }) {
     >
       {TIER_LABEL[tier]}
     </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar pill — shows analysis state and verdict tier color
+// ---------------------------------------------------------------------------
+
+function ListingPill({
+  loading,
+  tier,
+}: {
+  loading: boolean
+  tier: VerdictTier | null
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-700 text-xs text-zinc-400 shrink-0">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Analyzing…
+      </div>
+    )
+  }
+
+  if (tier != null) {
+    const accent = TIER_ACCENT[tier]
+    return (
+      <div
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0"
+        style={{ backgroundColor: `${accent}14`, color: accent, border: `1px solid ${accent}44` }}
+      >
+        <Zap className="h-3 w-3" />
+        {TIER_LABEL[tier]}
+      </div>
+    )
+  }
+
+  // Listing detected, analysis not yet ready
+  return (
+    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-700 text-xs text-zinc-400 shrink-0">
+      <Zap className="h-3 w-3" />
+      Listing
+    </div>
   )
 }
 
@@ -328,14 +368,12 @@ function ActivePanel({
           <TierBadge tier={tier} />
         </div>
 
-        {/* Walk-away price — always the headline number */}
+        {/* Walk-away price — always the headline number, always white.
+            The badge above carries the verdict signal; this number is the answer. */}
         <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-medium mb-0.5">
           Walk-Away Price
         </p>
-        <p
-          className="text-[2.8rem] font-black leading-none tabular-nums"
-          style={{ color: accent }}
-        >
+        <p className="text-[2.8rem] font-black leading-none tabular-nums text-zinc-50">
           {formatCurrency(walkAway ?? askingPrice)}
         </p>
 
@@ -423,11 +461,11 @@ function ActivePanel({
             <button
               onClick={handleSave}
               disabled={saveStatus.state === "saving"}
-              className="flex items-center justify-center gap-2 h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-200 hover:border-zinc-600 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center justify-center gap-2 h-10 w-full rounded-lg bg-zinc-100 text-xs font-bold text-zinc-900 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {saveStatus.state === "saving"
                 ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</>
-                : <><Save className="h-3.5 w-3.5 text-zinc-400" />{!signedIn ? "Sign in to save" : !isPro ? "Save (Pro)" : "Save deal"}</>
+                : <><Save className="h-3.5 w-3.5" />{!signedIn ? "Sign in to save" : !isPro ? "Save (Pro)" : "Save deal"}</>
               }
             </button>
           )}
@@ -656,12 +694,12 @@ function ElectronResearchPage() {
           </Button>
         </form>
 
-        {/* Listing detected pill */}
+        {/* Listing / verdict pill — reflects outcome once analysis is ready */}
         {browserActive && isListingPage && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 shrink-0">
-            <CheckCircle2 className="h-3 w-3" />
-            Listing detected
-          </div>
+          <ListingPill
+            loading={analysisLoading}
+            tier={analysisResult?.analysis.verdict.tier ?? null}
+          />
         )}
 
         {error && (

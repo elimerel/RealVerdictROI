@@ -180,29 +180,37 @@ function createAppWindow() {
  * Expand the window into full main-app mode after a successful sign-in.
  * Resizes to 1400×900 then navigates to /deals.
  */
+// Timestamp of the last loadURL("/research") triggered by expandToMainApp.
+// Used to suppress the re-entrant call that fires when ElectronExpand mounts
+// on the freshly loaded /research page (isMainMode is already true by then).
+let lastExpandNavMs = 0
+const EXPAND_NAV_COOLDOWN_MS = 4000
+
 function expandToMainApp() {
   if (!appWindow || appWindow.isDestroyed()) return
 
   if (isMainMode) {
     appWindow.focus()
-    // Guard against the hot-reload / session-restore scenario: the renderer
-    // may have reloaded on a non-research page (e.g. /deals) while the main
-    // process never restarted and isMainMode stayed true.  If the current URL
-    // is not /research, navigate there now.  This is safe because
-    // ElectronExpand (the only caller path that reaches here with
-    // isMainMode=true) only fires once per layout mount, so this does NOT
-    // loop back from /research itself.
-    try {
-      const currentUrl = appWindow.webContents.getURL()
-      const u = new URL(currentUrl)
-      if (u.pathname !== "/research") {
-        appWindow.loadURL(`${BASE_URL}/research`)
-      }
-    } catch { /* ignore unparseable URL */ }
+    // Guard against:
+    //   (a) hot-reload: renderer restarts on /deals while main never quit
+    //   (b) macOS activate: window focused on /deals from last session
+    // Use a cooldown so the re-entrant ElectronExpand mount on /research
+    // doesn't trigger another loadURL and create an infinite loop.
+    const now = Date.now()
+    if (now - lastExpandNavMs > EXPAND_NAV_COOLDOWN_MS) {
+      try {
+        const pathname = new URL(appWindow.webContents.getURL()).pathname
+        if (pathname !== "/research") {
+          lastExpandNavMs = now
+          appWindow.loadURL(`${BASE_URL}/research`)
+        }
+      } catch { /* ignore unparseable URL */ }
+    }
     return
   }
 
   isMainMode = true
+  lastExpandNavMs = Date.now()  // suppress the re-entrant ElectronExpand call
 
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
   const w = Math.min(1400, sw - 60)
@@ -718,7 +726,21 @@ app.whenReady().then(() => {
   createAppWindow()
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createAppWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createAppWindow()
+    } else if (appWindow && !appWindow.isDestroyed() && isMainMode) {
+      // macOS: user clicked the dock icon while the window was in the background.
+      // Always surface /research so investors land at their analysis tool,
+      // not wherever they happened to navigate last session.
+      appWindow.focus()
+      try {
+        const pathname = new URL(appWindow.webContents.getURL()).pathname
+        if (pathname !== "/research") {
+          lastExpandNavMs = Date.now()
+          appWindow.loadURL(`${BASE_URL}/research`)
+        }
+      } catch { /* ignore */ }
+    }
   })
 })
 
