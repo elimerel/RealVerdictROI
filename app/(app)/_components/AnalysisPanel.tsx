@@ -237,8 +237,8 @@ export default function AnalysisPanel({
             style={{
               borderWidth: 1,
               borderStyle: "solid",
-              borderColor: accent + "40",
-              backgroundColor: accent + "12",
+              borderColor: accent + "30",
+              backgroundColor: accent + "06",
             }}
           >
             <div className="flex items-start justify-between gap-4">

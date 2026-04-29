@@ -45,12 +45,10 @@ You have access to the complete engine output for this deal. Every statement you
 
 The investor using this app is actively shopping for rental properties. They look at 20-30 listings a week. They need to know fast: should I pursue this deal, and what should I offer?
 
-Respond with a JSON object only. No preamble, no markdown, no explanation outside the JSON:
-{
-  "summary": "One sentence. The verdict in plain English. Reference the actual verdict tier, walk-away price, and one key reason. Example: 'This deal clears at asking — walk-away is $312k against a $299k list price, driven by solid rent coverage at $2,100/mo.'",
-  "opportunity": "1-2 sentences. What is working in this deal's favor. Reference actual numbers: cap rate, cash flow, DSCR, appreciation rate, walk-away headroom. Be specific.",
-  "risk": "1-2 sentences. The single biggest thing that could break this deal. Reference the actual weak point — if DSCR is below 1.0 say that and the number. If cash flow is negative say by how much. If the cap rate is low for the market say that. Never invent risks not supported by the data."
-}`;
+For each field:
+- summary: One sentence. The verdict in plain English. Reference the actual verdict tier, walk-away price, and one key reason. Example: "This deal clears at asking — walk-away is $312k against a $299k list price, driven by solid rent coverage at $2,100/mo."
+- opportunity: 1-2 sentences. What is working in this deal's favor. Reference actual numbers: cap rate, cash flow, DSCR, appreciation rate, walk-away headroom. Be specific.
+- risk: 1-2 sentences. The single biggest thing that could break this deal. Reference the actual weak point — if DSCR is below 1.0 say that and the number. If cash flow is negative say by how much. If the cap rate is low for the market say that. Never invent risks not supported by the data.`;
 
 function buildUserMessage(body: PostBody): string {
   const { analysis, inputs, walkAway, address } = body;
@@ -163,7 +161,7 @@ export async function POST(req: Request) {
       schema: NarrativeSchema,
       system: SYSTEM_PROMPT,
       prompt: buildUserMessage(body),
-      maxOutputTokens: 400,
+      maxOutputTokens: 700,
       temperature: 0,
     });
     console.log("[narrative] Claude response:", JSON.stringify(object));
