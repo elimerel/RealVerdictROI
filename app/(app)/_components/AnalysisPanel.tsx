@@ -102,17 +102,19 @@ function MetricTile({
   good?: boolean
 }) {
   return (
-    <div className="px-3 py-2.5 space-y-0.5">
-      <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">{label}</p>
+    <div>
       <p
         className={cn(
-          "text-base font-mono font-semibold tabular-nums",
+          "text-[15px] font-mono font-semibold tabular-nums leading-none",
           colored && good && "text-emerald-400",
           colored && !good && "text-red-400",
           !colored && "text-foreground"
         )}
       >
         {value}
+      </p>
+      <p className="mt-1 text-[10px] text-muted-foreground/60 uppercase tracking-wider leading-none">
+        {label}
       </p>
     </div>
   )
@@ -201,7 +203,7 @@ export default function AnalysisPanel({
 
       {/* ── Scrollable body ── */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="px-5 py-4 space-y-5">
+        <div className="px-5 py-4 space-y-7">
 
           {/* Header: address + property facts */}
           {(address || pf) && (
@@ -297,11 +299,12 @@ export default function AnalysisPanel({
 
           {/* ═══════════════════════════════════
               SECTION 3 — KEY METRICS
-              Unified data block — no individual card borders.
+              Numbers on the surface — no boxes, no borders.
           ═══════════════════════════════════ */}
-          <div className="space-y-2">
-            <div className="rounded-md border border-border bg-card overflow-hidden">
-              <div className="grid grid-cols-2 divide-x divide-y divide-border">
+          <>
+            <Divider />
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-x-8 gap-y-5">
                 <MetricTile
                   label="Cash flow"
                   value={`${cashFlow >= 0 ? "+" : ""}${formatCurrency(cashFlow, 0)}/mo`}
@@ -327,20 +330,20 @@ export default function AnalysisPanel({
                   good={coc >= 0.07}
                 />
               </div>
-            </div>
 
-            {/* Secondary metrics row — hidden in compact mode */}
-            {!compact && (
-              <p className="text-[10px] text-muted-foreground font-mono tabular-nums px-1">
-                {[
-                  `GRM ${analysis.grossRentMultiplier.toFixed(1)}x`,
-                  `Break-even ${formatPercent(analysis.breakEvenOccupancy, 0)}`,
-                  `IRR ${formatPercent(analysis.irr, 1)}`,
-                  `LTV ${formatPercent(1 - inputs.downPaymentPercent / 100, 0)}`,
-                ].join(" · ")}
-              </p>
-            )}
-          </div>
+              {/* Secondary metrics row — hidden in compact mode */}
+              {!compact && (
+                <p className="text-[10px] text-muted-foreground/60 font-mono tabular-nums">
+                  {[
+                    `GRM ${analysis.grossRentMultiplier.toFixed(1)}x`,
+                    `Break-even ${formatPercent(analysis.breakEvenOccupancy, 0)}`,
+                    `IRR ${formatPercent(analysis.irr, 1)}`,
+                    `LTV ${formatPercent(1 - inputs.downPaymentPercent / 100, 0)}`,
+                  ].join(" · ")}
+                </p>
+              )}
+            </div>
+          </>
 
           {/* ═══════════════════════════════════
               SECTION 4 — STRESS TEST (full mode only)
