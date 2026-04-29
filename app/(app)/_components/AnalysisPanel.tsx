@@ -60,6 +60,8 @@ export type AnalysisPanelProps = {
   savedDealId?: string    // set if this deal is already saved
   isSaving?: boolean      // true while the save fetch is in-flight
   isLoading?: boolean     // show skeleton while analysis is running
+  /** True when the listing returned a valid purchase price but zero/near-zero rent — inputs are unusable. */
+  badInputs?: boolean
 
   // Optional property facts for display in the header
   propertyFacts?: PropertyFacts
@@ -140,9 +142,40 @@ export default function AnalysisPanel({
   savedDealId,
   isSaving,
   isLoading,
+  badInputs,
   propertyFacts: pf,
 }: AnalysisPanelProps) {
   if (isLoading) return <LoadingSkeleton />
+
+  if (badInputs) {
+    return (
+      <div className="h-full flex flex-col bg-background">
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="px-5 py-4 space-y-5">
+            {address && (
+              <h2 className="text-sm font-semibold text-foreground leading-snug">
+                {address}
+              </h2>
+            )}
+            <div className="rounded-md border border-amber-800/40 bg-amber-950/20 px-4 py-4 space-y-2">
+              <p className="text-sm font-medium text-amber-400">
+                Listing data could not be read
+              </p>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">
+                The monthly rent for this property couldn&apos;t be determined
+                from the listing. Running the analysis with a rent of zero would
+                produce meaningless metrics, so this deal was not saved.
+              </p>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">
+                Enter the rent and other numbers manually to get an accurate
+                analysis.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const compact = panelWidth < 360
   const tier = analysis.verdict.tier

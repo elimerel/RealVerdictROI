@@ -58,6 +58,15 @@ type ResolverPayload = {
   provenance: Record<string, unknown>
 }
 
+type ResolvedResult = {
+  address?: string
+  inputs: DealInputs
+  analysis: DealAnalysis
+  walkAway: OfferCeiling | null
+  propertyFacts: PropertyFacts
+  verdict: VerdictTier
+}
+
 type PendingCard =
   | { kind: "loading"; id: string }
   | { kind: "error"; id: string; message: string; inputText: string }
@@ -72,6 +81,10 @@ type PendingCard =
       createdAt: string
       /** Set after the deal is successfully saved — prevents double-save. */
       savedId?: string
+      /** True when monthlyRent is zero/near-zero — inputs came back broken from the listing. */
+      badInputs?: boolean
+      /** True once auto-save has been initiated — hides the manual Save button. */
+      autoSaveInitiated?: boolean
     }
 
 // ---------------------------------------------------------------------------
@@ -253,8 +266,8 @@ export function DealsClient({
       pendingCard.id === selectedId &&
       pendingCard.kind === "done"
     ) {
-      // Show the narrative immediately if the fire-and-forget save already
-      // came back, keyed by the saved deal id stamped onto the pending card.
+      // Show the narrative immediately once the auto-save + narrative response
+      // has come back, keyed by the saved deal id stamped onto the pending card.
       const narrative = pendingCard.savedId
         ? (localNarratives.get(pendingCard.savedId) ?? null)
         : null
@@ -266,6 +279,8 @@ export function DealsClient({
         propertyFacts: pendingCard.propertyFacts ?? undefined,
         savedDealId: pendingCard.savedId,
         ai_narrative: narrative,
+        badInputs: pendingCard.badInputs ?? false,
+        autoSaveInitiated: pendingCard.autoSaveInitiated ?? false,
         isPending: true,
       }
     }
@@ -286,6 +301,8 @@ export function DealsClient({
         propertyFacts: deal.property_facts ?? undefined,
         savedDealId: deal.id,
         ai_narrative: narrative,
+        badInputs: false,
+        autoSaveInitiated: false,
         isPending: false,
       }
     }
@@ -293,7 +310,78 @@ export function DealsClient({
     return null
   }, [selectedId, pendingCard, deals, dealData, localNarratives])
 
-  // ── Save a freshly-analyzed deal ──
+  // ── Fire save + narrative for a resolved result (auto-save path) ──
+  const autoSaveAnalysis = useCallback(
+    async (pendingId: string, result: ResolvedResult) => {
+      try {
+        const res = await fetch("/api/deals/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            inputs: result.analysis.inputs,
+            address: result.address,
+            propertyFacts: result.propertyFacts,
+          }),
+        })
+        if (!res.ok) {
+          // Reset flag so the manual save button reappears as a fallback.
+          setPendingCard((prev) =>
+            prev?.kind === "done" && prev.id === pendingId
+              ? { ...prev, autoSaveInitiated: false }
+              : prev
+          )
+          return
+        }
+        const saved = (await res.json()) as { id?: string }
+        if (!saved.id) return
+
+        const savedId = saved.id
+        setPendingCard((prev) =>
+          prev?.kind === "done" && prev.id === pendingId
+            ? { ...prev, savedId }
+            : prev
+        )
+
+        // Generate narrative immediately now that we have a dealId.
+        narrativeInFlightRef.current.add(savedId)
+        fetch("/api/deals/narrative", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dealId: savedId,
+            analysis: result.analysis,
+            inputs: result.analysis.inputs,
+            walkAway: result.walkAway,
+            address: result.address,
+          }),
+        })
+          .then(async (narrativeRes) => {
+            narrativeInFlightRef.current.delete(savedId)
+            if (narrativeRes.ok) {
+              const data = (await narrativeRes.json()) as { narrative?: AiNarrative }
+              if (data.narrative) {
+                setLocalNarratives((prev) => new Map(prev).set(savedId, data.narrative!))
+              }
+            }
+          })
+          .catch(() => {
+            narrativeInFlightRef.current.delete(savedId)
+          })
+
+        router.refresh()
+      } catch {
+        // Auto-save failed silently — reset flag so manual save button reappears.
+        setPendingCard((prev) =>
+          prev?.kind === "done" && prev.id === pendingId
+            ? { ...prev, autoSaveInitiated: false }
+            : prev
+        )
+      }
+    },
+    [router]
+  )
+
+  // ── Manual save — only reachable when auto-save didn't run (not signed in / not pro) ──
   const [isSaving, setIsSaving] = useState(false)
   const handleSave = useCallback(async () => {
     if (
@@ -301,7 +389,7 @@ export function DealsClient({
       !pendingCard ||
       pendingCard.kind !== "done" ||
       pendingCard.id !== selectedId ||
-      pendingCard.savedId  // already saved — prevent double-save
+      pendingCard.savedId
     )
       return
     if (!signedIn) {
@@ -326,14 +414,9 @@ export function DealsClient({
       if (!res.ok) return
       const saved = (await res.json()) as { id?: string }
       if (saved.id) {
-        // Lock the save button immediately — before router.refresh() resolves —
-        // so a second click before the list updates can't fire another save.
         setPendingCard((prev) =>
           prev?.kind === "done" ? { ...prev, savedId: saved.id } : prev
         )
-        // Fire-and-forget: generate AI narrative in the background.
-        // When it resolves, populate localNarratives immediately so the panel
-        // shows the narrative without needing a separate router.refresh().
         const narrativeDealId = saved.id
         narrativeInFlightRef.current.add(narrativeDealId)
         fetch("/api/deals/narrative", {
@@ -488,8 +571,9 @@ export function DealsClient({
 
   // ── Submit helpers ──
 
+  // Returns resolved + computed data; does not touch state.
   const resolveAndAnalyze = useCallback(
-    async (text: string, pendingId: string) => {
+    async (text: string): Promise<ResolvedResult> => {
       const cacheId = normalizeCacheKey(text)
       const cached = sessionGet<ResolverPayload>(AUTOFILL_CACHE_NS, cacheId)
 
@@ -539,17 +623,14 @@ export function DealsClient({
         }
       })()
 
-      setPendingCard({
-        kind: "done",
-        id: pendingId,
+      return {
         address: payload.address,
-        verdict: analysis.verdict.tier,
+        inputs,
         analysis,
         walkAway,
         propertyFacts: extractPropertyFacts(payload.facts ?? {}),
-        createdAt: new Date().toISOString(),
-      })
-      setSelectedId(pendingId)
+        verdict: analysis.verdict.tier,
+      }
     },
     []
   )
@@ -569,7 +650,35 @@ export function DealsClient({
       setSelectedId(pendingId)
 
       try {
-        await resolveAndAnalyze(text, pendingId)
+        const result = await resolveAndAnalyze(text)
+
+        // Sanity check: a valid purchase price with zero/near-zero rent means the
+        // listing scrape didn't get usable data. These analyses produce nonsense
+        // metrics and should never be auto-saved.
+        const badInputs =
+          result.inputs.purchasePrice > 10_000 && result.inputs.monthlyRent < 100
+
+        // Auto-save immediately if inputs look valid and the user can save.
+        const shouldAutoSave =
+          !badInputs && signedIn && isPro && supabaseConfigured
+
+        setPendingCard({
+          kind: "done",
+          id: pendingId,
+          address: result.address,
+          verdict: result.verdict,
+          analysis: result.analysis,
+          walkAway: result.walkAway,
+          propertyFacts: result.propertyFacts,
+          createdAt: new Date().toISOString(),
+          badInputs,
+          autoSaveInitiated: shouldAutoSave,
+        })
+        setSelectedId(pendingId)
+
+        if (shouldAutoSave) {
+          autoSaveAnalysis(pendingId, result)
+        }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Something went wrong. Try again."
@@ -579,7 +688,7 @@ export function DealsClient({
         setIsSearching(false)
       }
     },
-    [resolveAndAnalyze]
+    [resolveAndAnalyze, signedIn, isPro, supabaseConfigured, autoSaveAnalysis]
   )
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -845,13 +954,20 @@ export function DealsClient({
               address={panelData.address}
               propertyFacts={panelData.propertyFacts}
               ai_narrative={panelData.ai_narrative}
+              badInputs={panelData.badInputs}
               savedDealId={panelData.savedDealId}
               isSaving={panelData.isPending ? isSaving : false}
               signedIn={signedIn}
               isPro={isPro}
               supabaseConfigured={supabaseConfigured}
               panelWidth={panelWidth}
-              onSave={panelData.isPending ? handleSave : undefined}
+              onSave={
+                panelData.isPending &&
+                !panelData.autoSaveInitiated &&
+                !panelData.savedDealId
+                  ? handleSave
+                  : undefined
+              }
               onClose={() => setSelectedId(null)}
             />
           </div>
