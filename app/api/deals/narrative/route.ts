@@ -148,132 +148,82 @@ const FALLBACK_NARRATIVE: AiNarrative = {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: Request) {
-  // ── CHECKPOINT 0 — route entry (confirm the route is being reached at all) ──
-  console.log(">>> [narrative] ROUTE ENTRY", new Date().toISOString());
-
   if (!supabaseEnv().configured) {
-    console.log("[narrative] CHECKPOINT 1 FAIL — Supabase not configured — aborting");
     return NextResponse.json(
       { error: "Supabase is not configured." },
       { status: 503 }
     );
   }
 
-  // Auth
   const supabase = await createClient();
   const {
     data: { user },
     error: authErr,
   } = await supabase.auth.getUser();
   if (authErr || !user) {
-    console.log("[narrative] CHECKPOINT 2 FAIL — Auth failed:", authErr?.message);
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
-  console.log("[narrative] CHECKPOINT 2 OK — authenticated, userId:", user.id);
 
   let body: PostBody;
   try {
     body = (await req.json()) as PostBody;
   } catch {
-    console.log("[narrative] CHECKPOINT 3 FAIL — invalid JSON body");
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   if (!body?.dealId || !body?.analysis || !body?.inputs) {
-    console.log("[narrative] CHECKPOINT 3 FAIL — missing fields, got keys:", Object.keys(body ?? {}));
     return NextResponse.json(
       { error: "Missing required fields: dealId, analysis, inputs." },
       { status: 400 }
     );
   }
-  console.log("[narrative] CHECKPOINT 3 OK — body parsed, dealId:", body.dealId);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  console.log("[narrative] CHECKPOINT 4 — ANTHROPIC_API_KEY present:", !!apiKey, apiKey ? `(starts: ${apiKey.slice(0, 14)}...)` : "(MISSING)");
   if (!apiKey) {
-    console.log("[narrative] CHECKPOINT 4 FAIL — No ANTHROPIC_API_KEY — storing fallback narrative");
+    console.error("[narrative] ANTHROPIC_API_KEY not set — storing fallback for dealId:", body.dealId);
     const narrative: AiNarrative = { ...FALLBACK_NARRATIVE, generatedAt: new Date().toISOString() };
     await supabase
       .from("deals")
       .update({ ai_narrative: narrative })
       .eq("id", body.dealId)
       .eq("user_id", user.id);
-    // Return the reason so the browser console can show it without Vercel log access.
-    return NextResponse.json({ narrative, _debug: "fallback:no-api-key" });
+    return NextResponse.json({ narrative });
   }
 
-  // Generate narrative
+  // Generate narrative via Claude
   let narrative: AiNarrative;
   try {
-    console.log("[narrative] CHECKPOINT 5 — calling claude-haiku-4-5, dealId:", body.dealId);
-    const userMsg = buildUserMessage(body);
-    console.log("[narrative] Prompt preview (first 300 chars):", userMsg.slice(0, 300));
     const anthropic = createAnthropic({ apiKey });
     const { object } = await generateObject({
       model: anthropic("claude-haiku-4-5"),
       schema: NarrativeSchema,
       system: SYSTEM_PROMPT,
-      prompt: userMsg,
+      prompt: buildUserMessage(body),
       maxOutputTokens: 1000,
       temperature: 0,
     });
-    console.log("[narrative] Claude response object:", JSON.stringify(object));
-
     narrative = {
       summary: object.summary,
       opportunity: object.opportunity,
       risk: object.risk,
       generatedAt: new Date().toISOString(),
     };
-    console.log("[narrative] Narrative built — summary:", narrative.summary.slice(0, 80));
   } catch (err) {
-    const e = err as Error & { cause?: unknown; status?: number; responseBody?: string };
-    const claudeErrorMsg = `${e?.name ?? "Error"}: ${e?.message ?? "unknown"} (status=${e?.status ?? "?"})`;
-    console.error("[narrative] Claude call FAILED:", {
-      message: e?.message,
-      name: e?.name,
-      status: e?.status,
-      cause: e?.cause,
-      responseBody: e?.responseBody,
-      stack: e?.stack?.split("\n").slice(0, 5).join(" | "),
-    });
-    console.log("[narrative] Storing fallback narrative for dealId:", body.dealId);
+    const e = err as Error & { status?: number };
+    console.error("[narrative] Claude call failed for dealId:", body.dealId, "—", e?.message, "(status:", e?.status ?? "?", ")");
     narrative = { ...FALLBACK_NARRATIVE, generatedAt: new Date().toISOString() };
-
-    // Persist fallback then return early with top-level _debug so the browser
-    // console can surface the exact error without Vercel log access.
-    await supabase
-      .from("deals")
-      .update({ ai_narrative: narrative })
-      .eq("id", body.dealId)
-      .eq("user_id", user.id);
-    return NextResponse.json({ narrative, _debug: `fallback:claude-error — ${claudeErrorMsg}` });
   }
 
-  // Persist to DB — only update rows owned by this user.
-  // If this fails (e.g. migration 006 not applied), we still return the
-  // narrative to the client so the panel can display it this session.
-  console.log("[narrative] Persisting to DB for dealId:", body.dealId);
-  const { error: updateErr, count } = await supabase
+  // Persist to DB — return the narrative to the client regardless of DB result
+  // so the panel can display it even if the write fails.
+  const { error: updateErr } = await supabase
     .from("deals")
-    .update({ ai_narrative: narrative }, { count: "exact" })
+    .update({ ai_narrative: narrative })
     .eq("id", body.dealId)
     .eq("user_id", user.id);
 
   if (updateErr) {
-    console.error("[narrative] DB update FAILED:", {
-      message: updateErr.message,
-      code: updateErr.code,
-      details: updateErr.details,
-      hint: updateErr.hint,
-    });
-    // Still return the narrative so the client can show it without a DB round-trip.
-    return NextResponse.json({ narrative, dbError: updateErr.message });
+    console.error("[narrative] DB update failed for dealId:", body.dealId, "—", updateErr.message);
   }
 
-  if (count === 0) {
-    console.warn("[narrative] DB update matched 0 rows — dealId:", body.dealId, "userId:", user.id, "(deal may not exist or belong to this user)");
-  }
-
-  console.log("[narrative] Done — narrative stored for dealId:", body.dealId, "rows updated:", count);
   return NextResponse.json({ narrative });
 }

@@ -275,7 +275,6 @@ export function DealsClient({
       // Prefer in-session cache (populated immediately when the route responds)
       // over the DB value that only arrives after router.refresh().
       const narrative = localNarratives.get(deal.id) ?? deal.ai_narrative ?? null
-      console.log("[deals] panelData ai_narrative for", deal.id, ":", narrative ? `summary="${narrative.summary.slice(0, 60)}"` : "null")
       return {
         analysis: computed.analysis,
         walkAway: computed.walkAway,
@@ -333,7 +332,6 @@ export function DealsClient({
         // When it resolves, populate localNarratives immediately so the panel
         // shows the narrative without needing a separate router.refresh().
         const narrativeDealId = saved.id
-        console.log(">>> [narrative] FIRING fetch on save for dealId:", narrativeDealId)
         narrativeInFlightRef.current.add(narrativeDealId)
         fetch("/api/deals/narrative", {
           method: "POST",
@@ -349,16 +347,10 @@ export function DealsClient({
           .then(async (res) => {
             narrativeInFlightRef.current.delete(narrativeDealId)
             if (res.ok) {
-              const data = (await res.json()) as { narrative?: AiNarrative; _debug?: string }
-              if (data._debug) {
-                console.warn(">>> [narrative] ROUTE DEBUG (save path):", data._debug)
-              }
+              const data = (await res.json()) as { narrative?: AiNarrative }
               if (data.narrative) {
-                console.log("[deals] narrative from save resolved for", narrativeDealId, "summary:", data.narrative.summary.slice(0, 60))
                 setLocalNarratives((prev) => new Map(prev).set(narrativeDealId, data.narrative!))
               }
-            } else {
-              console.warn("[deals] save narrative route returned", res.status)
             }
           })
           .catch(() => {
@@ -393,23 +385,14 @@ export function DealsClient({
     (deal: SavedDeal, computed: { analysis: DealAnalysis; walkAway: OfferCeiling | null }) => {
       setSelectedId(deal.id)
 
-      // ── Diagnostic dump — visible in browser DevTools → Console ──
-      console.group(">>> [narrative] handleSelectSavedDeal", deal.id)
-      console.log("deal.ai_narrative:", JSON.stringify(deal.ai_narrative))
-      console.log("localNarratives has key:", localNarratives.has(deal.id))
-      console.log("inFlight:", narrativeInFlightRef.current.has(deal.id))
-      console.groupEnd()
-
       // Skip if we already have a good narrative in the local session cache.
       const cached = localNarratives.get(deal.id)
       if (cached?.opportunity?.trim() && cached?.risk?.trim()) {
-        console.log(">>> [narrative] SKIP — already cached for", deal.id)
         return
       }
 
       // Skip if a request for this deal is already in-flight.
       if (narrativeInFlightRef.current.has(deal.id)) {
-        console.log(">>> [narrative] SKIP — already in-flight for", deal.id)
         return
       }
 
@@ -421,10 +404,7 @@ export function DealsClient({
         !deal.ai_narrative.opportunity?.trim() ||
         !deal.ai_narrative.risk?.trim()
 
-      console.log(">>> [narrative] needsNarrative:", needsNarrative, "for", deal.id)
-
       if (needsNarrative) {
-        console.log(">>> [narrative] FIRING fetch to /api/deals/narrative for", deal.id)
         narrativeInFlightRef.current.add(deal.id)
         fetch("/api/deals/narrative", {
           method: "POST",
@@ -440,29 +420,16 @@ export function DealsClient({
           .then(async (res) => {
             narrativeInFlightRef.current.delete(deal.id)
             if (res.ok) {
-              const data = (await res.json()) as { narrative?: AiNarrative; _debug?: string }
-              // Always dump the full response so we can see _debug regardless of where it lands.
-              console.log(">>> [narrative] FULL RESPONSE:", JSON.stringify(data))
-              if (data._debug) {
-                console.warn(">>> [narrative] ROUTE DEBUG:", data._debug)
-              }
+              const data = (await res.json()) as { narrative?: AiNarrative }
               if (data.narrative) {
-                console.log("[deals] narrative resolved for", deal.id, "summary:", data.narrative.summary.slice(0, 60))
                 setLocalNarratives((prev) => new Map(prev).set(deal.id, data.narrative!))
               }
-              // Also sync the DB data via refresh — the panel already shows the
-              // narrative from localNarratives, so this is just a background sync.
               router.refresh()
-            } else {
-              console.warn("[deals] narrative route returned", res.status, "for", deal.id)
             }
           })
-          .catch((err) => {
+          .catch(() => {
             narrativeInFlightRef.current.delete(deal.id)
-            console.error("[deals] narrative fetch failed for", deal.id, ":", err)
           })
-      } else {
-        console.log("[deals] ai_narrative already complete for", deal.id, ":", deal.ai_narrative?.summary?.slice(0, 60))
       }
     },
     [router, localNarratives]
