@@ -12,7 +12,7 @@ import type { CompsResult } from "@/lib/comps"
 import type { ComparablesAnalysis } from "@/lib/comparables"
 import type { ChatAnalysisContext } from "@/app/api/chat/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
-import { TIER_ACCENT } from "@/app/(app)/_components/results/tier-style"
+import { TIER_ACCENT, TIER_LABEL } from "@/app/(app)/_components/results/tier-style"
 import { Save, CheckCircle2, Loader2 } from "lucide-react"
 import BreakdownSection from "./results/BreakdownSection"
 import StressTestPanel from "./StressTestPanel"
@@ -125,7 +125,7 @@ function MetricTile({
 // ---------------------------------------------------------------------------
 
 function Divider() {
-  return <div className="border-t border-border" />
+  return <div className="border-t border-white/15" />
 }
 
 // ---------------------------------------------------------------------------
@@ -205,28 +205,35 @@ export default function AnalysisPanel({
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="px-5 py-4 space-y-7">
 
-          {/* Header: address + property facts */}
-          {(address || pf) && (
-            <div className="space-y-1">
-              {address && (
-                <h2 className="text-sm font-semibold text-foreground leading-snug">
-                  {address}
-                </h2>
-              )}
-              {pf && (pf.beds != null || pf.baths != null || pf.sqft != null) && (
-                <p className="text-[10px] text-muted-foreground font-mono">
-                  {[
-                    pf.beds != null && `${pf.beds} bd`,
-                    pf.baths != null && `${pf.baths} ba`,
-                    pf.sqft != null && `${pf.sqft.toLocaleString()} sqft`,
-                    pf.yearBuilt != null && `Built ${pf.yearBuilt}`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              )}
-            </div>
-          )}
+          {/* Header: verdict color anchor + address + property facts */}
+          <div
+            className="space-y-1.5 pl-3"
+            style={{ borderLeft: `3px solid ${accent}` }}
+          >
+            <span
+              className="inline-block text-[11px] font-semibold px-2 py-0.5 rounded"
+              style={{ color: accent, backgroundColor: `${accent}22` }}
+            >
+              {TIER_LABEL[tier] ?? tier}
+            </span>
+            {address && (
+              <h2 className="text-sm font-semibold text-foreground leading-snug">
+                {address}
+              </h2>
+            )}
+            {pf && (pf.beds != null || pf.baths != null || pf.sqft != null) && (
+              <p className="text-[10px] text-muted-foreground font-mono">
+                {[
+                  pf.beds != null && `${pf.beds} bd`,
+                  pf.baths != null && `${pf.baths} ba`,
+                  pf.sqft != null && `${pf.sqft.toLocaleString()} sqft`,
+                  pf.yearBuilt != null && `Built ${pf.yearBuilt}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
 
           {/* ═══════════════════════════════════
               SECTION 1 — AI NARRATIVE
