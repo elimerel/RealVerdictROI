@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -49,8 +49,9 @@
 }
 
 body {
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+  font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Hide the ugly default spinners on number inputs — we lay the form out ourselves. */
@@ -109,38 +110,38 @@ input[type="number"] {
 }
 
 .dark {
-  /* Cool near-black palette — slight blue-violet cast (hue 264°) for premium fintech feel */
-  --background: oklch(0.12 0.010 264);
-  --foreground: oklch(0.97 0.004 264);
-  --card: oklch(0.17 0.009 264);
-  --card-foreground: oklch(0.97 0.004 264);
-  --popover: oklch(0.17 0.009 264);
-  --popover-foreground: oklch(0.97 0.004 264);
-  --primary: oklch(0.93 0.004 264);
-  --primary-foreground: oklch(0.15 0.010 264);
-  --secondary: oklch(0.22 0.009 264);
-  --secondary-foreground: oklch(0.97 0.004 264);
-  --muted: oklch(0.22 0.009 264);
-  --muted-foreground: oklch(0.62 0.006 264);
-  --accent: oklch(0.22 0.009 264);
-  --accent-foreground: oklch(0.97 0.004 264);
+  /* Deep cool near-black — hue 250° (blue-slate), chroma just enough to read as intentional */
+  --background: oklch(0.095 0.012 250);
+  --foreground: oklch(0.96 0.005 250);
+  --card: oklch(0.135 0.011 250);
+  --card-foreground: oklch(0.96 0.005 250);
+  --popover: oklch(0.135 0.011 250);
+  --popover-foreground: oklch(0.96 0.005 250);
+  --primary: oklch(0.92 0.005 250);
+  --primary-foreground: oklch(0.12 0.012 250);
+  --secondary: oklch(0.185 0.010 250);
+  --secondary-foreground: oklch(0.96 0.005 250);
+  --muted: oklch(0.185 0.010 250);
+  --muted-foreground: oklch(0.55 0.008 250);
+  --accent: oklch(0.185 0.010 250);
+  --accent-foreground: oklch(0.96 0.005 250);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.52 0.008 264);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.48 0.010 250);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.14 0.010 264);
-  --sidebar-foreground: oklch(0.97 0.004 264);
+  --sidebar: oklch(0.110 0.012 250);
+  --sidebar-foreground: oklch(0.96 0.005 250);
   --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.97 0.004 264);
-  --sidebar-accent: oklch(0.20 0.009 264);
-  --sidebar-accent-foreground: oklch(0.97 0.004 264);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.52 0.008 264);
+  --sidebar-primary-foreground: oklch(0.96 0.005 250);
+  --sidebar-accent: oklch(0.160 0.010 250);
+  --sidebar-accent-foreground: oklch(0.96 0.005 250);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.48 0.010 250);
 }
 
 @layer base {
