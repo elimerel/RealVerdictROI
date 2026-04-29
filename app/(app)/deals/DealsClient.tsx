@@ -277,8 +277,10 @@ export function DealsClient({
   }, [selectedId, pendingCard, deals, dealData])
 
   // ── Save a freshly-analyzed deal ──
+  const [isSaving, setIsSaving] = useState(false)
   const handleSave = useCallback(async () => {
     if (
+      isSaving ||
       !pendingCard ||
       pendingCard.kind !== "done" ||
       pendingCard.id !== selectedId ||
@@ -293,6 +295,7 @@ export function DealsClient({
       router.push("/pricing?redirect=/deals")
       return
     }
+    setIsSaving(true)
     try {
       const res = await fetch("/api/deals/save", {
         method: "POST",
@@ -327,8 +330,25 @@ export function DealsClient({
       router.refresh()
     } catch {
       // save failed silently — user can retry
+    } finally {
+      setIsSaving(false)
     }
-  }, [pendingCard, selectedId, signedIn, isPro, router])
+  }, [isSaving, pendingCard, selectedId, signedIn, isPro, router])
+
+  // ── Delete a saved deal ──
+  const handleDelete = useCallback(
+    async (id: string) => {
+      try {
+        await fetch(`/api/deals/${id}`, { method: "DELETE" })
+      } catch {
+        // non-critical — optimistic remove + refresh will reflect reality
+      }
+      // Close the panel immediately if the deleted deal was open.
+      if (selectedId === id) setSelectedId(null)
+      router.refresh()
+    },
+    [selectedId, router]
+  )
 
   // ── Select a saved deal, triggering background narrative if needed ──
   const handleSelectSavedDeal = useCallback(
@@ -741,6 +761,7 @@ export function DealsClient({
                     createdAt={deal.created_at}
                     isSelected={selectedId === deal.id}
                     onSelect={() => handleSelectSavedDeal(deal, computed)}
+                    onDelete={() => handleDelete(deal.id)}
                   />
                 )
               })}
@@ -777,6 +798,7 @@ export function DealsClient({
               propertyFacts={panelData.propertyFacts}
               ai_narrative={panelData.ai_narrative}
               savedDealId={panelData.savedDealId}
+              isSaving={panelData.isPending ? isSaving : false}
               signedIn={signedIn}
               isPro={isPro}
               supabaseConfigured={supabaseConfigured}

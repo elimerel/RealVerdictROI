@@ -13,7 +13,7 @@ import type { ComparablesAnalysis } from "@/lib/comparables"
 import type { ChatAnalysisContext } from "@/app/api/chat/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
 import { TIER_ACCENT, TIER_LABEL } from "@/app/(app)/_components/results/tier-style"
-import { Save, CheckCircle2 } from "lucide-react"
+import { Save, CheckCircle2, Loader2 } from "lucide-react"
 import BreakdownSection from "./results/BreakdownSection"
 import StressTestPanel from "./StressTestPanel"
 
@@ -58,6 +58,7 @@ export type AnalysisPanelProps = {
 
   // Metadata
   savedDealId?: string    // set if this deal is already saved
+  isSaving?: boolean      // true while the save fetch is in-flight
   isLoading?: boolean     // show skeleton while analysis is running
 
   // Optional property facts for display in the header
@@ -137,6 +138,7 @@ export default function AnalysisPanel({
   panelWidth,
   onSave,
   savedDealId,
+  isSaving,
   isLoading,
   propertyFacts: pf,
 }: AnalysisPanelProps) {
@@ -358,18 +360,25 @@ export default function AnalysisPanel({
           <button
             type="button"
             onClick={onSave}
-            disabled={!!savedDealId}
+            disabled={!!savedDealId || isSaving}
             className={cn(
               "w-full flex items-center justify-center gap-2 text-sm font-medium rounded-md px-4 py-2 border transition-colors",
               savedDealId
                 ? "border-emerald-700 text-emerald-400 bg-emerald-950/20 cursor-default"
-                : "border-zinc-600 text-zinc-200 bg-zinc-800 hover:bg-zinc-700 hover:border-zinc-500"
+                : isSaving
+                  ? "border-zinc-600 text-zinc-400 bg-zinc-800 cursor-default"
+                  : "border-zinc-600 text-zinc-200 bg-zinc-800 hover:bg-zinc-700 hover:border-zinc-500"
             )}
           >
             {savedDealId ? (
               <>
                 <CheckCircle2 className="h-4 w-4" />
-                Saved
+                Saved to pipeline
+              </>
+            ) : isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Saving…
               </>
             ) : (
               <>
