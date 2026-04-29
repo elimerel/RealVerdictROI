@@ -441,6 +441,8 @@ export function DealsClient({
             narrativeInFlightRef.current.delete(deal.id)
             if (res.ok) {
               const data = (await res.json()) as { narrative?: AiNarrative; _debug?: string }
+              // Always dump the full response so we can see _debug regardless of where it lands.
+              console.log(">>> [narrative] FULL RESPONSE:", JSON.stringify(data))
               if (data._debug) {
                 console.warn(">>> [narrative] ROUTE DEBUG:", data._debug)
               }

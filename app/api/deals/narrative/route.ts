@@ -227,6 +227,7 @@ export async function POST(req: Request) {
     console.log("[narrative] Narrative built — summary:", narrative.summary.slice(0, 80));
   } catch (err) {
     const e = err as Error & { cause?: unknown; status?: number; responseBody?: string };
+    const claudeErrorMsg = `${e?.name ?? "Error"}: ${e?.message ?? "unknown"} (status=${e?.status ?? "?"})`;
     console.error("[narrative] Claude call FAILED:", {
       message: e?.message,
       name: e?.name,
@@ -236,13 +237,16 @@ export async function POST(req: Request) {
       stack: e?.stack?.split("\n").slice(0, 5).join(" | "),
     });
     console.log("[narrative] Storing fallback narrative for dealId:", body.dealId);
-    narrative = {
-      ...FALLBACK_NARRATIVE,
-      generatedAt: new Date().toISOString(),
-      // Embed the error reason so the client can surface it in browser console.
-      // Cast needed because _debug is not part of the AiNarrative type.
-      ...({ _debug: `fallback:claude-error — ${e?.message ?? "unknown"}` } as object),
-    } as AiNarrative;
+    narrative = { ...FALLBACK_NARRATIVE, generatedAt: new Date().toISOString() };
+
+    // Persist fallback then return early with top-level _debug so the browser
+    // console can surface the exact error without Vercel log access.
+    await supabase
+      .from("deals")
+      .update({ ai_narrative: narrative })
+      .eq("id", body.dealId)
+      .eq("user_id", user.id);
+    return NextResponse.json({ narrative, _debug: `fallback:claude-error — ${claudeErrorMsg}` });
   }
 
   // Persist to DB — only update rows owned by this user.
