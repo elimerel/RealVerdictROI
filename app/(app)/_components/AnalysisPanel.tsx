@@ -274,9 +274,6 @@ export default function AnalysisPanel({
               className="pl-3 space-y-0.5"
               style={{ borderLeft: `2px solid ${accent}25` }}
             >
-              <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">
-                Walk-away
-              </p>
               <p className="text-xl font-mono font-bold tabular-nums text-foreground">
                 {formatCurrency(walkAwayPrice, 0)}
               </p>

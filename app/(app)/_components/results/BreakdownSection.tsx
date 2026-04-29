@@ -28,9 +28,6 @@ export default function BreakdownSection({
 }) {
   return (
     <section className="flex flex-col gap-10">
-      <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
-        Breakdown
-      </div>
       <MonthlyWaterfall analysis={analysis} />
       <CashToClose analysis={analysis} />
       <ProjectionTable projection={analysis.projection} />

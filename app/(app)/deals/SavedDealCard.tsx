@@ -35,10 +35,9 @@ function MetricTile({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] text-muted-foreground/70 leading-none">{label}</span>
       <span
         className={cn(
-          "text-xs font-mono tabular-nums font-semibold leading-none",
+          "text-sm font-mono tabular-nums font-semibold leading-none",
           color === "green" && "text-emerald-400",
           color === "red" && "text-red-400",
           !color && "text-foreground"
@@ -46,6 +45,7 @@ function MetricTile({
       >
         {value}
       </span>
+      <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wide leading-none mt-0.5">{label}</span>
     </div>
   )
 }
@@ -122,7 +122,7 @@ export function SavedDealCard({
         borderTopWidth: "1px",
         borderRightWidth: "1px",
         borderBottomWidth: "1px",
-        borderLeftWidth: "3px",
+        borderLeftWidth: "4px",
         borderTopColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
         borderRightColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
         borderBottomColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
@@ -132,7 +132,7 @@ export function SavedDealCard({
           : "0 1px 3px rgba(0,0,0,.3)",
       }}
     >
-      {/* ── Delete affordance — visible on hover, always present for saved deals ── */}
+      {/* ── Delete affordance — revealed on card hover only ── */}
       {onDelete && !confirmingDelete && (
         <button
           type="button"
@@ -144,7 +144,8 @@ export function SavedDealCard({
           className={cn(
             "absolute top-1.5 right-1.5 flex items-center justify-center",
             "h-5 w-5 rounded",
-            "text-muted-foreground/40 hover:text-red-400 hover:bg-red-950/40",
+            "opacity-0 group-hover:opacity-100",
+            "text-muted-foreground hover:text-red-400 hover:bg-red-950/40",
             "transition-all duration-150"
           )}
         >
@@ -195,7 +196,7 @@ export function SavedDealCard({
 
       {/* Property facts strip */}
       {!isBadData && hasFacts && (
-        <p className="text-[10px] text-muted-foreground mb-1.5 font-mono">
+        <p className="text-[10px] text-muted-foreground/60 mb-1.5 font-mono">
           {[
             facts!.beds != null && `${facts!.beds} bd`,
             facts!.baths != null && `${facts!.baths} ba`,
@@ -212,8 +213,17 @@ export function SavedDealCard({
         </p>
       ) : (
         <>
+          {/* Verdict badge — near top so tier is immediately visible on scan */}
+          <span
+            className="inline-block text-[11px] font-semibold px-2 py-0.5 rounded mb-2"
+            style={{ color: accent, backgroundColor: `${accent}22` }}
+          >
+            {label}
+          </span>
+
+          {/* Walk-away price — dominant visual element */}
           {walkAwayPrice != null && (
-            <p className="text-lg font-mono font-bold tabular-nums leading-none mb-2">
+            <p className="text-[22px] font-mono font-bold tabular-nums leading-none mb-2.5">
               {formatCurrency(walkAwayPrice, 0)}
             </p>
           )}
@@ -230,18 +240,8 @@ export function SavedDealCard({
         </>
       )}
 
-      <div className="flex items-center justify-between gap-2">
-        {!isBadData ? (
-          <span
-            className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-            style={{ color: accent, backgroundColor: `${accent}18` }}
-          >
-            {label}
-          </span>
-        ) : (
-          <span />
-        )}
-        <span className="text-[10px] text-muted-foreground/60 shrink-0">
+      <div className="flex items-center justify-end">
+        <span className="text-[10px] text-muted-foreground/50 shrink-0">
           {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
         </span>
       </div>
