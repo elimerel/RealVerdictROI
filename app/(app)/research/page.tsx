@@ -198,6 +198,8 @@ function ElectronResearchPage() {
   const isDragging = useRef(false)
   const dragStartX = useRef(0)
   const dragStartW = useRef(0)
+  // Tracks the last URL that was auto-analyzed so we don't fire twice per navigation
+  const lastAutoAnalyzedUrl = useRef("")
 
   const handlePanelDragStart = useCallback((e: React.MouseEvent) => {
     isDragging.current = true
@@ -255,6 +257,30 @@ function ElectronResearchPage() {
     })
     return unsub
   }, [])
+
+  // Auto-analyze when the browser lands on a recognized listing page.
+  // Fires once per distinct URL — quiet on non-listing pages.
+  useEffect(() => {
+    if (!isListingPage || !browserActive || !currentUrl) return
+    if (currentUrl === lastAutoAnalyzedUrl.current) return
+    lastAutoAnalyzedUrl.current = currentUrl
+
+    setAnalysisLoading(true)
+    setError(null)
+    window.electronAPI!.analyze()
+      .then((result) => {
+        const r = result as ExtractPayload
+        if (r.error) { setError(r.error); return }
+        const built = buildAnalysisResult({ ...r, inputs: r.inputs as Partial<DealInputs> })
+        setAnalysisResult(built)
+        setAnalysisOpen(true)
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Analysis failed.")
+      })
+      .finally(() => setAnalysisLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isListingPage, currentUrl, browserActive])
 
   const launchBrowser = useCallback(async (url: string) => {
     const api = window.electronAPI!
@@ -335,7 +361,11 @@ function ElectronResearchPage() {
             disabled={analysisLoading} onClick={handleAnalyze}
             className={cn("gap-1.5 shrink-0", isListingPage && "bg-emerald-600 hover:bg-emerald-500 text-white border-0")}>
             {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TrendingUp className="h-3.5 w-3.5" />}
-            {analysisLoading ? "Analyzing…" : isListingPage ? "Listing detected — Analyze" : "Analyze"}
+            {analysisLoading
+              ? "Analyzing…"
+              : isListingPage
+                ? <><CheckCircle2 className="h-3.5 w-3.5" />Listing detected</>
+                : "Analyze"}
           </Button>
         )}
 
@@ -439,7 +469,7 @@ function ElectronResearchPage() {
                   <TrendingUp className="h-8 w-8 opacity-20" />
                   <div className="space-y-1">
                     <p className="text-sm font-medium">No analysis yet</p>
-                    <p className="text-xs opacity-60">Browse to a listing and click Analyze</p>
+                    <p className="text-xs opacity-60">Browse to a listing — analysis starts automatically</p>
                   </div>
                 </div>
               )}

@@ -26,8 +26,8 @@ import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 
 const navItems = [
-  { title: "Deals",    icon: LayoutList, href: "/deals" },
   { title: "Research", icon: Globe,      href: "/research" },
+  { title: "Pipeline", icon: LayoutList, href: "/deals" },
   { title: "Insights", icon: BarChart3,  href: "/insights" },
   { title: "Settings", icon: Settings,   href: "/settings" },
 ]
@@ -64,7 +64,7 @@ export function AppSidebar({ userEmail, isPro }: Props) {
            This gives the traffic lights natural breathing room above the logo. */}
       <SidebarHeader className="pt-7 pb-3 flex items-center px-3 border-b border-sidebar-border select-none drag-region">
         <Link
-          href="/deals"
+          href="/research"
           className="no-drag-region flex items-center gap-2 group-data-[collapsible=icon]:justify-center"
         >
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground shrink-0">

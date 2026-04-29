@@ -193,7 +193,7 @@ function expandToMainApp() {
   appWindow.setMinimumSize(900, 600)
   // Resize first (no animation — keep it simple and reliable), then load.
   appWindow.setBounds(centeredBounds(w, h))
-  appWindow.loadURL(`${BASE_URL}/deals`)
+  appWindow.loadURL(`${BASE_URL}/research`)
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
 }

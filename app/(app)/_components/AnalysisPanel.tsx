@@ -105,7 +105,7 @@ function MetricTile({
     <div>
       <p
         className={cn(
-          "text-[15px] font-mono font-semibold tabular-nums leading-none",
+          "text-[17px] font-mono font-semibold tabular-nums leading-none",
           colored && good && "text-emerald-400",
           colored && !good && "text-red-400",
           !colored && "text-foreground"
@@ -198,115 +198,129 @@ export default function AnalysisPanel({
   const hasNarrative =
     ai_narrative != null && ai_narrative.summary.trim().length > 0
 
+  // Inline verdict sentence — immediate context with no deferred job
+  function getInlineSummary(): string {
+    if (walkAwayDiff != null && walkAwayDiff < 0) {
+      return `Walk-away is ${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking — overpaying at list price.`
+    }
+    if (cashFlow < -100) {
+      return `Runs at ${formatCurrency(Math.abs(cashFlow), 0)}/mo loss at asking price.`
+    }
+    if (cashFlow < 0) {
+      return `Marginally negative at ${formatCurrency(Math.abs(cashFlow), 0)}/mo — thin margin.`
+    }
+    if (cashFlow >= 400) {
+      return `Cash flows ${formatCurrency(cashFlow, 0)}/mo${walkAwayDiff != null && walkAwayDiff > 0 ? ` with ${formatCurrency(walkAwayDiff, 0)} of headroom` : ""}.`
+    }
+    return `${formatCurrency(cashFlow, 0)}/mo cash flow — review stress test for downside.`
+  }
+
   return (
     <div className="h-full flex flex-col bg-background">
 
       {/* ── Scrollable body ── */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="px-5 py-4 space-y-7">
+        <div className="px-5 py-4 space-y-5">
 
-          {/* Header: verdict color anchor + address + property facts */}
-          <div
-            className="space-y-1.5 pl-3"
-            style={{ borderLeft: `3px solid ${accent}` }}
-          >
-            <span
-              className="inline-block text-[11px] font-semibold px-2 py-0.5 rounded"
-              style={{ color: accent, backgroundColor: `${accent}22` }}
-            >
-              {TIER_LABEL[tier] ?? tier}
-            </span>
-            {address && (
-              <h2 className="text-sm font-semibold text-foreground leading-snug">
-                {address}
-              </h2>
-            )}
-            {pf && (pf.beds != null || pf.baths != null || pf.sqft != null) && (
-              <p className="text-[10px] text-muted-foreground font-mono">
-                {[
-                  pf.beds != null && `${pf.beds} bd`,
-                  pf.baths != null && `${pf.baths} ba`,
-                  pf.sqft != null && `${pf.sqft.toLocaleString()} sqft`,
-                  pf.yearBuilt != null && `Built ${pf.yearBuilt}`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            )}
-          </div>
-
-          {/* ═══════════════════════════════════
-              SECTION 1 — AI NARRATIVE
-              Only rendered when a real AI narrative (with summary text) has
-              been generated. Content speaks for itself — no section label.
-          ═══════════════════════════════════ */}
-          {hasNarrative && (
-            <>
-              <div className="space-y-3 max-w-[65ch]">
-                {/* Summary — the AI's headline interpretation of this deal */}
-                <p className="text-[15px] text-foreground leading-relaxed">
-                  {ai_narrative!.summary}
-                </p>
-
-                {/* Opportunity + Risk — only in full mode */}
-                {!compact && (
-                  <div className="space-y-2.5">
-                    {ai_narrative!.opportunity && (
-                      <div className="flex gap-2.5">
-                        <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-                        <p className="text-[13px] text-muted-foreground leading-relaxed">
-                          {ai_narrative!.opportunity}
-                        </p>
-                      </div>
-                    )}
-                    {ai_narrative!.risk && (
-                      <div className="flex gap-2.5">
-                        <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                        <p className="text-[13px] text-muted-foreground leading-relaxed">
-                          {ai_narrative!.risk}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <Divider />
-            </>
-          )}
-
-          {/* ═══════════════════════════════════
-              SECTION 2 — WALK-AWAY PRICE
-              Walk-away vs asking. Verdict summary removed — narrative covers it.
-          ═══════════════════════════════════ */}
-          {walkAwayPrice != null && (
-            <div
-              className="pl-3 space-y-0.5"
-              style={{ borderLeft: `2px solid ${accent}25` }}
-            >
-              <p className="text-xl font-mono font-bold tabular-nums text-foreground">
-                {formatCurrency(walkAwayPrice, 0)}
-              </p>
-              <p className="text-[10px] text-muted-foreground font-mono tabular-nums">
-                Asking {formatCurrency(listPrice, 0)}
-              </p>
-              {walkAwayDiff != null && (
-                <p
-                  className={cn(
-                    "text-[10px] font-mono tabular-nums font-medium",
-                    walkAwayDiff >= 0 ? "text-emerald-400" : "text-amber-400"
-                  )}
-                >
-                  {walkAwayDiff >= 0
-                    ? `+${formatCurrency(walkAwayDiff, 0)} headroom`
-                    : `${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking`}
+          {/* Address + property facts */}
+          {(address || (pf && (pf.beds != null || pf.baths != null || pf.sqft != null))) && (
+            <div className="space-y-0.5">
+              {address && (
+                <h2 className="text-sm font-semibold text-foreground leading-snug">
+                  {address}
+                </h2>
+              )}
+              {pf && (pf.beds != null || pf.baths != null || pf.sqft != null) && (
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  {[
+                    pf.beds != null && `${pf.beds} bd`,
+                    pf.baths != null && `${pf.baths} ba`,
+                    pf.sqft != null && `${pf.sqft.toLocaleString()} sqft`,
+                    pf.yearBuilt != null && `Built ${pf.yearBuilt}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               )}
             </div>
           )}
 
           {/* ═══════════════════════════════════
-              SECTION 3 — KEY METRICS
-              Numbers on the surface — no boxes, no borders.
+              HERO — WALK-AWAY PRICE
+              The number that owns the screen. Eye lands here first.
+          ═══════════════════════════════════ */}
+          {walkAwayPrice != null && (
+            <div className="space-y-2">
+              <p className="text-[3.75rem] font-mono font-bold tabular-nums text-foreground leading-[1] tracking-tight">
+                {formatCurrency(walkAwayPrice, 0)}
+              </p>
+              <div className="space-y-0.5">
+                <p className="text-[11px] text-muted-foreground/70 font-mono tabular-nums uppercase tracking-wider">
+                  Walk-away price
+                </p>
+                <p className="text-[12px] text-muted-foreground/80 font-mono tabular-nums">
+                  Asking {formatCurrency(listPrice, 0)}
+                </p>
+                {walkAwayDiff != null && (
+                  <p
+                    className={cn(
+                      "text-[13px] font-mono tabular-nums font-semibold",
+                      walkAwayDiff >= 0 ? "text-emerald-400" : "text-amber-400"
+                    )}
+                  >
+                    {walkAwayDiff >= 0
+                      ? `+${formatCurrency(walkAwayDiff, 0)} headroom`
+                      : `${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking`}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Verdict badge */}
+          <div
+            className="inline-flex items-center pl-3"
+            style={{ borderLeft: `3px solid ${accent}` }}
+          >
+            <span
+              className="text-[11px] font-semibold px-2 py-0.5 rounded"
+              style={{ color: accent, backgroundColor: `${accent}22` }}
+            >
+              {TIER_LABEL[tier] ?? tier}
+            </span>
+          </div>
+
+          {/* ═══════════════════════════════════
+              NARRATIVE — AI summary or inline computed sentence
+          ═══════════════════════════════════ */}
+          <p className="text-[13px] text-muted-foreground leading-relaxed max-w-[65ch]">
+            {hasNarrative ? ai_narrative!.summary : getInlineSummary()}
+          </p>
+
+          {/* Opportunity + Risk from AI narrative — only in full mode */}
+          {hasNarrative && !compact && (
+            <div className="space-y-2.5">
+              {ai_narrative!.opportunity && (
+                <div className="flex gap-2.5">
+                  <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                  <p className="text-[13px] text-muted-foreground leading-relaxed">
+                    {ai_narrative!.opportunity}
+                  </p>
+                </div>
+              )}
+              {ai_narrative!.risk && (
+                <div className="flex gap-2.5">
+                  <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                  <p className="text-[13px] text-muted-foreground leading-relaxed">
+                    {ai_narrative!.risk}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════
+              SECTION — KEY METRICS
           ═══════════════════════════════════ */}
           <>
             <Divider />
@@ -353,7 +367,7 @@ export default function AnalysisPanel({
           </>
 
           {/* ═══════════════════════════════════
-              SECTION 4 — STRESS TEST (full mode only)
+              SECTION — STRESS TEST (full mode only)
           ═══════════════════════════════════ */}
           {!compact && (
             <>
@@ -363,7 +377,7 @@ export default function AnalysisPanel({
           )}
 
           {/* ═══════════════════════════════════
-              SECTION 5 — MONTHLY BREAKDOWN (full mode only)
+              SECTION — MONTHLY BREAKDOWN (full mode only)
           ═══════════════════════════════════ */}
           {!compact && (
             <>
@@ -378,7 +392,7 @@ export default function AnalysisPanel({
       </div>
 
       {/* ═══════════════════════════════════
-          SECTION 6 — STICKY BOTTOM BAR
+          STICKY BOTTOM BAR
       ═══════════════════════════════════ */}
       {onSave && supabaseConfigured && (
         <div className="shrink-0 border-t border-border px-5 py-3 bg-background">
