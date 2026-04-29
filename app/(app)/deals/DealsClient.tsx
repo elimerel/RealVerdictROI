@@ -70,6 +70,8 @@ type PendingCard =
       walkAway: OfferCeiling | null
       propertyFacts?: PropertyFacts | null
       createdAt: string
+      /** Set after the deal is successfully saved — prevents double-save. */
+      savedId?: string
     }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +249,7 @@ export function DealsClient({
         inputs: pendingCard.analysis.inputs,
         address: pendingCard.address,
         propertyFacts: pendingCard.propertyFacts ?? undefined,
-        savedDealId: undefined as string | undefined,
+        savedDealId: pendingCard.savedId,
         ai_narrative: null as AiNarrative | null,
         isPending: true,
       }
@@ -279,7 +281,8 @@ export function DealsClient({
     if (
       !pendingCard ||
       pendingCard.kind !== "done" ||
-      pendingCard.id !== selectedId
+      pendingCard.id !== selectedId ||
+      pendingCard.savedId  // already saved — prevent double-save
     )
       return
     if (!signedIn) {
@@ -302,8 +305,13 @@ export function DealsClient({
       })
       if (!res.ok) return
       const saved = (await res.json()) as { id?: string }
-      // Fire-and-forget: generate AI narrative in the background
       if (saved.id) {
+        // Lock the save button immediately — before router.refresh() resolves —
+        // so a second click before the list updates can't fire another save.
+        setPendingCard((prev) =>
+          prev?.kind === "done" ? { ...prev, savedId: saved.id } : prev
+        )
+        // Fire-and-forget: generate AI narrative in the background
         fetch("/api/deals/narrative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -326,9 +334,15 @@ export function DealsClient({
   const handleSelectSavedDeal = useCallback(
     (deal: SavedDeal, computed: { analysis: DealAnalysis; walkAway: OfferCeiling | null }) => {
       setSelectedId(deal.id)
-      // Generate narrative for deals that predate the feature, then refresh to show it
-      if (!deal.ai_narrative) {
-        console.log("[deals] ai_narrative is null for", deal.id, "— triggering background generation")
+      // Generate (or re-generate) the narrative when:
+      //  - it has never been generated (ai_narrative is null), OR
+      //  - it exists but opportunity/risk are empty (stale pre-fix narratives)
+      const needsNarrative =
+        !deal.ai_narrative ||
+        !deal.ai_narrative.opportunity?.trim() ||
+        !deal.ai_narrative.risk?.trim()
+      if (needsNarrative) {
+        console.log("[deals] generating narrative for", deal.id, needsNarrative ? "(missing or stale fields)" : "")
         fetch("/api/deals/narrative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -352,7 +366,7 @@ export function DealsClient({
             console.error("[deals] narrative fetch failed:", err)
           })
       } else {
-        console.log("[deals] ai_narrative already present for", deal.id, ":", deal.ai_narrative?.summary?.slice(0, 60))
+        console.log("[deals] ai_narrative already complete for", deal.id, ":", deal.ai_narrative?.summary?.slice(0, 60))
       }
     },
     [router]

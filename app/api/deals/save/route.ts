@@ -70,6 +70,26 @@ export const POST = withErrorReporting("api.deals-save", async (req: Request) =>
   const inputs = sanitiseInputs(body.inputs);
   const analysis = analyseDeal(inputs);
 
+  // Dedup: prevent saving the same deal twice within a 5-minute window.
+  // The address is the most reliable key — same user + same address + recent
+  // created_at means the user analyzed the same listing multiple times and
+  // clicked Save more than once. Return the existing deal ID without inserting.
+  const dedupSince = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  if (body.address?.trim()) {
+    const { data: existing } = await supabase
+      .from("deals")
+      .select("id, created_at")
+      .eq("user_id", userRes.user.id)
+      .eq("address", body.address.trim())
+      .gte("created_at", dedupSince)
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      logEvent("deals.save.dedup", { userId: userRes.user.id });
+      return NextResponse.json({ id: existing.id, createdAt: existing.created_at });
+    }
+  }
+
   const propertyFacts = body.propertyFacts ?? null;
 
   const { data, error } = await supabase

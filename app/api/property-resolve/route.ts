@@ -26,6 +26,7 @@ import {
 } from "@/lib/flood";
 import { enforceRateLimit } from "@/lib/ratelimit";
 import { withErrorReporting, logEvent, captureError } from "@/lib/observability";
+import { extractZpidAndSlug, addressFromSlug } from "@/lib/zillow-url";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -351,6 +352,15 @@ async function resolveByZillowUrl(
   }
 
   if (zillow?.address) result.address = zillow.address;
+  // If zillow-parse failed or returned no address (e.g. ScraperAPI down,
+  // anti-bot page, 502), the full address is still in the URL slug itself.
+  // Parse it here so we never show "Unknown address" for a valid Zillow URL.
+  if (!result.address) {
+    const parsed = extractZpidAndSlug(url);
+    if (parsed?.slug) {
+      result.address = addressFromSlug(parsed.slug);
+    }
+  }
   // State resolution priority for the Zillow URL flow:
   //   1. Trust the explicit `state` field from /api/zillow-parse — it was
   //      sourced from either Zillow's structured address blob or the URL
