@@ -229,12 +229,14 @@ export async function POST(req: NextRequest) {
       `Read from ${extracted.siteName ?? new URL(body.url ?? "https://unknown").hostname} via ${modelLabel} · confidence: ${extracted.confidence}`
     )
 
-    // Step 3: Fill gaps via property-resolve
+    // Step 3: Fill gaps via property-resolve.
+    // skipRentcast=true — /api/extract is an automatic analysis path;
+    // RentCast must never fire automatically (cost leak prevention).
     if (extracted.address) {
       try {
         const origin = new URL(req.url).origin
         const res = await fetch(
-          `${origin}/api/property-resolve?address=${encodeURIComponent(extracted.address)}`,
+          `${origin}/api/property-resolve?address=${encodeURIComponent(extracted.address)}&skipRentcast=true`,
           { signal: AbortSignal.timeout(15000) },
         )
         if (res.ok) {

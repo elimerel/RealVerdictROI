@@ -13,15 +13,16 @@ import { createClient } from "@/lib/supabase/server"
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
-  // Where to send the user after sign-in (defaults to /deals)
-  const next = searchParams.get("next") ?? "/deals"
+  // Where to send the user after sign-in (defaults to /research — the
+  // Electron desktop app opens to the Research co-pilot by default).
+  const next = searchParams.get("next") ?? "/research"
 
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
       // Ensure we only redirect to same-origin paths
-      const redirectTo = next.startsWith("/") ? `${origin}${next}` : `${origin}/deals`
+      const redirectTo = next.startsWith("/") ? `${origin}${next}` : `${origin}/research`
       return NextResponse.redirect(redirectTo)
     }
   }

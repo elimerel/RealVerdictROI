@@ -171,6 +171,10 @@ export const GET = withErrorReporting(
       );
     }
 
+    // skipRentcast=true → auto-analysis path (browser detection, AI fallback).
+    // RentCast must never fire automatically — only on explicit user action.
+    const skipRentcast = req.nextUrl.searchParams.get("skipRentcast") === "true";
+
     const cacheKey = `${CACHE_VERSION}:addr:${normalizeForCache(address)}`;
     const hit = await cache.get(cacheKey);
     if (hit) {
@@ -178,13 +182,17 @@ export const GET = withErrorReporting(
       return Response.json(hit);
     }
 
-    const result = await resolveByAddress(address);
-    await cache.set(cacheKey, result);
+    const result = await resolveByAddress(address, skipRentcast);
+    // Only cache results that include RentCast data; skipRentcast calls are
+    // cheap (no external lookup) and should not pollute the shared cache with
+    // an incomplete record that would serve users who need the full data.
+    if (!skipRentcast) await cache.set(cacheKey, result);
     logEvent("property-resolve.resolved", {
       mode: "address",
       state: result.state,
       hasFacts: Object.keys(result.facts).length > 0,
       warnings: result.warnings?.length ?? 0,
+      skipRentcast,
     });
     return Response.json(result);
   },
@@ -196,12 +204,15 @@ export const POST = withErrorReporting(
     const limited = await enforceRateLimit(req, "property-resolve");
     if (limited) return limited;
 
-    let body: { url?: string; address?: string };
+    let body: { url?: string; address?: string; skipRentcast?: boolean };
     try {
-      body = (await req.json()) as { url?: string; address?: string };
+      body = (await req.json()) as { url?: string; address?: string; skipRentcast?: boolean };
     } catch {
       return Response.json({ error: "Invalid JSON body." }, { status: 400 });
     }
+
+    // skipRentcast=true → auto-analysis path. Never call RentCast automatically.
+    const skipRentcast = body?.skipRentcast === true;
 
     const url = body?.url?.trim();
     if (url && /zillow\.com\/homedetails/i.test(url)) {
@@ -211,12 +222,13 @@ export const POST = withErrorReporting(
         logEvent("property-resolve.cache.hit", { mode: "zillow" });
         return Response.json(hit);
       }
-      const result = await resolveByZillowUrl(url, req);
-      await cache.set(cacheKey, result);
+      const result = await resolveByZillowUrl(url, req, skipRentcast);
+      if (!skipRentcast) await cache.set(cacheKey, result);
       logEvent("property-resolve.resolved", {
         mode: "zillow",
         state: result.state,
         warnings: result.warnings?.length ?? 0,
+        skipRentcast,
       });
       return Response.json(result);
     }
@@ -229,12 +241,13 @@ export const POST = withErrorReporting(
         logEvent("property-resolve.cache.hit", { mode: "address" });
         return Response.json(hit);
       }
-      const result = await resolveByAddress(address);
-      await cache.set(cacheKey, result);
+      const result = await resolveByAddress(address, skipRentcast);
+      if (!skipRentcast) await cache.set(cacheKey, result);
       logEvent("property-resolve.resolved", {
         mode: "address",
         state: result.state,
         warnings: result.warnings?.length ?? 0,
+        skipRentcast,
       });
       return Response.json(result);
     }
@@ -250,7 +263,7 @@ export const POST = withErrorReporting(
 // Resolvers
 // ---------------------------------------------------------------------------
 
-async function resolveByAddress(address: string): Promise<ResolveResult> {
+async function resolveByAddress(address: string, skipRentcast = false): Promise<ResolveResult> {
   const result: ResolveResult = emptyResult();
   result.address = address;
   result.state = detectStateFromAddress(address);
@@ -260,7 +273,10 @@ async function resolveByAddress(address: string): Promise<ResolveResult> {
   // deferred to the explicit "Run live comp analysis" button on /results
   // (§20.8). Browse-and-bounce traffic now costs at most one RentCast
   // request instead of four to six.
-  const rentcast = await fetchRentcast(address);
+  //
+  // skipRentcast=true is set by all automatic analysis paths (browser
+  // listing detection, AI fallback). RentCast is NEVER called automatically.
+  const rentcast = skipRentcast ? null : await fetchRentcast(address);
   if (rentcast) {
     if (rentcast.address) result.address = rentcast.address;
     // RentCast sometimes returns bedrooms: 0 for older public-records rows
@@ -295,6 +311,7 @@ async function resolveByAddress(address: string): Promise<ResolveResult> {
 async function resolveByZillowUrl(
   url: string,
   req: NextRequest,
+  skipRentcast = false,
 ): Promise<ResolveResult> {
   const result: ResolveResult = emptyResult();
 
@@ -448,12 +465,14 @@ async function resolveByZillowUrl(
 
   if (zillow?.notes) result.notes.push(...zillow.notes);
 
-  // Step 2: ALSO call RentCast /properties in parallel so we get the
-  // public-records facts Zillow doesn't expose cleanly (last-sale price /
-  // date, accurate tax bill, geocoded lat/lng for flood). One RentCast
-  // request per fresh address, NOT a comp pull (§20.8). Anything Zillow
-  // already gave us wins; RentCast only fills the gaps.
-  if (result.address) {
+  // Step 2: ALSO call RentCast /properties to fill public-records gaps
+  // (last-sale price/date, accurate tax bill, geocoded lat/lng for flood).
+  // One RentCast request per fresh address, NOT a comp pull (§20.8).
+  // Anything Zillow already gave us wins; RentCast only fills the gaps.
+  //
+  // skipRentcast=true is set by all automatic analysis paths — RentCast
+  // is NEVER called automatically, only on explicit user-initiated flows.
+  if (result.address && !skipRentcast) {
     const rentcast = await fetchRentcast(result.address);
     if (rentcast) {
       // Merge facts (don't overwrite — Zillow's listing data is more recent

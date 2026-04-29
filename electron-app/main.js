@@ -599,10 +599,12 @@ async function buildStructuredResponse(structured, dom, config) {
   const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.","") } catch { return "listing" } })()
   notes.push(`Extracted from ${hostname} page JSON (no AI token used)`)
 
-  // Fill gaps via property-resolve when we have an address
+  // Fill gaps via property-resolve when we have an address.
+  // skipRentcast=true — this is an automatic analysis path; RentCast must
+  // never be called automatically (cost leak prevention).
   if (structured.address) {
     try {
-      const res = await fetch(`${BASE_URL}/api/property-resolve?address=${encodeURIComponent(structured.address)}`, {
+      const res = await fetch(`${BASE_URL}/api/property-resolve?address=${encodeURIComponent(structured.address)}&skipRentcast=true`, {
         signal: AbortSignal.timeout(15_000),
       })
       if (res.ok) {

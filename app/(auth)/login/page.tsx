@@ -17,7 +17,7 @@ export default async function LoginPage({
   const redirectTo =
     typeof sp.redirect === "string" && sp.redirect.startsWith("/")
       ? sp.redirect
-      : "/deals";
+      : "/research";
 
   const initialMode: "signin" | "signup" =
     sp.mode === "signup" ? "signup" : "signin";
@@ -60,7 +60,7 @@ export default async function LoginPage({
 
   // Standard web layout — check session and redirect if already signed in.
   const user = await getCurrentUser();
-  if (user) redirect(redirectTo);
+  if (user) redirect(redirectTo);  // redirectTo defaults to /research
 
   return (
     <div className="flex flex-1 flex-col bg-gradient-to-b from-zinc-50 via-white to-zinc-50 dark:from-zinc-950 dark:via-black dark:to-zinc-950">
