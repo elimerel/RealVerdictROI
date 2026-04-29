@@ -178,6 +178,13 @@ export function DealsClient({
   const rightPanelRef = useRef<HTMLDivElement>(null)
   const [panelWidth, setPanelWidth] = useState(460)
 
+  // ── Local narrative cache — holds narratives returned from the API this session.
+  //    Takes priority over DB data so the narrative appears immediately when the
+  //    route responds, without waiting for router.refresh() to re-fetch the page.
+  const [localNarratives, setLocalNarratives] = useState<Map<string, AiNarrative>>(new Map)
+  // Tracks deals for which a narrative request is already in-flight this session.
+  const narrativeInFlightRef = useRef<Set<string>>(new Set)
+
   // ── Refs ──
   const formRef = useRef<HTMLFormElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -243,6 +250,11 @@ export function DealsClient({
       pendingCard.id === selectedId &&
       pendingCard.kind === "done"
     ) {
+      // Show the narrative immediately if the fire-and-forget save already
+      // came back, keyed by the saved deal id stamped onto the pending card.
+      const narrative = pendingCard.savedId
+        ? (localNarratives.get(pendingCard.savedId) ?? null)
+        : null
       return {
         analysis: pendingCard.analysis,
         walkAway: pendingCard.walkAway,
@@ -250,7 +262,7 @@ export function DealsClient({
         address: pendingCard.address,
         propertyFacts: pendingCard.propertyFacts ?? undefined,
         savedDealId: pendingCard.savedId,
-        ai_narrative: null as AiNarrative | null,
+        ai_narrative: narrative,
         isPending: true,
       }
     }
@@ -260,7 +272,10 @@ export function DealsClient({
     if (deal) {
       const computed = dealData.get(deal.id)
       if (!computed) return null
-      console.log("[deals] panelData ai_narrative for", deal.id, ":", deal.ai_narrative ?? "null")
+      // Prefer in-session cache (populated immediately when the route responds)
+      // over the DB value that only arrives after router.refresh().
+      const narrative = localNarratives.get(deal.id) ?? deal.ai_narrative ?? null
+      console.log("[deals] panelData ai_narrative for", deal.id, ":", narrative ? `summary="${narrative.summary.slice(0, 60)}"` : "null")
       return {
         analysis: computed.analysis,
         walkAway: computed.walkAway,
@@ -268,13 +283,13 @@ export function DealsClient({
         address: deal.address ?? undefined,
         propertyFacts: deal.property_facts ?? undefined,
         savedDealId: deal.id,
-        ai_narrative: deal.ai_narrative ?? null,
+        ai_narrative: narrative,
         isPending: false,
       }
     }
 
     return null
-  }, [selectedId, pendingCard, deals, dealData])
+  }, [selectedId, pendingCard, deals, dealData, localNarratives])
 
   // ── Save a freshly-analyzed deal ──
   const [isSaving, setIsSaving] = useState(false)
@@ -314,18 +329,37 @@ export function DealsClient({
         setPendingCard((prev) =>
           prev?.kind === "done" ? { ...prev, savedId: saved.id } : prev
         )
-        // Fire-and-forget: generate AI narrative in the background
+        // Fire-and-forget: generate AI narrative in the background.
+        // When it resolves, populate localNarratives immediately so the panel
+        // shows the narrative without needing a separate router.refresh().
+        const narrativeDealId = saved.id
+        narrativeInFlightRef.current.add(narrativeDealId)
         fetch("/api/deals/narrative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            dealId: saved.id,
+            dealId: narrativeDealId,
             analysis: pendingCard.analysis,
             inputs: pendingCard.analysis.inputs,
             walkAway: pendingCard.walkAway,
             address: pendingCard.address,
           }),
-        }).catch(() => {})
+        })
+          .then(async (res) => {
+            narrativeInFlightRef.current.delete(narrativeDealId)
+            if (res.ok) {
+              const data = (await res.json()) as { narrative?: AiNarrative }
+              if (data.narrative) {
+                console.log("[deals] narrative from save resolved for", narrativeDealId, "summary:", data.narrative.summary.slice(0, 60))
+                setLocalNarratives((prev) => new Map(prev).set(narrativeDealId, data.narrative!))
+              }
+            } else {
+              console.warn("[deals] save narrative route returned", res.status)
+            }
+          })
+          .catch(() => {
+            narrativeInFlightRef.current.delete(narrativeDealId)
+          })
       }
       router.refresh()
     } catch {
@@ -354,15 +388,31 @@ export function DealsClient({
   const handleSelectSavedDeal = useCallback(
     (deal: SavedDeal, computed: { analysis: DealAnalysis; walkAway: OfferCeiling | null }) => {
       setSelectedId(deal.id)
+
+      // Skip if we already have a good narrative in the local session cache.
+      const cached = localNarratives.get(deal.id)
+      if (cached?.opportunity?.trim() && cached?.risk?.trim()) {
+        console.log("[deals] narrative already cached for", deal.id)
+        return
+      }
+
+      // Skip if a request for this deal is already in-flight.
+      if (narrativeInFlightRef.current.has(deal.id)) {
+        console.log("[deals] narrative already in-flight for", deal.id)
+        return
+      }
+
       // Generate (or re-generate) the narrative when:
       //  - it has never been generated (ai_narrative is null), OR
-      //  - it exists but opportunity/risk are empty (stale pre-fix narratives)
+      //  - it exists but opportunity/risk are empty (stale/fallback narratives)
       const needsNarrative =
         !deal.ai_narrative ||
         !deal.ai_narrative.opportunity?.trim() ||
         !deal.ai_narrative.risk?.trim()
+
       if (needsNarrative) {
-        console.log("[deals] generating narrative for", deal.id, needsNarrative ? "(missing or stale fields)" : "")
+        console.log("[deals] generating narrative for", deal.id, "(missing or stale fields)")
+        narrativeInFlightRef.current.add(deal.id)
         fetch("/api/deals/narrative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -374,22 +424,30 @@ export function DealsClient({
             address: deal.address,
           }),
         })
-          .then((res) => {
+          .then(async (res) => {
+            narrativeInFlightRef.current.delete(deal.id)
             if (res.ok) {
-              console.log("[deals] narrative generated — refreshing deals list")
+              const data = (await res.json()) as { narrative?: AiNarrative }
+              if (data.narrative) {
+                console.log("[deals] narrative resolved for", deal.id, "summary:", data.narrative.summary.slice(0, 60))
+                setLocalNarratives((prev) => new Map(prev).set(deal.id, data.narrative!))
+              }
+              // Also sync the DB data via refresh — the panel already shows the
+              // narrative from localNarratives, so this is just a background sync.
               router.refresh()
             } else {
-              console.warn("[deals] narrative route returned", res.status)
+              console.warn("[deals] narrative route returned", res.status, "for", deal.id)
             }
           })
           .catch((err) => {
-            console.error("[deals] narrative fetch failed:", err)
+            narrativeInFlightRef.current.delete(deal.id)
+            console.error("[deals] narrative fetch failed for", deal.id, ":", err)
           })
       } else {
         console.log("[deals] ai_narrative already complete for", deal.id, ":", deal.ai_narrative?.summary?.slice(0, 60))
       }
     },
-    [router]
+    [router, localNarratives]
   )
 
   // ── Filtered saved deals ──

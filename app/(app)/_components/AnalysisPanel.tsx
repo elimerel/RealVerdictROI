@@ -196,11 +196,19 @@ export default function AnalysisPanel({
 
           {/* ═══════════════════════════════════
               SECTION 1 — AI NARRATIVE
+              Only rendered when a real AI narrative (with summary text) has
+              been generated. This is entirely separate from the engine's own
+              verdict.summary shown in SECTION 2 below.
           ═══════════════════════════════════ */}
           {hasNarrative && (
             <>
               <div className="space-y-2.5">
-                {/* Summary — the headline interpretation */}
+                {/* Section label — makes it unambiguous this is AI-generated */}
+                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                  AI Analysis
+                </p>
+
+                {/* Summary — the AI's headline interpretation of this deal */}
                 <p className="text-[15px] text-zinc-100 leading-snug">
                   {ai_narrative!.summary}
                 </p>
@@ -244,14 +252,19 @@ export default function AnalysisPanel({
             }}
           >
             <div className="flex items-start justify-between gap-4">
-              {/* Left: verdict */}
+              {/* Left: verdict (engine-computed, not AI narrative) */}
               <div className="space-y-1 min-w-0">
-                <p
-                  className="text-xs font-bold uppercase tracking-wider"
-                  style={{ color: accent }}
-                >
-                  {tierLabel}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p
+                    className="text-xs font-bold uppercase tracking-wider"
+                    style={{ color: accent }}
+                  >
+                    {tierLabel}
+                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                    Decision
+                  </p>
+                </div>
                 <p className="text-xs text-zinc-400 leading-relaxed">
                   {analysis.verdict.summary}
                 </p>
