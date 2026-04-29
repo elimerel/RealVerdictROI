@@ -197,7 +197,8 @@ export async function POST(req: Request) {
       .update({ ai_narrative: narrative })
       .eq("id", body.dealId)
       .eq("user_id", user.id);
-    return NextResponse.json({ narrative });
+    // Return the reason so the browser console can show it without Vercel log access.
+    return NextResponse.json({ narrative, _debug: "fallback:no-api-key" });
   }
 
   // Generate narrative
@@ -235,7 +236,13 @@ export async function POST(req: Request) {
       stack: e?.stack?.split("\n").slice(0, 5).join(" | "),
     });
     console.log("[narrative] Storing fallback narrative for dealId:", body.dealId);
-    narrative = { ...FALLBACK_NARRATIVE, generatedAt: new Date().toISOString() };
+    narrative = {
+      ...FALLBACK_NARRATIVE,
+      generatedAt: new Date().toISOString(),
+      // Embed the error reason so the client can surface it in browser console.
+      // Cast needed because _debug is not part of the AiNarrative type.
+      ...({ _debug: `fallback:claude-error — ${e?.message ?? "unknown"}` } as object),
+    } as AiNarrative;
   }
 
   // Persist to DB — only update rows owned by this user.

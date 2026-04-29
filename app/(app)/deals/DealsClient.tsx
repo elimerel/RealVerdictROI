@@ -349,7 +349,10 @@ export function DealsClient({
           .then(async (res) => {
             narrativeInFlightRef.current.delete(narrativeDealId)
             if (res.ok) {
-              const data = (await res.json()) as { narrative?: AiNarrative }
+              const data = (await res.json()) as { narrative?: AiNarrative; _debug?: string }
+              if (data._debug) {
+                console.warn(">>> [narrative] ROUTE DEBUG (save path):", data._debug)
+              }
               if (data.narrative) {
                 console.log("[deals] narrative from save resolved for", narrativeDealId, "summary:", data.narrative.summary.slice(0, 60))
                 setLocalNarratives((prev) => new Map(prev).set(narrativeDealId, data.narrative!))
@@ -437,7 +440,10 @@ export function DealsClient({
           .then(async (res) => {
             narrativeInFlightRef.current.delete(deal.id)
             if (res.ok) {
-              const data = (await res.json()) as { narrative?: AiNarrative }
+              const data = (await res.json()) as { narrative?: AiNarrative; _debug?: string }
+              if (data._debug) {
+                console.warn(">>> [narrative] ROUTE DEBUG:", data._debug)
+              }
               if (data.narrative) {
                 console.log("[deals] narrative resolved for", deal.id, "summary:", data.narrative.summary.slice(0, 60))
                 setLocalNarratives((prev) => new Map(prev).set(deal.id, data.narrative!))
