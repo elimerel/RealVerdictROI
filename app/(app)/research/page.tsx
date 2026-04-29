@@ -584,21 +584,28 @@ function ElectronResearchPage() {
       if (title !== undefined) { /* title tracked but not displayed in new layout */ void title }
       if (isListing !== undefined) {
         setIsListingPage(isListing)
-        // When leaving a listing page, clear the dedup guard so the next
-        // listing navigation always fires a fresh analysis.
-        if (!isListing) lastAutoAnalyzedUrl.current = ""
+        if (!isListing) {
+          // Leaving a listing page — clear both the dedup guard and any
+          // previous result so the next listing always starts completely fresh.
+          lastAutoAnalyzedUrl.current = ""
+          setAnalysisResult(null)
+        }
       }
       if (loading !== undefined) setBrowserLoading(loading)
     })
     return unsub
   }, [])
 
-  // Auto-analyze on listing detection — no RentCast, no Claude, engine only
+  // Auto-analyze on listing detection.
+  // Clears the previous result immediately so a stale verdict never lingers
+  // while the new extraction is running.
   useEffect(() => {
     if (!isListingPage || !browserActive || !currentUrl) return
     if (currentUrl === lastAutoAnalyzedUrl.current) return
     lastAutoAnalyzedUrl.current = currentUrl
 
+    // Clear the previous listing's result right away — never show stale data.
+    setAnalysisResult(null)
     setAnalysisLoading(true)
     setError(null)
     window.electronAPI!.analyze()

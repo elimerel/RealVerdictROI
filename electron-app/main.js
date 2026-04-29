@@ -470,6 +470,28 @@ ipcMain.handle("browser:analyze", async () => {
   if (!browserView) return { error: "No browser session active." }
   pendingPageComps = null
 
+  // Wait for the page to finish loading before extracting.
+  //
+  // Why: browser:analyze is triggered by did-navigate (the URL commit), but
+  // did-navigate fires BEFORE the page is fully rendered.  For full-page loads
+  // (Zillow, Redfin) the listing HTML arrives shortly after, so waiting for
+  // did-stop-loading is sufficient.  For SPA pushState navigations (Zillow
+  // "Similar homes" links), isLoading() stays false but the JS framework
+  // re-renders the new listing asynchronously — the extra 600 ms yield covers
+  // that case without adding perceptible latency on fast connections.
+  if (browserView.webContents.isLoading()) {
+    await new Promise((resolve) => {
+      const h = () => resolve()
+      browserView.webContents.once("did-stop-loading", h)
+      // Safety timeout: never block longer than 12 s
+      setTimeout(() => { try { browserView.webContents.off("did-stop-loading", h) } catch {} resolve() }, 12_000)
+    })
+  } else {
+    // SPA case: URL already changed via pushState but framework hasn't
+    // rendered the new listing content yet.  Brief yield for async renders.
+    await new Promise(r => setTimeout(r, 600))
+  }
+
   // Extract full page text from the already-loaded webview DOM
   let dom
   try {
