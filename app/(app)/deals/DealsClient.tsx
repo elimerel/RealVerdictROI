@@ -333,6 +333,7 @@ export function DealsClient({
         // When it resolves, populate localNarratives immediately so the panel
         // shows the narrative without needing a separate router.refresh().
         const narrativeDealId = saved.id
+        console.log(">>> [narrative] FIRING fetch on save for dealId:", narrativeDealId)
         narrativeInFlightRef.current.add(narrativeDealId)
         fetch("/api/deals/narrative", {
           method: "POST",
@@ -389,16 +390,23 @@ export function DealsClient({
     (deal: SavedDeal, computed: { analysis: DealAnalysis; walkAway: OfferCeiling | null }) => {
       setSelectedId(deal.id)
 
+      // ── Diagnostic dump — visible in browser DevTools → Console ──
+      console.group(">>> [narrative] handleSelectSavedDeal", deal.id)
+      console.log("deal.ai_narrative:", JSON.stringify(deal.ai_narrative))
+      console.log("localNarratives has key:", localNarratives.has(deal.id))
+      console.log("inFlight:", narrativeInFlightRef.current.has(deal.id))
+      console.groupEnd()
+
       // Skip if we already have a good narrative in the local session cache.
       const cached = localNarratives.get(deal.id)
       if (cached?.opportunity?.trim() && cached?.risk?.trim()) {
-        console.log("[deals] narrative already cached for", deal.id)
+        console.log(">>> [narrative] SKIP — already cached for", deal.id)
         return
       }
 
       // Skip if a request for this deal is already in-flight.
       if (narrativeInFlightRef.current.has(deal.id)) {
-        console.log("[deals] narrative already in-flight for", deal.id)
+        console.log(">>> [narrative] SKIP — already in-flight for", deal.id)
         return
       }
 
@@ -410,8 +418,10 @@ export function DealsClient({
         !deal.ai_narrative.opportunity?.trim() ||
         !deal.ai_narrative.risk?.trim()
 
+      console.log(">>> [narrative] needsNarrative:", needsNarrative, "for", deal.id)
+
       if (needsNarrative) {
-        console.log("[deals] generating narrative for", deal.id, "(missing or stale fields)")
+        console.log(">>> [narrative] FIRING fetch to /api/deals/narrative for", deal.id)
         narrativeInFlightRef.current.add(deal.id)
         fetch("/api/deals/narrative", {
           method: "POST",
