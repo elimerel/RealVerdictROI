@@ -198,21 +198,46 @@ export default function AnalysisPanel({
   const hasNarrative =
     ai_narrative != null && ai_narrative.summary.trim().length > 0
 
-  // Inline verdict sentence — immediate context with no deferred job
+  // Inline verdict sentence — immediate context with no deferred job.
+  // Names the asking price, the decisive metric, and its value. No vague language.
   function getInlineSummary(): string {
-    if (walkAwayDiff != null && walkAwayDiff < 0) {
-      return `Walk-away is ${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking — overpaying at list price.`
+    const askingStr = formatCurrency(listPrice, 0)
+
+    // DSCR < 1.0: property can't service its own debt. Most decisive failure signal.
+    if (isFinite(dscr) && dscr < 1.0) {
+      if (walkAwayDiff != null && walkAwayDiff < 0) {
+        return `Walk away. At ${askingStr}, DSCR of ${dscrStr} means this property cannot service its debt — it needs to be ${formatCurrency(Math.abs(walkAwayDiff), 0)} cheaper.`
+      }
+      return `Walk away. At ${askingStr}, DSCR of ${dscrStr} means this property cannot service its own debt — bleeding ${formatCurrency(Math.abs(cashFlow), 0)}/mo.`
     }
-    if (cashFlow < -100) {
-      return `Runs at ${formatCurrency(Math.abs(cashFlow), 0)}/mo loss at asking price.`
+
+    // Walk-away is materially below asking — overpriced relative to what the numbers support.
+    if (walkAwayDiff != null && walkAwayDiff < -4999) {
+      const waStr = walkAwayPrice != null ? formatCurrency(walkAwayPrice, 0) : null
+      return `Overpriced by ${formatCurrency(Math.abs(walkAwayDiff), 0)}. At ${askingStr} cash flow is ${formatCurrency(cashFlow, 0)}/mo${waStr ? ` — the numbers require ${waStr}` : ""}.`
     }
-    if (cashFlow < 0) {
-      return `Marginally negative at ${formatCurrency(Math.abs(cashFlow), 0)}/mo — thin margin.`
+
+    // Negative cash flow with DSCR still above 1 (unusual but possible with IO loans etc.)
+    if (cashFlow < -150) {
+      return `At ${askingStr} this property runs at a ${formatCurrency(Math.abs(cashFlow), 0)}/mo loss — ${formatPercent(capRate, 1)} cap rate doesn't cover carrying costs.`
     }
-    if (cashFlow >= 400) {
-      return `Cash flows ${formatCurrency(cashFlow, 0)}/mo${walkAwayDiff != null && walkAwayDiff > 0 ? ` with ${formatCurrency(walkAwayDiff, 0)} of headroom` : ""}.`
+
+    // Thin DSCR — technically serviceable but no buffer for vacancies or rate movement.
+    if (isFinite(dscr) && dscr < 1.25) {
+      return `Marginal. At ${askingStr}, DSCR of ${dscrStr} and ${formatCurrency(cashFlow, 0)}/mo cash flow leaves almost no room for vacancy or rate movement.`
     }
-    return `${formatCurrency(cashFlow, 0)}/mo cash flow — review stress test for downside.`
+
+    // Strong: significant headroom below walk-away price.
+    if (walkAwayDiff != null && walkAwayDiff > 9999) {
+      return `Strong deal. At ${askingStr} — ${formatCurrency(cashFlow, 0)}/mo cash flow, ${formatPercent(capRate, 1)} cap rate, ${formatCurrency(walkAwayDiff, 0)} of room before the numbers break.`
+    }
+
+    // Positive with modest headroom.
+    if (cashFlow > 0) {
+      return `Numbers work at ${askingStr} — ${formatCurrency(cashFlow, 0)}/mo cash flow, ${formatPercent(capRate, 1)} cap rate, ${formatPercent(coc, 1)} cash-on-cash.`
+    }
+
+    return `At ${askingStr} — ${formatCurrency(cashFlow, 0)}/mo cash flow, ${formatPercent(capRate, 1)} cap rate, DSCR ${dscrStr}.`
   }
 
   return (
