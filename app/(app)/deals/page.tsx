@@ -40,13 +40,17 @@ export default async function DealsPage() {
 
   return (
     <SidebarInset>
-      <header className="h-14 flex items-center gap-3 border-b border-border px-4 shrink-0">
-        <SidebarTrigger className="-ml-1" />
-        <h1 className="text-[13px] font-semibold tracking-tight text-foreground">
+      {/* Page header doubles as the macOS drag area — extends the sidebar's
+          drag-region across the full window top so the user can grab the
+          window from anywhere along the title bar, not just the sidebar. */}
+      <header className="drag-region h-14 flex items-center gap-3 border-b border-border px-4 shrink-0 select-none">
+        <SidebarTrigger className="-ml-1 no-drag-region" />
+        <h1 className="text-[13px] font-semibold tracking-tight text-foreground"
+            style={{ letterSpacing: "-0.012em" }}>
           Pipeline
         </h1>
         {deals.length > 0 && (
-          <span className="text-[11px] text-muted-foreground/50 font-mono tabular-nums">
+          <span className="text-[11px] text-muted-foreground/50 font-mono rv-num">
             {deals.length}
           </span>
         )}

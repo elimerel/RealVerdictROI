@@ -85,6 +85,64 @@ function centeredBounds(w, h) {
 }
 
 // ---------------------------------------------------------------------------
+// Window state persistence
+//
+// The main app window remembers its size and position between launches. The
+// login window stays centered at fixed dimensions because it's modal-feeling
+// — making it appear in the same spot every time keeps the launch UX
+// predictable.
+//
+// Bounds live in the same config.json that already stores API keys. We
+// validate against the current display layout so an unplugged external
+// monitor doesn't hide the window off-screen.
+// ---------------------------------------------------------------------------
+
+const MAIN_DEFAULT_W = 1400
+const MAIN_DEFAULT_H = 900
+const MAIN_MIN_W     = 1100
+const MAIN_MIN_H     = 700
+
+function isBoundsOnScreen(bounds) {
+  if (!bounds || typeof bounds.x !== "number") return false
+  // The window is "on screen" if any display contains its top-left point.
+  // This catches the unplugged-monitor case without forcing the window to
+  // be entirely inside one display (multi-monitor setups intentionally
+  // straddle edges).
+  return screen.getAllDisplays().some(({ bounds: b }) => {
+    return bounds.x >= b.x - 50 &&
+           bounds.x <= b.x + b.width  - 50 &&
+           bounds.y >= b.y - 50 &&
+           bounds.y <= b.y + b.height - 50
+  })
+}
+
+function readMainBounds() {
+  const cfg = readConfig()
+  const saved = cfg.mainWindowBounds
+  if (!saved || !isBoundsOnScreen(saved)) {
+    return centeredBounds(MAIN_DEFAULT_W, MAIN_DEFAULT_H)
+  }
+  return {
+    x: saved.x,
+    y: saved.y,
+    width:  Math.max(MAIN_MIN_W, saved.width  || MAIN_DEFAULT_W),
+    height: Math.max(MAIN_MIN_H, saved.height || MAIN_DEFAULT_H),
+  }
+}
+
+function writeMainBoundsDebounced(bounds) {
+  // Debounce — writing on every drag pixel is wasteful. 600ms after the
+  // last move/resize event is short enough that a quit-immediately-after-
+  // resize still persists, but doesn't flood disk during continuous drags.
+  clearTimeout(writeMainBoundsDebounced._t)
+  writeMainBoundsDebounced._t = setTimeout(() => {
+    const cfg = readConfig()
+    cfg.mainWindowBounds = bounds
+    writeConfig(cfg)
+  }, 600)
+}
+
+// ---------------------------------------------------------------------------
 // Single app window
 // ---------------------------------------------------------------------------
 
@@ -147,8 +205,22 @@ function createAppWindow() {
   // through to the /results URL after the user clicks "Full report".
   installPageCompsInterceptor()
 
-  appWindow.on("resize", () => syncBrowserViewBounds())
-  appWindow.on("move",   () => syncBrowserViewBounds())
+  const persistMainBounds = () => {
+    if (!appWindow || appWindow.isDestroyed() || !isMainMode) return
+    writeMainBoundsDebounced(appWindow.getBounds())
+  }
+
+  appWindow.on("resize", () => { syncBrowserViewBounds(); persistMainBounds() })
+  appWindow.on("move",   () => { syncBrowserViewBounds(); persistMainBounds() })
+  appWindow.on("close", () => {
+    // Final, immediate write before tear-down — the debounced write may
+    // not have fired if the user resized then immediately quit.
+    if (appWindow && !appWindow.isDestroyed() && isMainMode) {
+      const cfg = readConfig()
+      cfg.mainWindowBounds = appWindow.getBounds()
+      writeConfig(cfg)
+    }
+  })
   appWindow.on("closed", () => {
     destroyBrowserView()
     appWindow = null
@@ -212,14 +284,12 @@ function expandToMainApp() {
   isMainMode = true
   lastExpandNavMs = Date.now()  // suppress the re-entrant ElectronExpand call
 
-  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
-  const w = Math.min(1400, sw - 60)
-  const h = Math.min(900,  sh - 60)
-
   appWindow.setResizable(true)
-  appWindow.setMinimumSize(900, 600)
-  // Resize first (no animation — keep it simple and reliable), then load.
-  appWindow.setBounds(centeredBounds(w, h))
+  appWindow.setMinimumSize(MAIN_MIN_W, MAIN_MIN_H)
+  // Restore the user's last window size + position. If they've never opened
+  // the app before, or the saved bounds are off-screen (unplugged monitor),
+  // readMainBounds() falls back to a centered default.
+  appWindow.setBounds(readMainBounds())
   appWindow.loadURL(`${BASE_URL}/research`)
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })

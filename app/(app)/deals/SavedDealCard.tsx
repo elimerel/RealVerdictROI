@@ -12,6 +12,7 @@ import {
   type OfferCeiling,
   type VerdictTier,
 } from "@/lib/calculations"
+import { tonedSeverity, type Severity } from "@/lib/severity"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,10 +74,16 @@ export function SavedDealCard({
         if ((e.key === "Enter" || e.key === " ") && !confirmingDelete) onSelect()
       }}
       className={cn(
-        "group relative w-full text-left rounded-md p-3 transition-colors duration-150 cursor-pointer",
-        "border border-white/8",
-        isSelected ? "bg-white/4 border-white/15" : "bg-card hover:bg-muted/30",
-        isBadData && "bg-muted/30",
+        // Phase 1 polish: drop the always-visible border. Cards are now
+        // defined by surface tint differences and spacing — Mercury-style.
+        // The selected state lifts the surface tint slightly instead of
+        // brightening a border. Hover does the same at lower amplitude.
+        "group relative w-full text-left rounded-lg p-4 cursor-pointer",
+        "transition-colors duration-100 ease-[var(--rv-ease-out)]",
+        isSelected
+          ? "bg-white/[0.06]"
+          : "bg-white/[0.02] hover:bg-white/[0.04]",
+        isBadData && "bg-white/[0.02] opacity-80",
       )}
     >
       {/* Delete affordance */}
@@ -126,13 +133,14 @@ export function SavedDealCard({
       )}
 
       {/* Address */}
-      <p className="text-[13px] font-semibold truncate mb-0.5 pr-6 text-foreground">
+      <p className="text-[13px] font-semibold truncate mb-1 pr-6 text-foreground"
+         style={{ letterSpacing: "-0.01em" }}>
         {address ?? "Unknown address"}
       </p>
 
       {/* Facts row */}
       {hasFacts && (
-        <p className="text-[10px] text-muted-foreground/55 mb-3 font-mono">
+        <p className="text-[10px] text-muted-foreground/55 mb-4 font-mono rv-num">
           {[
             facts!.beds != null && `${facts!.beds} bd`,
             facts!.baths != null && `${facts!.baths} ba`,
@@ -148,41 +156,43 @@ export function SavedDealCard({
       ) : (
         <>
           {/* Asking + break-even */}
-          <p className="text-[11px] text-muted-foreground/55 font-mono tabular-nums mb-2">
+          <p className="text-[11px] text-muted-foreground/55 font-mono rv-num mb-3">
             Asking&nbsp;
-            <span className="text-foreground/70">
+            <span className="text-foreground/75">
               {formatCurrency(analysis.inputs.purchasePrice, 0)}
             </span>
             {breakEven != null && (
               <>
                 &nbsp;&middot;&nbsp;break-even&nbsp;
-                <span className="text-foreground/70">{formatCurrency(breakEven, 0)}</span>
+                <span className="text-foreground/75">{formatCurrency(breakEven, 0)}</span>
               </>
             )}
           </p>
 
-          {/* Three metric tiles — threshold-based color */}
-          <div className="grid grid-cols-3 gap-2">
+          {/* Three metric tiles — only the worst offender per card carries
+              color. The other two stay neutral so the eye lands on one
+              piece of red per row instead of three. */}
+          <div className="grid grid-cols-3 gap-2.5">
             <Metric
               label="DSCR"
               value={dscrStr}
-              tone={dscrTone(dscr)}
+              tone={tonedSeverity("dscr", dscr, cashFlow, capRate)}
             />
             <Metric
               label="Cash flow"
               value={(cashFlow >= 0 ? "+" : "\u2212") + formatCurrency(Math.abs(cashFlow), 0)}
-              tone={cashFlow >= 0 ? "neutral" : "bad"}
+              tone={tonedSeverity("cashFlow", dscr, cashFlow, capRate)}
             />
             <Metric
               label="Cap"
               value={formatPercent(capRate, 1)}
-              tone={capTone(capRate)}
+              tone={tonedSeverity("capRate", dscr, cashFlow, capRate)}
             />
           </div>
         </>
       )}
 
-      <div className="flex items-center justify-end mt-3">
+      <div className="flex items-center justify-end mt-4">
         <span className="text-[10px] text-muted-foreground/40 shrink-0 font-mono">
           {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
         </span>
@@ -191,36 +201,21 @@ export function SavedDealCard({
   )
 }
 
-type MetricTone = "neutral" | "good" | "warn" | "bad"
-
-function dscrTone(dscr: number): MetricTone {
-  if (!Number.isFinite(dscr)) return "good"
-  if (dscr >= 1.25) return "neutral"
-  if (dscr >= 1.0)  return "warn"
-  return "bad"
-}
-
-function capTone(cap: number): MetricTone {
-  if (cap >= 0.06) return "neutral"
-  if (cap >= 0.05) return "warn"
-  return "bad"
-}
-
-function Metric({ label, value, tone }: { label: string; value: string; tone: MetricTone }) {
+function Metric({ label, value, tone }: { label: string; value: string; tone: Severity }) {
   return (
-    <div className="flex flex-col gap-0.5 min-w-0">
+    <div className="flex flex-col gap-1 min-w-0">
       <span
         className={cn(
-          "text-[12px] font-mono tabular-nums font-semibold leading-none truncate",
-          tone === "good" && "text-emerald-400",
-          tone === "bad"  && "text-red-400",
-          tone === "warn" && "text-amber-400",
+          "text-[12px] font-mono rv-num font-semibold leading-none truncate",
+          tone === "good"    && "rv-tone-good",
+          tone === "bad"     && "rv-tone-bad",
+          tone === "warn"    && "rv-tone-warn",
           tone === "neutral" && "text-foreground",
         )}
       >
         {value}
       </span>
-      <span className="text-[9px] text-muted-foreground/45 uppercase tracking-wider leading-none mt-1">
+      <span className="text-[9px] text-muted-foreground/50 uppercase tracking-[0.08em] leading-none">
         {label}
       </span>
     </div>

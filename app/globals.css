@@ -8,7 +8,10 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-inter);
-  --font-mono: var(--font-geist-mono);
+  /* The local mono font in app/layout.tsx registers under --rv-font-mono
+     to avoid colliding with this Tailwind theme token name. The previous
+     pointer at --font-geist-mono was a stale leftover from Geist_Mono. */
+  --font-mono: var(--rv-font-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -65,13 +68,26 @@ body {
   --rv-accent-subtle: oklch(0.62 0.22 265 / 12%);
   --rv-accent-border: oklch(0.62 0.22 265 / 30%);
 
-  /* Signal palette — semantic colors for verdict display */
-  --rv-buy:      #22c55e;
-  --rv-buy-sub:  oklch(0.53 0.15 145 / 12%);
-  --rv-caution:  #eab308;
-  --rv-caution-sub: oklch(0.75 0.15 85 / 10%);
-  --rv-avoid:    #ef4444;
-  --rv-avoid-sub: oklch(0.57 0.22 27 / 12%);
+  /* Signal palette — muted threshold colors.
+     Phase 1 polish replaced the fluorescent red/amber/green that turned
+     the pipeline grid into a wall of red. The new tones still read as
+     "this is bad / borderline / fine" but at the saturation Mercury
+     uses, so a single colored metric per card actually carries signal. */
+  --rv-bad:      #d85b5b;
+  --rv-bad-sub:  rgba(216, 91, 91, 0.12);
+  --rv-warn:     #d9a341;
+  --rv-warn-sub: rgba(217, 163, 65, 0.10);
+  --rv-good:     #4fb28f;
+  --rv-good-sub: rgba(79, 178, 143, 0.10);
+
+  /* Legacy aliases — kept for any verdict component that hasn't been
+     touched yet. New code should use --rv-bad/warn/good. */
+  --rv-buy:      var(--rv-good);
+  --rv-buy-sub:  var(--rv-good-sub);
+  --rv-caution:  var(--rv-warn);
+  --rv-caution-sub: var(--rv-warn-sub);
+  --rv-avoid:    var(--rv-bad);
+  --rv-avoid-sub: var(--rv-bad-sub);
 
   /* Typography scale — financial density */
   --rv-size-display: clamp(2.75rem, 6vw, 4rem);
@@ -83,13 +99,25 @@ body {
   --rv-size-2xs:     0.6875rem;
 
   /* Letter-spacing for financial labels */
-  --rv-tracking-label: 0.07em;
-  --rv-tracking-tight: -0.02em;
+  --rv-tracking-label: 0.08em;
+  --rv-tracking-tight: -0.022em;
 
-  /* Timing */
-  --rv-dur-fast: 120ms;
-  --rv-dur-base: 200ms;
-  --rv-dur-slow: 350ms;
+  /* Timing — every animation under 200ms */
+  --rv-dur-fast: 100ms;
+  --rv-dur-base: 150ms;
+  --rv-dur-slow: 200ms;
+
+  /* Easing curves — Linear's smooth deceleration on entry, sharp
+     acceleration on exit. Native apps animate exits faster than entries. */
+  --rv-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --rv-ease-in:  cubic-bezier(0.7, 0, 0.84, 0);
+
+  /* Compatibility alias — chart components reference --font-mono directly
+     in inline SVG fontFamily attributes. The local font (JetBrainsMono) is
+     registered under --rv-font-mono to avoid colliding with the Tailwind
+     @theme token name; this alias keeps the old name resolving for those
+     direct references. */
+  --font-mono: var(--rv-font-mono);
 }
 
 /* Hide the ugly default spinners on number inputs — we lay the form out ourselves. */
@@ -167,14 +195,16 @@ input[type="number"] {
   --muted-foreground: oklch(0.52 0.009 252);
   --accent: oklch(0.175 0.012 252);
   --accent-foreground: oklch(0.96 0.005 250);
-  --destructive: oklch(0.704 0.191 22.216);
+  /* Muted destructive — used by shadcn alert/badge components. Same hue
+     as --rv-bad so error UI matches the rest of the polish pass. */
+  --destructive: oklch(0.62 0.155 22);
   --border: oklch(1 0 0 / 7%);
   --input: oklch(1 0 0 / 9%);
-  --ring: oklch(0.62 0.22 265 / 50%);
-  /* Chart colors tuned for financial signals */
-  --chart-1: #22c55e;
-  --chart-2: #eab308;
-  --chart-3: #ef4444;
+  --ring: oklch(0.62 0.22 265 / 40%);
+  /* Chart colors — muted to match the new threshold palette */
+  --chart-1: #4fb28f;
+  --chart-2: #d9a341;
+  --chart-3: #d85b5b;
   --chart-4: oklch(0.62 0.22 265);
   --chart-5: oklch(0.55 0.012 252);
   --sidebar: oklch(0.102 0.014 252);
@@ -224,25 +254,25 @@ input[type="number"] {
 }
 
 @keyframes rv-number-pulse {
-  0%   { opacity: 0.55; transform: translateY(1px); }
-  100% { opacity: 1;    transform: translateY(0); }
+  0%   { opacity: 0.7; transform: scale(0.985); }
+  100% { opacity: 1;   transform: scale(1); }
 }
 
 .rv-number-pulse {
-  animation: rv-number-pulse 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rv-number-pulse 150ms var(--rv-ease-out) both;
 }
 
 .rv-verdict-in {
-  animation: rv-verdict-in var(--rv-dur-slow) cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rv-verdict-in var(--rv-dur-slow) var(--rv-ease-out) both;
 }
 
 .rv-number-in {
-  animation: rv-number-in var(--rv-dur-base) cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rv-number-in var(--rv-dur-base) var(--rv-ease-out) both;
 }
 
 .rv-bar-grow {
   transform-origin: left;
-  animation: rv-bar-grow var(--rv-dur-slow) cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rv-bar-grow var(--rv-dur-slow) var(--rv-ease-out) both;
 }
 
 /* Stagger helpers */
@@ -264,24 +294,32 @@ input[type="number"] {
   }
 }
 
-/* Global scrollbar — replaces the OS default white/grey bar with something
-   that blends into the dark UI. Webkit-only (Chrome/Electron/Safari). */
+/* Native-feeling scrollbars — invisible by default, fade in on hover or
+   focus-within. macOS apps don't show persistent scrollbars; this matches
+   that pattern while still keeping the affordance discoverable. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
+  width: 0;
+  height: 0;
   background: transparent;
 }
-::-webkit-scrollbar-thumb {
-  background: oklch(1 0 0 / 12%);
-  border-radius: 9999px;
+::-webkit-scrollbar-track     { background: transparent; }
+::-webkit-scrollbar-thumb     { background: transparent; border-radius: 9999px; }
+::-webkit-scrollbar-corner    { background: transparent; }
+
+/* Once the user hovers a scrollable surface (or focuses a child input),
+   reveal the bar at a thin, dimmed width. Overshoots: explicit thumb
+   color must be set on hover so the system default doesn't bleed in. */
+*:hover::-webkit-scrollbar,
+*:focus-within::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: oklch(1 0 0 / 22%);
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 14%);
 }
-::-webkit-scrollbar-corner {
-  background: transparent;
+*:hover::-webkit-scrollbar-thumb:hover {
+  background: oklch(1 0 0 / 24%);
 }
 
 /* Electron window chrome
@@ -299,4 +337,140 @@ html.electron body {
 }
 .no-drag-region {
   -webkit-app-region: no-drag;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Phase 1 polish — severity tones, native input, Mercury pill, filter chip
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Severity tones — muted reds/ambers/greens used by hero numbers, tables,
+   and any metric tile. Always apply via the helper in lib/severity.ts so
+   only the worst-offending metric per card carries color. */
+.rv-tone-bad     { color: var(--rv-bad); }
+.rv-tone-warn    { color: var(--rv-warn); }
+.rv-tone-good    { color: var(--rv-good); }
+.rv-tone-neutral { color: var(--foreground); }
+
+/* Tabular-nums everywhere a number is displayed via mono font. The body
+   already has font-variant-numeric: tabular-nums but this is a belt-and-
+   suspenders for ad-hoc spans that override the body font. */
+.rv-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "ss01", "cv11";
+}
+
+/* Native-feeling input wrapper.
+
+   Replaces the SaaS web input look (1px hard border, bright blue focus
+   ring) with a Mac-native treatment: no visible border by default, slight
+   surface lift, and a calm 1px inset shadow on focus. Apply to the wrapper
+   element that holds an <input>, then add `outline-none` to the input
+   itself. Numerics inside automatically use tabular-nums. */
+.rv-input {
+  background: oklch(1 0 0 / 4%);
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  transition: background var(--rv-dur-fast) var(--rv-ease-out),
+              box-shadow var(--rv-dur-fast) var(--rv-ease-out);
+}
+.rv-input:hover  { background: oklch(1 0 0 / 6%); }
+.rv-input:focus-within {
+  background: oklch(1 0 0 / 6%);
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 18%);
+}
+.rv-input input,
+.rv-input textarea {
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Primary CTA — Mercury-style white pill on dark.
+   Resists the SaaS impulse to use a bright accent color. The hero number
+   is the focal point of the panel; the button sits below in calm white. */
+.rv-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 40px;
+  padding: 0 1rem;
+  border-radius: 9999px;
+  background: #fafafa;
+  color: #08080f;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border: 1px solid transparent;
+  transition: background var(--rv-dur-fast) var(--rv-ease-out),
+              transform var(--rv-dur-fast) var(--rv-ease-out),
+              opacity var(--rv-dur-fast) var(--rv-ease-out);
+}
+.rv-pill:hover  { background: #f1f1f3; }
+.rv-pill:active { transform: scale(0.985); }
+.rv-pill:disabled,
+.rv-pill[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.85;
+}
+
+/* Saved / secondary state — sits next to the pill at lower visual weight. */
+.rv-pill-saved {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 40px;
+  padding: 0 1rem;
+  border-radius: 9999px;
+  background: transparent;
+  border: 1px solid oklch(1 0 0 / 10%);
+  color: oklch(1 0 0 / 65%);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: default;
+}
+
+/* Filter chip — restrained active state.
+
+   The previous active-state ("All" filled foreground / inverted text) was
+   too high-contrast and pulled attention away from the metrics it was
+   filtering. New treatment is a faint surface lift + slightly brighter
+   border, so the active chip reads as "selected" without shouting. */
+.rv-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid oklch(1 0 0 / 8%);
+  background: transparent;
+  color: oklch(1 0 0 / 60%);
+  transition: background var(--rv-dur-fast) var(--rv-ease-out),
+              border-color var(--rv-dur-fast) var(--rv-ease-out),
+              color var(--rv-dur-fast) var(--rv-ease-out);
+}
+.rv-chip:hover {
+  border-color: oklch(1 0 0 / 14%);
+  color: oklch(1 0 0 / 85%);
+}
+.rv-chip[data-state="active"] {
+  background: oklch(1 0 0 / 8%);
+  border-color: oklch(1 0 0 / 14%);
+  color: oklch(1 0 0 / 95%);
+}
+
+/* Severity dot — small marker placed next to the worst-offender metric in
+   compact UIs (compare view, hero strip) when the full color would be too
+   much. 6px circle in the same hue as the tone class. */
+.rv-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+  vertical-align: middle;
 }

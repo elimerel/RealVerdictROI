@@ -191,6 +191,7 @@ function ElectronBrowsePage() {
   const [urlInput, setUrlInput]           = useState("https://www.zillow.com")
   const [browserLoading, setBrowserLoading] = useState(false)
   const [isListingPage, setIsListingPage] = useState(false)
+  const urlInputRef = useRef<HTMLInputElement>(null)
 
   // Analysis state
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
@@ -305,6 +306,21 @@ function ElectronBrowsePage() {
     return () => { window.electronAPI?.hideBrowser() }
   }, [])
 
+  // Keyboard shortcuts integration: ⌘N focuses the URL bar so the user can
+  // immediately type a new listing URL without reaching for the mouse.
+  useEffect(() => {
+    const onFocusUrl = () => {
+      const el = urlInputRef.current
+      if (el) { el.focus(); el.select() }
+    }
+    window.addEventListener("rv:focus-url", onFocusUrl)
+    window.addEventListener("rv:focus-search", onFocusUrl)
+    return () => {
+      window.removeEventListener("rv:focus-url", onFocusUrl)
+      window.removeEventListener("rv:focus-search", onFocusUrl)
+    }
+  }, [])
+
   // Lazy-create the BrowserView the first time we mount
   useEffect(() => {
     const api = window.electronAPI
@@ -377,15 +393,18 @@ function ElectronBrowsePage() {
 
   return (
     <SidebarInset className="overflow-hidden">
-      {/* Top bar — minimal browser chrome */}
-      <header className="h-14 flex items-center gap-2 border-b border-border px-4 shrink-0">
-        <SidebarTrigger className="-ml-1" />
+      {/* Top bar — minimal browser chrome.
+          drag-region extends the macOS title bar across the full window
+          width; no-drag-region inside each interactive control restores
+          their normal click/focus behavior. */}
+      <header className="drag-region h-14 flex items-center gap-2 border-b border-border px-4 shrink-0 select-none">
+        <SidebarTrigger className="-ml-1 no-drag-region" />
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="no-drag-region flex items-center gap-1 shrink-0">
           <button
             onClick={() => window.electronAPI?.back()}
             disabled={!browserActive || browserLoading}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-30 text-muted-foreground transition-colors"
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] disabled:opacity-30 text-muted-foreground/70 transition-colors duration-100"
             aria-label="Back"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -393,7 +412,7 @@ function ElectronBrowsePage() {
           <button
             onClick={() => window.electronAPI?.forward()}
             disabled={!browserActive || browserLoading}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-30 text-muted-foreground transition-colors"
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] disabled:opacity-30 text-muted-foreground/70 transition-colors duration-100"
             aria-label="Forward"
           >
             <ArrowRight className="h-4 w-4" />
@@ -401,51 +420,54 @@ function ElectronBrowsePage() {
           <button
             onClick={() => window.electronAPI?.reload()}
             disabled={!browserActive}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-30 text-muted-foreground transition-colors"
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] disabled:opacity-30 text-muted-foreground/70 transition-colors duration-100"
             aria-label="Refresh"
           >
             <RotateCw className={cn("h-3.5 w-3.5", browserLoading && "animate-spin")} />
           </button>
         </div>
 
-        <form onSubmit={submitUrlBar} className="flex-1 flex items-center min-w-0">
-          <div className="flex-1 flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-muted/30 text-sm focus-within:border-white/15 transition-colors">
-            <Globe className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-            <Input
+        <form onSubmit={submitUrlBar} className="no-drag-region flex-1 flex items-center min-w-0">
+          <div className="rv-input flex-1 flex items-center gap-2 h-8 px-3 text-sm">
+            <Globe className="h-3.5 w-3.5 text-muted-foreground/55 shrink-0" />
+            <input
+              ref={urlInputRef}
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onFocus={() => setUrlEditing(true)}
               onBlur={() => setUrlEditing(false)}
               placeholder="https://www.zillow.com"
-              className="border-0 bg-transparent p-0 h-auto text-[13px] font-mono focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="flex-1 min-w-0 bg-transparent text-[13px] font-mono rv-num text-foreground/85 placeholder:text-muted-foreground/50"
             />
           </div>
         </form>
 
         {/* Paste-a-URL fallback */}
-        <div className="relative shrink-0">
+        <div className="no-drag-region relative shrink-0">
           <button
             type="button"
             onClick={() => setPasteOpen((v) => !v)}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 text-muted-foreground transition-colors"
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] text-muted-foreground/70 transition-colors duration-100"
             aria-label="Paste listing URL"
             title="Paste listing URL"
           >
             <Plus className="h-4 w-4" />
           </button>
           {pasteOpen && (
-            <div className="absolute top-full right-0 mt-2 w-[360px] rounded-lg border border-border bg-card shadow-2xl z-30 p-3">
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground/50 mb-2">
+            <div className="absolute top-full right-0 mt-2 w-[360px] rounded-lg bg-card/95 backdrop-blur-sm shadow-2xl z-30 p-4">
+              <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground/55 mb-3">
                 Paste a listing URL
               </p>
               <form onSubmit={submitPaste} className="flex gap-2">
-                <Input
-                  autoFocus
-                  value={pasteValue}
-                  onChange={(e) => setPasteValue(e.target.value)}
-                  placeholder="zillow.com/homedetails/&hellip;"
-                  className="flex-1 h-8 text-[13px] font-mono"
-                />
+                <div className="rv-input flex-1 flex items-center px-3 py-1.5">
+                  <input
+                    autoFocus
+                    value={pasteValue}
+                    onChange={(e) => setPasteValue(e.target.value)}
+                    placeholder="zillow.com/homedetails/&hellip;"
+                    className="flex-1 bg-transparent text-[13px] font-mono"
+                  />
+                </div>
                 <Button type="submit" size="sm" disabled={!pasteValue.trim()}>
                   Go
                 </Button>
@@ -455,7 +477,10 @@ function ElectronBrowsePage() {
         </div>
 
         {error && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/10 border border-red-500/25 text-xs text-red-400 shrink-0 max-w-[240px]">
+          <div
+            className="no-drag-region flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs shrink-0 max-w-[240px] rv-tone-bad"
+            style={{ background: "var(--rv-bad-sub)" }}
+          >
             <AlertTriangle className="h-3 w-3 shrink-0" />
             <span className="truncate">{error}</span>
             <button onClick={() => setError(null)} className="shrink-0 ml-1">
@@ -636,19 +661,19 @@ function WebBrowsePage() {
 
   return (
     <SidebarInset className="overflow-hidden">
-      <header className="h-14 flex items-center gap-2 border-b border-border px-4 shrink-0">
-        <SidebarTrigger className="-ml-1" />
+      <header className="drag-region h-14 flex items-center gap-2 border-b border-border px-4 shrink-0 select-none">
+        <SidebarTrigger className="-ml-1 no-drag-region" />
         <form
           onSubmit={(e) => { e.preventDefault(); submit(query) }}
-          className="flex-1 flex items-center gap-2"
+          className="no-drag-region flex-1 flex items-center gap-2"
         >
           <div className={cn(
-            "flex-1 flex items-center gap-2 h-8 px-3 rounded-md border bg-muted/30 text-sm transition-colors",
-            error ? "border-amber-500/40" : "border-border focus-within:border-white/15",
+            "rv-input flex-1 flex items-center gap-2 h-8 px-3 text-sm",
+            error && "rv-tone-warn",
           )}>
             {isListingUrl
-              ? <Globe className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-              : <MapPin className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />}
+              ? <Globe className="h-3.5 w-3.5 text-muted-foreground/55 shrink-0" />
+              : <MapPin className="h-3.5 w-3.5 text-muted-foreground/55 shrink-0" />}
             <Input
               value={query}
               onChange={(e) => { setQuery(e.target.value); setError(null) }}
@@ -659,7 +684,7 @@ function WebBrowsePage() {
               <button
                 type="button"
                 onClick={() => { setQuery(""); setResult(null); setError(null) }}
-                className="text-muted-foreground/40 hover:text-muted-foreground shrink-0"
+                className="text-muted-foreground/40 hover:text-muted-foreground shrink-0 transition-colors duration-100"
               >
                 <X className="h-3 w-3" />
               </button>

@@ -51,6 +51,7 @@ import {
   type ProbabilisticVerdict,
 } from "@/lib/distribution-engine"
 import type { FieldProvenance } from "@/lib/types"
+import { tonedSeverity, type Severity } from "@/lib/severity"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -133,6 +134,17 @@ function isValidInput(text: string): boolean {
   return false
 }
 
+/** Map a Severity to the matching utility class. Centralized so both the
+ *  comparison table cells and the pending-row preview cells stay in sync. */
+function toneClassFor(sev: Severity): string {
+  switch (sev) {
+    case "good": return "rv-tone-good"
+    case "bad":  return "rv-tone-bad"
+    case "warn": return "rv-tone-warn"
+    default:     return "text-foreground/85"
+  }
+}
+
 function extractPropertyFacts(facts: Record<string, unknown>): PropertyFacts {
   return {
     beds: typeof facts.bedrooms === "number" ? facts.bedrooms : null,
@@ -150,9 +162,9 @@ function extractPropertyFacts(facts: Record<string, unknown>): PropertyFacts {
 
 function LoadingCard() {
   return (
-    <div className="rounded-md border border-border bg-card/50 px-3 py-2.5 animate-pulse flex items-center gap-2.5">
-      <div className="h-1.5 w-1.5 rounded-full bg-muted shrink-0" />
-      <div className="h-2 bg-muted rounded w-2/3" />
+    <div className="rounded-lg bg-white/[0.025] px-4 py-3 animate-pulse flex items-center gap-2.5">
+      <div className="h-1.5 w-1.5 rounded-full bg-white/15 shrink-0" />
+      <div className="h-2 bg-white/10 rounded w-2/3" />
     </div>
   )
 }
@@ -169,9 +181,12 @@ function ErrorCard({
   onRetry: () => void
 }) {
   return (
-    <div className="rounded-md border border-border bg-card p-3 border-l-[3px] border-l-red-500">
+    <div
+      className="rounded-lg bg-white/[0.025] p-4"
+      style={{ borderLeft: "2px solid var(--rv-bad)" }}
+    >
       <p className="text-sm font-medium text-foreground mb-1">Could not load property</p>
-      <p className="text-xs text-red-400 mb-3 leading-relaxed">{message}</p>
+      <p className="text-xs rv-tone-bad opacity-90 mb-3 leading-relaxed">{message}</p>
       <button
         onClick={onRetry}
         className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
@@ -239,6 +254,24 @@ export function DealsClient({
   // ── Refs ──
   const formRef = useRef<HTMLFormElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const queryInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLDivElement>(null)
+
+  // ── Keyboard shortcuts integration ──
+  // The KeyboardShortcuts component dispatches these events; the search
+  // input on the Pipeline page is the canonical filter input target.
+  useEffect(() => {
+    const onFocusFilter = () => queryInputRef.current?.focus()
+    const onEscape = () => setSelectedId(null)
+    window.addEventListener("rv:focus-filter", onFocusFilter)
+    window.addEventListener("rv:focus-search", onFocusFilter)
+    window.addEventListener("rv:escape", onEscape)
+    return () => {
+      window.removeEventListener("rv:focus-filter", onFocusFilter)
+      window.removeEventListener("rv:focus-search", onFocusFilter)
+      window.removeEventListener("rv:escape", onEscape)
+    }
+  }, [])
 
   const isListingUrl = LISTING_URL_RE.test(query)
 
@@ -879,22 +912,22 @@ export function DealsClient({
         )}
       >
         {/* Search bar */}
-        <div className="shrink-0 p-3 border-b border-border">
+        <div className="shrink-0 p-4 border-b border-white/5">
           <form ref={formRef} onSubmit={handleSubmit} className="relative">
             <div
+              ref={searchInputRef}
               className={cn(
-                "flex items-center gap-2 rounded-md border bg-card px-3 py-2 transition-colors",
-                searchError
-                  ? "border-amber-500/50"
-                  : "border-border focus-within:border-border/60"
+                "rv-input flex items-center gap-2 px-3 py-2",
+                searchError && "rv-tone-warn",
               )}
             >
               {isListingUrl ? (
-                <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <Globe className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
               ) : (
-                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <MapPin className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
               )}
               <input
+                ref={queryInputRef}
                 type="text"
                 value={query}
                 onChange={(e) => {
@@ -907,12 +940,12 @@ export function DealsClient({
                 onKeyDown={handleKeyDown}
                 placeholder="Zillow URL or address…"
                 disabled={isSearching}
-                className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
+                className="flex-1 min-w-0 bg-transparent text-sm placeholder:text-muted-foreground/60 disabled:opacity-50"
               />
               <button
                 type="submit"
                 disabled={!query.trim() || isSearching}
-                className="shrink-0 flex items-center justify-center rounded h-6 w-6 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+                className="shrink-0 flex items-center justify-center rounded h-6 w-6 text-muted-foreground/60 hover:text-foreground disabled:opacity-40 transition-colors"
                 aria-label="Analyze"
               >
                 {isSearching ? (
@@ -925,7 +958,7 @@ export function DealsClient({
 
             {/* Error hint */}
             {searchError && (
-              <p className="mt-1 px-1 text-[11px] text-amber-500">
+              <p className="mt-1.5 px-1 text-[11px] rv-tone-warn opacity-90">
                 {searchError}
               </p>
             )}
@@ -960,19 +993,15 @@ export function DealsClient({
 
         {/* Filter pills + actions — hidden when no deals */}
         {hasDeals && (
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-border overflow-x-auto whitespace-nowrap scrollbar-hide">
+          <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-white/5 overflow-x-auto whitespace-nowrap scrollbar-hide">
             {FILTER_PILLS.map(({ label, key }) => {
               const isActive = activeFilter === key
               return (
                 <button
                   key={key}
                   onClick={() => setActiveFilter(key)}
-                  className={cn(
-                    "shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors duration-150",
-                    isActive
-                      ? "bg-foreground text-background border-foreground"
-                      : "bg-transparent text-muted-foreground border-border hover:border-border/60 hover:text-foreground",
-                  )}
+                  data-state={isActive ? "active" : "inactive"}
+                  className="rv-chip"
                 >
                   {label}
                 </button>
@@ -986,9 +1015,15 @@ export function DealsClient({
               <button
                 type="button"
                 onClick={() => setCompareOpen(true)}
-                className="shrink-0 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md border border-[oklch(0.62_0.22_265)]/40 bg-[oklch(0.62_0.22_265)]/10 text-[oklch(0.72_0.18_265)] hover:bg-[oklch(0.62_0.22_265)]/20 transition-colors"
+                className="rv-chip"
+                data-state="active"
+                style={{
+                  color: "oklch(0.78 0.16 265)",
+                  borderColor: "oklch(0.62 0.22 265 / 30%)",
+                  background: "oklch(0.62 0.22 265 / 10%)",
+                }}
               >
-                <Columns3 className="h-3 w-3" />
+                <Columns3 className="h-3 w-3 mr-1" />
                 Compare ({compareIds.size})
               </button>
             )}
@@ -998,7 +1033,7 @@ export function DealsClient({
               <button
                 type="button"
                 onClick={() => exportPipelineCsv(filteredDeals, dealData)}
-                className="shrink-0 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors"
+                className="shrink-0 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/55 hover:text-foreground transition-colors duration-100"
                 title="Export CSV"
               >
                 <Download className="h-3 w-3" />
@@ -1006,12 +1041,12 @@ export function DealsClient({
             )}
 
             {/* View toggle */}
-            <div className="flex items-center gap-0.5 shrink-0 rounded-md border border-border p-0.5">
+            <div className="flex items-center gap-0.5 shrink-0 rounded-md p-0.5 bg-white/[0.04]">
               <button
                 onClick={() => setViewMode("table")}
                 className={cn(
-                  "h-5 w-5 flex items-center justify-center rounded text-muted-foreground transition-colors",
-                  viewMode === "table" ? "bg-muted text-foreground" : "hover:text-foreground",
+                  "h-5 w-5 flex items-center justify-center rounded text-muted-foreground transition-colors duration-100",
+                  viewMode === "table" ? "bg-white/[0.08] text-foreground" : "hover:text-foreground",
                 )}
                 title="Table"
               >
@@ -1020,8 +1055,8 @@ export function DealsClient({
               <button
                 onClick={() => setViewMode("grid")}
                 className={cn(
-                  "h-5 w-5 flex items-center justify-center rounded text-muted-foreground transition-colors",
-                  viewMode === "grid" ? "bg-muted text-foreground" : "hover:text-foreground",
+                  "h-5 w-5 flex items-center justify-center rounded text-muted-foreground transition-colors duration-100",
+                  viewMode === "grid" ? "bg-white/[0.08] text-foreground" : "hover:text-foreground",
                 )}
                 title="Card grid"
               >
@@ -1226,10 +1261,10 @@ type TableRow = {
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
-  if (!active) return <ArrowUpDown className="h-3 w-3 opacity-30" />
+  if (!active) return <ArrowUpDown className="h-3 w-3 opacity-25" />
   return dir === "asc"
-    ? <ArrowUp   className="h-3 w-3 text-[oklch(0.62_0.22_265)]" />
-    : <ArrowDown className="h-3 w-3 text-[oklch(0.62_0.22_265)]" />
+    ? <ArrowUp   className="h-3 w-3 text-foreground/80" />
+    : <ArrowDown className="h-3 w-3 text-foreground/80" />
 }
 
 type SortKey = "address" | "asking" | "walkaway" | "gap" | "cashflow" | "dscr" | "caprate" | "date"
@@ -1253,9 +1288,9 @@ function Th({
   return (
     <th
       className={cn(
-        "px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50 whitespace-nowrap",
+        "px-3 py-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55 whitespace-nowrap",
         align === "right" ? "text-right" : "text-left",
-        "cursor-pointer hover:text-muted-foreground transition-colors select-none"
+        "cursor-pointer hover:text-muted-foreground transition-colors duration-100 select-none"
       )}
       onClick={() => onToggle(sk)}
     >
@@ -1305,7 +1340,7 @@ function ComparisonTable({
     <div className="min-w-0">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-white/6 bg-muted/20 sticky top-0 z-10">
+          <tr className="border-b border-white/[0.06] bg-background/60 sticky top-0 z-10 backdrop-blur-sm">
             <th className="w-8" />
             <Th label="Property"   sortKey="address"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} align="left" />
             <Th label="Asking"     sortKey="asking"   activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
@@ -1340,20 +1375,26 @@ function ComparisonTable({
             const created = new Date(deal.created_at)
             const dateStr = created.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 
+            // Worst-offender wins color on this row. Other failing metrics
+            // stay neutral so the eye finds the actual problem.
+            const cfTone   = tonedSeverity("cashFlow", dscr, cf, capRate)
+            const dscrCellTone = tonedSeverity("dscr",   dscr, cf, capRate)
+            const capTone  = tonedSeverity("capRate",  dscr, cf, capRate)
+
             return (
               <tr
                 key={deal.id}
                 onClick={() => { if (!isDeleting) onSelectDeal(deal.id) }}
                 className={cn(
-                  "border-b border-white/4 cursor-pointer transition-colors group",
-                  isSelected ? "bg-white/6" : "hover:bg-white/3",
+                  "border-b border-white/[0.04] cursor-pointer transition-colors duration-100 group",
+                  isSelected ? "bg-white/[0.05]" : "hover:bg-white/[0.025]",
                 )}
                 style={isSelected
                   ? { borderLeft: "2px solid oklch(0.62 0.22 265)" }
                   : { borderLeft: "2px solid transparent" }}
               >
                 {/* Compare checkbox */}
-                <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                <td className="px-2 py-4" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={isCompare}
@@ -1367,12 +1408,12 @@ function ComparisonTable({
                 </td>
 
                 {/* Address */}
-                <td className="px-3 py-3 max-w-[200px]">
+                <td className="px-3 py-4 max-w-[200px]">
                   <p className="text-[13px] font-medium text-foreground truncate">
                     {deal.address ?? "Unknown address"}
                   </p>
                   {deal.property_facts && (
-                    <p className="text-[10px] text-muted-foreground/50 font-mono mt-0.5">
+                    <p className="text-[10px] text-muted-foreground/55 font-mono rv-num mt-0.5">
                       {[
                         deal.property_facts.beds   != null && `${deal.property_facts.beds}bd`,
                         deal.property_facts.baths  != null && `${deal.property_facts.baths}ba`,
@@ -1383,23 +1424,23 @@ function ComparisonTable({
                 </td>
 
                 {/* Asking */}
-                <td className="px-3 py-3 text-right">
-                  <span className="text-[13px] font-mono tabular-nums text-muted-foreground">
+                <td className="px-3 py-4 text-right">
+                  <span className="text-[13px] font-mono rv-num text-muted-foreground">
                     {formatCurrency(deal.inputs.purchasePrice, 0)}
                   </span>
                 </td>
 
                 {/* Break-even (formerly walk-away) */}
-                <td className="px-3 py-3 text-right">
-                  <span className="text-[13px] font-mono tabular-nums text-foreground/85">
+                <td className="px-3 py-4 text-right">
+                  <span className="text-[13px] font-mono rv-num text-foreground/85">
                     {walkAwayPrice != null ? formatCurrency(walkAwayPrice, 0) : "—"}
                   </span>
                 </td>
 
                 {/* Gap */}
-                <td className="px-3 py-3 text-right">
+                <td className="px-3 py-4 text-right">
                   {gap != null ? (
-                    <span className="text-[13px] font-mono tabular-nums text-muted-foreground">
+                    <span className="text-[13px] font-mono rv-num text-muted-foreground">
                       {gap >= 0 ? "+" : ""}{formatCurrency(gap, 0)}
                     </span>
                   ) : (
@@ -1407,66 +1448,48 @@ function ComparisonTable({
                   )}
                 </td>
 
-                {/* Cash flow */}
-                <td className="px-3 py-3 text-right">
-                  <span
-                    className={cn(
-                      "text-[13px] font-mono tabular-nums",
-                      cf >= 0 ? "text-foreground/85" : "text-red-400",
-                    )}
-                  >
+                {/* Cash flow — colored only when the worst offender on this row */}
+                <td className="px-3 py-4 text-right">
+                  <span className={cn("text-[13px] font-mono rv-num", toneClassFor(cfTone))}>
                     {cf >= 0 ? "+" : ""}{formatCurrency(cf, 0)}
                   </span>
                 </td>
 
-                {/* DSCR — red when < 1.0, amber when 1.0\u20131.25, neutral otherwise */}
-                <td className="px-3 py-3 text-right">
-                  <span
-                    className={cn(
-                      "text-[13px] font-mono tabular-nums",
-                      !isFinite(dscr) || dscr >= 1.25 ? "text-foreground/85"
-                        : dscr >= 1.0 ? "text-amber-400"
-                        : "text-red-400",
-                    )}
-                  >
+                {/* DSCR */}
+                <td className="px-3 py-4 text-right">
+                  <span className={cn("text-[13px] font-mono rv-num", toneClassFor(dscrCellTone))}>
                     {isFinite(dscr) ? dscr.toFixed(2) : "∞"}
                   </span>
                 </td>
 
-                {/* Cap rate — amber when < 5% */}
-                <td className="px-3 py-3 text-right">
-                  <span
-                    className={cn(
-                      "text-[13px] font-mono tabular-nums",
-                      capRate >= 0.06 ? "text-foreground/85"
-                        : capRate >= 0.05 ? "text-amber-400"
-                        : "text-red-400",
-                    )}
-                  >
+                {/* Cap rate */}
+                <td className="px-3 py-4 text-right">
+                  <span className={cn("text-[13px] font-mono rv-num", toneClassFor(capTone))}>
                     {formatPercent(capRate, 1)}
                   </span>
                 </td>
 
                 {/* Saved date */}
-                <td className="px-3 py-3 text-right">
+                <td className="px-3 py-4 text-right">
                   <span className="text-[11px] font-mono text-muted-foreground/50">
                     {dateStr}
                   </span>
                 </td>
 
                 {/* Delete */}
-                <td className="px-2 py-3">
+                <td className="px-2 py-4">
                   {isDeleting ? (
                     <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); onDelete(deal.id) }}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-red-600/80 text-white hover:bg-red-500 transition-colors"
+                        className="text-[10px] px-2 py-0.5 rounded text-white transition-colors"
+                        style={{ background: "var(--rv-bad)" }}
                       >
                         Rm
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null) }}
-                        className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 text-muted-foreground hover:text-foreground transition-colors"
+                        className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-muted-foreground hover:text-foreground transition-colors"
                       >
                         ×
                       </button>
@@ -1474,7 +1497,7 @@ function ComparisonTable({
                   ) : (
                     <button
                       onClick={(e) => { e.stopPropagation(); setConfirmingDelete(deal.id) }}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-red-400 transition-all"
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:rv-tone-bad transition-all duration-100"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -1525,11 +1548,11 @@ function PendingRow({
 
   if (card.kind === "error") {
     return (
-      <tr className="border-b border-white/4">
+      <tr className="border-b border-white/[0.04]">
         <td colSpan={10} className="px-3 py-3">
           <div className="flex items-center gap-3">
-            <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
-            <span className="text-xs text-red-400 flex-1 truncate">{card.message}</span>
+            <AlertTriangle className="h-3.5 w-3.5 rv-tone-bad shrink-0" />
+            <span className="text-xs rv-tone-bad opacity-90 flex-1 truncate">{card.message}</span>
             <button
               onClick={() => onRetry(card.inputText)}
               className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
@@ -1548,74 +1571,69 @@ function PendingRow({
     const capRate  = card.analysis.capRate
     const walkAwayPrice = card.walkAway?.recommendedCeiling?.price ?? null
     const gap = walkAwayPrice != null ? walkAwayPrice - card.analysis.inputs.purchasePrice : null
+    const cfTone   = tonedSeverity("cashFlow", dscr, cf, capRate)
+    const dscrTone = tonedSeverity("dscr",     dscr, cf, capRate)
+    const capTone  = tonedSeverity("capRate",  dscr, cf, capRate)
 
     return (
       <tr
         onClick={onSelect}
         className={cn(
-          "border-b border-white/4 cursor-pointer transition-colors group",
-          isSelected ? "bg-white/6" : "hover:bg-white/3",
+          "border-b border-white/[0.04] cursor-pointer transition-colors duration-100 group",
+          isSelected ? "bg-white/[0.05]" : "hover:bg-white/[0.025]",
         )}
         style={isSelected
           ? { borderLeft: "2px solid oklch(0.62 0.22 265)" }
           : { borderLeft: "2px solid transparent" }}
       >
         <td className="w-8" />
-        <td className="px-3 py-3 max-w-[200px]">
+        <td className="px-3 py-4 max-w-[200px]">
           <p className="text-[13px] font-medium text-foreground truncate">
             {card.address ?? "New analysis"}
           </p>
-          <p className="text-[10px] text-muted-foreground/50 font-mono mt-0.5">
+          <p className="text-[10px] text-muted-foreground/55 font-mono rv-num mt-0.5">
             {card.propertyFacts && [
               card.propertyFacts.beds  != null && `${card.propertyFacts.beds}bd`,
               card.propertyFacts.baths != null && `${card.propertyFacts.baths}ba`,
             ].filter(Boolean).join("  ·  ")}
           </p>
         </td>
-        <td className="px-3 py-3 text-right">
-          <span className="text-[13px] font-mono tabular-nums text-muted-foreground">
+        <td className="px-3 py-4 text-right">
+          <span className="text-[13px] font-mono rv-num text-muted-foreground">
             {formatCurrency(card.analysis.inputs.purchasePrice, 0)}
           </span>
         </td>
-        <td className="px-3 py-3 text-right">
-          <span className="text-[13px] font-mono tabular-nums text-foreground/85">
+        <td className="px-3 py-4 text-right">
+          <span className="text-[13px] font-mono rv-num text-foreground/85">
             {walkAwayPrice != null ? formatCurrency(walkAwayPrice, 0) : "—"}
           </span>
         </td>
-        <td className="px-3 py-3 text-right">
+        <td className="px-3 py-4 text-right">
           {gap != null ? (
-            <span className="text-[13px] font-mono tabular-nums text-muted-foreground">
+            <span className="text-[13px] font-mono rv-num text-muted-foreground">
               {gap >= 0 ? "+" : ""}{formatCurrency(gap, 0)}
             </span>
           ) : <span className="text-muted-foreground/30 text-[13px]">—</span>}
         </td>
-        <td className="px-3 py-3 text-right">
-          <span className={cn("text-[13px] font-mono tabular-nums", cf >= 0 ? "text-foreground/85" : "text-red-400")}>
+        <td className="px-3 py-4 text-right">
+          <span className={cn("text-[13px] font-mono rv-num", toneClassFor(cfTone))}>
             {cf >= 0 ? "+" : ""}{formatCurrency(cf, 0)}
           </span>
         </td>
-        <td className="px-3 py-3 text-right">
-          <span className={cn(
-            "text-[13px] font-mono tabular-nums",
-            !isFinite(dscr) || dscr >= 1.25 ? "text-foreground/85"
-              : dscr >= 1.0 ? "text-amber-400" : "text-red-400",
-          )}>
+        <td className="px-3 py-4 text-right">
+          <span className={cn("text-[13px] font-mono rv-num", toneClassFor(dscrTone))}>
             {isFinite(dscr) ? dscr.toFixed(2) : "∞"}
           </span>
         </td>
-        <td className="px-3 py-3 text-right">
-          <span className={cn(
-            "text-[13px] font-mono tabular-nums",
-            capRate >= 0.06 ? "text-foreground/85"
-              : capRate >= 0.05 ? "text-amber-400" : "text-red-400",
-          )}>
+        <td className="px-3 py-4 text-right">
+          <span className={cn("text-[13px] font-mono rv-num", toneClassFor(capTone))}>
             {formatPercent(capRate, 1)}
           </span>
         </td>
-        <td className="px-3 py-3 text-right">
+        <td className="px-3 py-4 text-right">
           <span className="text-[11px] font-mono text-muted-foreground/50">just now</span>
         </td>
-        <td className="px-2 py-3" />
+        <td className="px-2 py-4" />
       </tr>
     )
   }
@@ -1725,25 +1743,26 @@ function CompareColumn({
   const breakEven = walkAway?.recommendedCeiling?.price ?? null
 
   return (
-    <div className="rounded-lg border border-white/8 bg-card p-4 space-y-4 min-w-0">
+    <div className="rounded-lg bg-white/[0.025] p-5 space-y-5 min-w-0">
       <div>
-        <p className="text-[13px] font-semibold tracking-tight text-foreground truncate">
+        <p className="text-[13px] font-semibold tracking-tight text-foreground truncate"
+           style={{ letterSpacing: "-0.012em" }}>
           {deal.address ?? "Unknown address"}
         </p>
-        <p className="text-[11px] text-muted-foreground/55 font-mono">
+        <p className="text-[11px] text-muted-foreground/55 font-mono rv-num">
           {[
             deal.property_facts?.beds   != null && `${deal.property_facts.beds} bd`,
             deal.property_facts?.baths  != null && `${deal.property_facts.baths} ba`,
             deal.property_facts?.sqft   != null && `${deal.property_facts.sqft.toLocaleString()} sqft`,
           ].filter(Boolean).join("  ·  ")}
         </p>
-        <p className="text-[11px] text-muted-foreground/55 font-mono mt-1">
+        <p className="text-[11px] text-muted-foreground/55 font-mono rv-num mt-1.5">
           Asking {formatCurrency(deal.inputs.purchasePrice, 0)}
           {breakEven != null && <> · break-even {formatCurrency(breakEven, 0)}</>}
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 pt-2 border-t border-white/6">
+      <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/[0.06]">
         <CompareMetric
           label="DSCR"
           value={isFinite(dscr) ? dscr.toFixed(2) : "∞"}
@@ -1777,17 +1796,17 @@ function CompareMetric({
   tone?: "bad"
 }) {
   return (
-    <div className="space-y-1 min-w-0">
-      <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground/50">{label}</p>
+    <div className="space-y-1.5 min-w-0">
+      <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/55">{label}</p>
       <p
         className={cn(
-          "font-mono tabular-nums truncate",
-          highlight === "best"  && "text-foreground font-bold",
-          highlight === "worst" && "text-muted-foreground/40",
+          "font-mono rv-num truncate",
+          highlight === "best"  && "text-foreground font-semibold",
+          highlight === "worst" && "text-muted-foreground/45",
           !highlight && "text-foreground/85",
-          tone === "bad" && "text-red-400",
+          tone === "bad" && "rv-tone-bad",
         )}
-        style={{ fontSize: "clamp(15px, 1.6vw, 18px)" }}
+        style={{ fontSize: "clamp(15px, 1.6vw, 18px)", letterSpacing: "-0.005em" }}
       >
         {value}
       </p>

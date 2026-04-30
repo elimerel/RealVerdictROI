@@ -20,6 +20,7 @@ import type { DistributionResult, ProbabilisticVerdict } from "@/lib/distributio
 import type { FieldProvenance } from "@/lib/types"
 import { Save, CheckCircle2, Loader2, ChevronDown, ChevronUp } from "lucide-react"
 import WaterfallChart from "@/components/charts/waterfall-chart"
+import { tonedSeverity, type Severity } from "@/lib/severity"
 
 // ---------------------------------------------------------------------------
 // Types — kept compatible with existing call sites; verdict-shaped props
@@ -103,13 +104,11 @@ export function DossierPanelSkeleton() {
 // HeroNumber — one of the three columns at the top of the panel
 // ---------------------------------------------------------------------------
 
-type HeroTone = "neutral" | "good" | "bad" | "warn"
-
-function toneClass(tone: HeroTone): string {
-  switch (tone) {
-    case "good": return "text-emerald-400"
-    case "bad":  return "text-red-400"
-    case "warn": return "text-amber-400"
+function toneClass(sev: Severity): string {
+  switch (sev) {
+    case "good": return "rv-tone-good"
+    case "bad":  return "rv-tone-bad"
+    case "warn": return "rv-tone-warn"
     default:     return "text-foreground"
   }
 }
@@ -124,21 +123,26 @@ function HeroNumber({
   label: string
   value: string
   caption?: string
-  tone: HeroTone
+  /** Color only when this metric is the worst offender on the deal —
+      otherwise tone="neutral" and the number stays in foreground white. */
+  tone: Severity
   pulseKey: string | number
 }) {
   return (
     <div className="space-y-1.5 min-w-0">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55">
         {label}
       </p>
       <p
         key={pulseKey}
         className={cn(
-          "font-mono font-semibold tabular-nums leading-[1.05] truncate rv-number-pulse",
+          "font-mono font-medium rv-num leading-[1.05] truncate rv-number-pulse",
           toneClass(tone),
         )}
-        style={{ fontSize: "clamp(20px, 2.4vw, 28px)" }}
+        style={{
+          fontSize: "clamp(22px, 2.2vw, 26px)",
+          letterSpacing: "-0.01em",
+        }}
       >
         {value}
       </p>
@@ -194,11 +198,11 @@ function AssumptionInput({
   }
 
   return (
-    <label className="flex items-center justify-between gap-3 py-2">
+    <label className="flex items-center justify-between gap-3 py-2.5">
       <span className="text-[12px] text-muted-foreground/70 truncate">{label}</span>
-      <div className="flex items-center gap-1 rounded-md border border-white/8 bg-white/3 px-2 py-1 focus-within:border-white/20 transition-colors min-w-0">
+      <div className="rv-input flex items-center gap-1 px-2.5 py-1 min-w-0">
         {prefix && (
-          <span className="text-[11px] text-muted-foreground/40 font-mono">{prefix}</span>
+          <span className="text-[11px] text-muted-foreground/45 font-mono">{prefix}</span>
         )}
         <input
           type="text"
@@ -222,10 +226,10 @@ function AssumptionInput({
               onChange(min != null ? Math.max(min, next) : next)
             }
           }}
-          className="w-16 bg-transparent border-0 outline-none text-[12px] font-mono tabular-nums text-foreground text-right p-0"
+          className="w-16 bg-transparent border-0 outline-none text-[12px] font-mono rv-num text-foreground text-right p-0"
         />
         {suffix && (
-          <span className="text-[11px] text-muted-foreground/40 font-mono">{suffix}</span>
+          <span className="text-[11px] text-muted-foreground/45 font-mono">{suffix}</span>
         )}
       </div>
     </label>
@@ -257,30 +261,25 @@ function CollapsibleSection({
     <div className="border-t border-white/6">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between py-3 text-left group"
+        className="w-full flex items-center justify-between py-4 text-left group"
       >
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50 group-hover:text-muted-foreground/70 transition-colors">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55 group-hover:text-muted-foreground/80 transition-colors">
           {title}
         </span>
         {open
           ? <ChevronUp className="h-3 w-3 text-muted-foreground/40" />
           : <ChevronDown className="h-3 w-3 text-muted-foreground/40" />}
       </button>
-      {open && <div className="pb-4">{children}</div>}
+      {open && <div className="pb-5">{children}</div>}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Tone helpers
+// Caption helpers — kept local because they describe the *user-visible*
+// reason a metric falls in a given band, which is independent of the
+// numeric severity ranking in lib/severity.
 // ---------------------------------------------------------------------------
-
-function dscrTone(dscr: number): HeroTone {
-  if (!Number.isFinite(dscr)) return "good"
-  if (dscr >= 1.25) return "neutral"
-  if (dscr >= 1.0)  return "warn"
-  return "bad"
-}
 
 function dscrCaption(dscr: number): string {
   if (!Number.isFinite(dscr)) return "no debt"
@@ -289,22 +288,10 @@ function dscrCaption(dscr: number): string {
   return "below 1.0"
 }
 
-function cashFlowTone(cf: number): HeroTone {
-  if (cf >= 150) return "neutral"
-  if (cf >= 0)   return "warn"
-  return "bad"
-}
-
 function cashFlowCaption(cf: number): string {
   if (cf >= 150) return "positive"
   if (cf >= 0)   return "near break-even"
   return "negative"
-}
-
-function capRateTone(cap: number): HeroTone {
-  if (cap >= 0.06) return "neutral"
-  if (cap >= 0.05) return "warn"
-  return "bad"
 }
 
 function capRateCaption(cap: number): string {
@@ -421,11 +408,14 @@ export default function DossierPanel({
   if (badInputs) {
     return (
       <div className="h-full flex flex-col bg-background">
-        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+        <div className="flex-1 overflow-y-auto p-7 space-y-4">
           {address && (
             <h2 className="text-sm font-semibold tracking-tight text-foreground">{address}</h2>
           )}
-          <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3">
+          <div
+            className="rounded-md p-4"
+            style={{ background: "var(--rv-warn-sub)" }}
+          >
             <p className="text-[13px] text-muted-foreground leading-relaxed">
               Couldn&rsquo;t read enough numbers from this listing to underwrite it.
               Try refreshing or paste the URL manually.
@@ -459,22 +449,28 @@ export default function DossierPanel({
     ? aiSummary
     : buildFactualSummary(workingInputs, analysis, walkAway, pf, address)
 
+  // Worst-offender wins color; everything else stays neutral white.
+  // Captions still describe the band so the user sees "barely covers debt"
+  // even when DSCR isn't the metric we're painting (tonedSeverity returns
+  // "neutral" for non-worst metrics).
+
   return (
     <div className="h-full flex flex-col bg-background">
       <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="px-6 pt-5 pb-4">
+        <div className="px-7 pt-7 pb-5">
 
           {/* ── Property identity ── */}
-          <div className="mb-5 space-y-1">
+          <div className="mb-7 space-y-1.5">
             <div className="flex items-center gap-2 min-w-0">
               {address && (
-                <h2 className="text-[13px] font-semibold tracking-tight text-foreground truncate">
+                <h2 className="text-[13px] font-semibold tracking-tight text-foreground truncate"
+                    style={{ letterSpacing: "-0.012em" }}>
                   {address}
                 </h2>
               )}
               <SourceBadge source={source} />
             </div>
-            <p className="text-[11px] text-muted-foreground/55 font-mono">
+            <p className="text-[11px] text-muted-foreground/55 font-mono rv-num">
               {[
                 pf?.beds   != null && `${pf.beds} bd`,
                 pf?.baths  != null && `${pf.baths} ba`,
@@ -485,39 +481,39 @@ export default function DossierPanel({
             </p>
           </div>
 
-          {/* ── HERO: three numbers ── */}
-          <div className="grid grid-cols-3 gap-4 pb-5 border-b border-white/6">
+          {/* ── HERO: three numbers — only the worst-offending metric carries color ── */}
+          <div className="grid grid-cols-3 gap-5 pb-7 border-b border-white/6">
             <HeroNumber
               label="DSCR"
               value={dscrStr}
               caption={dscrCaption(dscr)}
-              tone={dscrTone(dscr)}
+              tone={tonedSeverity("dscr", dscr, cf, cap)}
               pulseKey={`dscr-${pulseKey}`}
             />
             <HeroNumber
               label="Cash flow"
               value={cfStr}
               caption={cashFlowCaption(cf)}
-              tone={cashFlowTone(cf)}
+              tone={tonedSeverity("cashFlow", dscr, cf, cap)}
               pulseKey={`cf-${pulseKey}`}
             />
             <HeroNumber
               label="Cap rate"
               value={capStr}
               caption={capRateCaption(cap)}
-              tone={capRateTone(cap)}
+              tone={tonedSeverity("capRate", dscr, cf, cap)}
               pulseKey={`cap-${pulseKey}`}
             />
           </div>
 
           {/* ── Factual summary ── */}
-          <p className="text-[13px] text-muted-foreground/80 leading-relaxed py-4 max-w-[60ch]">
+          <p className="text-[13px] text-muted-foreground/75 leading-[1.55] py-7 max-w-[60ch]">
             {summary}
           </p>
 
           {/* ── Break-even (demoted) ── */}
           {breakEvenPrice != null && (
-            <p className="text-[11px] text-muted-foreground/50 font-mono pb-4">
+            <p className="text-[11px] text-muted-foreground/50 font-mono rv-num pb-6">
               Break-even price&nbsp;
               <span className="text-foreground/70 font-semibold">
                 {formatCurrency(breakEvenPrice, 0)}
@@ -531,7 +527,7 @@ export default function DossierPanel({
                 </span>
               )}
               {isDirty && (
-                <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-400/70">
+                <span className="ml-2 text-[10px] uppercase tracking-[0.08em] rv-tone-warn opacity-80">
                   edited
                 </span>
               )}
@@ -539,8 +535,8 @@ export default function DossierPanel({
           )}
 
           {/* ── Assumptions (always visible, editable) ── */}
-          <div className="border-t border-white/6 pt-3 pb-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50 mb-1">
+          <div className="border-t border-white/6 pt-5 pb-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55 mb-3">
               Assumptions
             </p>
             <div className="grid grid-cols-2 gap-x-4">
@@ -582,14 +578,14 @@ export default function DossierPanel({
               />
             </div>
             {rentNote && (
-              <p className="text-[11px] italic text-amber-400/70 leading-snug mt-1 max-w-[50ch]">
+              <p className="text-[11px] rv-tone-warn opacity-80 leading-snug mt-2 max-w-[50ch]">
                 {rentNote}
               </p>
             )}
           </div>
 
           {/* ── Collapsed details ── */}
-          <div className="mt-4">
+          <div className="mt-6">
             <CollapsibleSection title="Monthly breakdown">
               <p className="text-[11px] text-muted-foreground/55 mb-3 leading-relaxed">
                 Rent in, every expense out, mortgage last.
@@ -606,34 +602,33 @@ export default function DossierPanel({
             </CollapsibleSection>
           </div>
 
-          <div className="h-3" />
+          <div className="h-4" />
         </div>
       </div>
 
-      {/* ── Save bar ── */}
+      {/* ── Save bar — Mercury-style white pill ── */}
       {onSave && supabaseConfigured && (
-        <div className="shrink-0 border-t border-white/6 px-6 py-3 bg-background">
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={!!savedDealId || isSaving}
-            className={cn(
-              "w-full flex items-center justify-center gap-2 text-[13px] font-medium rounded-md px-4 py-2.5 transition-all duration-150",
-              savedDealId
-                ? "bg-emerald-500/8 text-emerald-400 border border-emerald-500/25 cursor-default"
-                : isSaving
-                  ? "bg-white/4 text-muted-foreground border border-white/8 cursor-default"
-                  : "bg-[oklch(0.62_0.22_265)] text-white hover:brightness-110 border border-transparent",
-            )}
-          >
-            {savedDealId ? (
-              <><CheckCircle2 className="h-4 w-4" /> Saved &mdash; view in Pipeline</>
-            ) : isSaving ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Saving</>
-            ) : (
-              <><Save className="h-4 w-4" /> Save to Pipeline</>
-            )}
-          </button>
+        <div className="shrink-0 border-t border-white/6 px-7 py-4 bg-background">
+          {savedDealId ? (
+            <div className="rv-pill-saved">
+              <CheckCircle2 className="h-4 w-4" />
+              <span>Saved &mdash; view in Pipeline</span>
+            </div>
+          ) : isSaving ? (
+            <div className="rv-pill-saved">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Saving</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onSave}
+              className="rv-pill"
+            >
+              <Save className="h-4 w-4" />
+              <span>Save to Pipeline</span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -666,16 +661,18 @@ function StressTestRow({
   }
 
   const cf = stressed.monthlyCashFlow
+  // Stress test only colors when cash flow goes red — that's the actual
+  // signal ("rate shock breaks this deal"). Positive stays neutral white.
   return (
     <p className="text-[12px] text-muted-foreground leading-relaxed">
       At&nbsp;
-      <span className="font-mono tabular-nums text-foreground">
+      <span className="font-mono rv-num text-foreground">
         {(inputs.loanInterestRate + 1).toFixed(2)}%
       </span>
       &nbsp;rate, cash flow becomes&nbsp;
       <span className={cn(
-        "font-mono tabular-nums font-semibold",
-        cf >= 0 ? "text-emerald-400" : "text-red-400",
+        "font-mono rv-num font-semibold",
+        cf >= 0 ? "text-foreground" : "rv-tone-bad",
       )}>
         {cf >= 0 ? "+" : "\u2212"}{formatCurrency(Math.abs(cf), 0)}/mo
       </span>.
@@ -697,17 +694,17 @@ function ProjectionRow({ analysis }: { analysis: DealAnalysis }) {
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Over {yrs} years: total profit&nbsp;
         <span className={cn(
-          "font-mono tabular-nums font-semibold",
-          totalProfit >= 0 ? "text-foreground" : "text-red-400",
+          "font-mono rv-num font-semibold",
+          totalProfit >= 0 ? "text-foreground" : "rv-tone-bad",
         )}>
           {formatCurrency(totalProfit, 0)}
         </span>
         , ROI&nbsp;
-        <span className="font-mono tabular-nums text-foreground/80">
+        <span className="font-mono rv-num text-foreground/80">
           {formatPercent(totalROI, 0)}
         </span>
         , IRR&nbsp;
-        <span className="font-mono tabular-nums text-foreground/80">
+        <span className="font-mono rv-num text-foreground/80">
           {Number.isFinite(irr) ? formatPercent(irr, 1) : "\u221E"}
         </span>
         .
