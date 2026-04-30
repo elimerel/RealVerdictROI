@@ -118,6 +118,14 @@ body {
      @theme token name; this alias keeps the old name resolving for those
      direct references. */
   --font-mono: var(--rv-font-mono);
+
+  /* Text hierarchy — explicit tiers so components don't reach for
+     muted-foreground/55 hacks that collapse into unreadable mid-gray.
+     Light-mode values (dark overrides below in .dark). */
+  --rv-t1: oklch(0.15 0 0);     /* Primary: near-black */
+  --rv-t2: oklch(0.46 0 0);     /* Secondary: medium gray */
+  --rv-t3: oklch(0.60 0 0);     /* Tertiary: light gray */
+  --rv-t4: oklch(0.72 0 0);     /* Disabled / placeholder */
 }
 
 /* Hide the ugly default spinners on number inputs — we lay the form out ourselves. */
@@ -215,6 +223,13 @@ input[type="number"] {
   --sidebar-accent-foreground: oklch(0.96 0.005 250);
   --sidebar-border: oklch(1 0 0 / 6%);
   --sidebar-ring: oklch(0.62 0.22 265 / 50%);
+
+  /* Text hierarchy — dark-mode values.
+     Primary (#F5F5F5) · Secondary (#A0A0A8) · Tertiary (#6A6A72) · Disabled (#48484F) */
+  --rv-t1: oklch(0.97 0.004 250);
+  --rv-t2: oklch(0.68 0.007 252);
+  --rv-t3: oklch(0.49 0.007 252);
+  --rv-t4: oklch(0.38 0.007 252);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -343,6 +358,13 @@ html.electron body {
    Phase 1 polish — severity tones, native input, Mercury pill, filter chip
    ──────────────────────────────────────────────────────────────────────────── */
 
+/* Text hierarchy utilities — use instead of text-muted-foreground/NN hacks.
+   Primary = bright, secondary = gray, tertiary = dim, disabled = ghost. */
+.rv-t1 { color: var(--rv-t1); }
+.rv-t2 { color: var(--rv-t2); }
+.rv-t3 { color: var(--rv-t3); }
+.rv-t4 { color: var(--rv-t4); }
+
 /* Severity tones — muted reds/ambers/greens used by hero numbers, tables,
    and any metric tile. Always apply via the helper in lib/severity.ts so
    only the worst-offending metric per card carries color. */
@@ -449,9 +471,8 @@ html.electron body {
   border: 1px solid oklch(1 0 0 / 8%);
   background: transparent;
   color: oklch(1 0 0 / 60%);
-  transition: background var(--rv-dur-fast) var(--rv-ease-out),
-              border-color var(--rv-dur-fast) var(--rv-ease-out),
-              color var(--rv-dur-fast) var(--rv-ease-out);
+  /* 50ms — sub-threshold, feels instant on click */
+  transition: background 50ms ease, border-color 50ms ease, color 50ms ease;
 }
 .rv-chip:hover {
   border-color: oklch(1 0 0 / 14%);

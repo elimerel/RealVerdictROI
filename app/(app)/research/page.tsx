@@ -167,7 +167,7 @@ const TITLEBAR_H = 28
 const HEADER_H   = 56
 const SIDEBAR_OPEN_W = 256
 const SIDEBAR_ICON_W = 48
-const RIGHT_PANEL_W  = 420
+const RIGHT_PANEL_W  = 440
 
 function calcBounds(sidebarOpen: boolean) {
   const x = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
@@ -509,7 +509,7 @@ function ElectronBrowsePage() {
 
         {/* Right: side panel */}
         <div
-          className="shrink-0 flex flex-col border-l border-border bg-background overflow-hidden"
+          className="shrink-0 flex flex-col border-l border-border bg-background"
           style={{ width: RIGHT_PANEL_W }}
         >
           {showPanel ? (
@@ -711,7 +711,7 @@ function WebBrowsePage() {
         </div>
 
         <div
-          className="shrink-0 flex flex-col border-l border-border bg-background overflow-hidden"
+          className="shrink-0 flex flex-col border-l border-border bg-background"
           style={{ width: RIGHT_PANEL_W }}
         >
           {loading ? (

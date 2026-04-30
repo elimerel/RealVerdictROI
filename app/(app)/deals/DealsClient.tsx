@@ -1173,7 +1173,7 @@ export function DealsClient({
         )}
       >
         {panelOpen && panelData && (
-          <div ref={rightPanelRef} className="h-full w-full overflow-hidden">
+          <div ref={rightPanelRef} className="h-full w-full">
             {/* Close button */}
             <button
               onClick={() => setSelectedId(null)}
@@ -1288,9 +1288,10 @@ function Th({
   return (
     <th
       className={cn(
-        "px-3 py-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55 whitespace-nowrap",
+        "px-2 py-3 text-[10px] font-semibold uppercase tracking-[0.08em] whitespace-nowrap",
         align === "right" ? "text-right" : "text-left",
-        "cursor-pointer hover:text-muted-foreground transition-colors duration-100 select-none"
+        "cursor-pointer select-none transition-colors duration-[50ms]",
+        active ? "text-foreground" : "text-muted-foreground/50 hover:text-muted-foreground",
       )}
       onClick={() => onToggle(sk)}
     >
@@ -1386,15 +1387,15 @@ function ComparisonTable({
                 key={deal.id}
                 onClick={() => { if (!isDeleting) onSelectDeal(deal.id) }}
                 className={cn(
-                  "border-b border-white/[0.04] cursor-pointer transition-colors duration-100 group",
-                  isSelected ? "bg-white/[0.05]" : "hover:bg-white/[0.025]",
+                  "border-b border-white/[0.04] cursor-pointer transition-colors duration-[50ms] group",
+                  isSelected ? "bg-white/[0.04]" : "hover:bg-white/[0.015]",
                 )}
                 style={isSelected
                   ? { borderLeft: "2px solid oklch(0.62 0.22 265)" }
                   : { borderLeft: "2px solid transparent" }}
               >
                 {/* Compare checkbox */}
-                <td className="px-2 py-4" onClick={(e) => e.stopPropagation()}>
+                <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={isCompare}
@@ -1408,12 +1409,12 @@ function ComparisonTable({
                 </td>
 
                 {/* Address */}
-                <td className="px-3 py-4 max-w-[200px]">
-                  <p className="text-[13px] font-medium text-foreground truncate">
+                <td className="px-2 py-3 max-w-[200px]">
+                  <p className="text-[14px] font-medium text-foreground truncate">
                     {deal.address ?? "Unknown address"}
                   </p>
                   {deal.property_facts && (
-                    <p className="text-[10px] text-muted-foreground/55 font-mono rv-num mt-0.5">
+                    <p className="text-[11px] rv-t3 font-mono rv-num mt-0.5">
                       {[
                         deal.property_facts.beds   != null && `${deal.property_facts.beds}bd`,
                         deal.property_facts.baths  != null && `${deal.property_facts.baths}ba`,
@@ -1424,54 +1425,54 @@ function ComparisonTable({
                 </td>
 
                 {/* Asking */}
-                <td className="px-3 py-4 text-right">
-                  <span className="text-[13px] font-mono rv-num text-muted-foreground">
+                <td className="px-2 py-3 text-right">
+                  <span className="text-[14px] font-mono rv-num rv-t2">
                     {formatCurrency(deal.inputs.purchasePrice, 0)}
                   </span>
                 </td>
 
                 {/* Break-even (formerly walk-away) */}
-                <td className="px-3 py-4 text-right">
-                  <span className="text-[13px] font-mono rv-num text-foreground/85">
+                <td className="px-2 py-3 text-right">
+                  <span className="text-[14px] font-mono rv-num text-foreground">
                     {walkAwayPrice != null ? formatCurrency(walkAwayPrice, 0) : "—"}
                   </span>
                 </td>
 
                 {/* Gap */}
-                <td className="px-3 py-4 text-right">
+                <td className="px-2 py-3 text-right">
                   {gap != null ? (
-                    <span className="text-[13px] font-mono rv-num text-muted-foreground">
+                    <span className="text-[14px] font-mono rv-num rv-t2">
                       {gap >= 0 ? "+" : ""}{formatCurrency(gap, 0)}
                     </span>
                   ) : (
-                    <span className="text-muted-foreground/30 text-[13px]">—</span>
+                    <span className="rv-t4 text-[14px]">—</span>
                   )}
                 </td>
 
                 {/* Cash flow — colored only when the worst offender on this row */}
-                <td className="px-3 py-4 text-right">
-                  <span className={cn("text-[13px] font-mono rv-num", toneClassFor(cfTone))}>
+                <td className="px-2 py-3 text-right">
+                  <span className={cn("text-[14px] font-mono rv-num", toneClassFor(cfTone))}>
                     {cf >= 0 ? "+" : ""}{formatCurrency(cf, 0)}
                   </span>
                 </td>
 
                 {/* DSCR */}
-                <td className="px-3 py-4 text-right">
-                  <span className={cn("text-[13px] font-mono rv-num", toneClassFor(dscrCellTone))}>
+                <td className="px-2 py-3 text-right">
+                  <span className={cn("text-[14px] font-mono rv-num", toneClassFor(dscrCellTone))}>
                     {isFinite(dscr) ? dscr.toFixed(2) : "∞"}
                   </span>
                 </td>
 
                 {/* Cap rate */}
-                <td className="px-3 py-4 text-right">
-                  <span className={cn("text-[13px] font-mono rv-num", toneClassFor(capTone))}>
+                <td className="px-2 py-3 text-right">
+                  <span className={cn("text-[14px] font-mono rv-num", toneClassFor(capTone))}>
                     {formatPercent(capRate, 1)}
                   </span>
                 </td>
 
                 {/* Saved date */}
-                <td className="px-3 py-4 text-right">
-                  <span className="text-[11px] font-mono text-muted-foreground/50">
+                <td className="px-2 py-3 text-right">
+                  <span className="text-[11px] font-mono rv-t3">
                     {dateStr}
                   </span>
                 </td>

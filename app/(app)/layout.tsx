@@ -9,7 +9,7 @@ export default function AppLayout({
   children: React.ReactNode
 }) {
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <ElectronExpand />
       <KeyboardShortcuts />
       <SidebarDataLoader />

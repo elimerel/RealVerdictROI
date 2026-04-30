@@ -130,24 +130,24 @@ function HeroNumber({
 }) {
   return (
     <div className="space-y-1.5 min-w-0">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55">
+      <p className="text-[11px] font-medium uppercase tracking-[0.07em] rv-t2">
         {label}
       </p>
       <p
         key={pulseKey}
         className={cn(
-          "font-mono font-medium rv-num leading-[1.05] truncate rv-number-pulse",
+          "font-mono font-medium rv-num leading-none rv-number-pulse",
           toneClass(tone),
         )}
         style={{
-          fontSize: "clamp(22px, 2.2vw, 26px)",
+          fontSize: "28px",
           letterSpacing: "-0.01em",
         }}
       >
         {value}
       </p>
       {caption && (
-        <p className="text-[10px] text-muted-foreground/55 leading-snug truncate">
+        <p className="text-[11px] rv-t3 leading-snug">
           {caption}
         </p>
       )}
@@ -241,6 +241,16 @@ function formatNum(n: number): string {
   if (Math.abs(n) >= 1000) return Math.round(n).toLocaleString()
   if (Number.isInteger(n)) return String(n)
   return n.toFixed(2).replace(/\.?0+$/, "")
+}
+
+// k-notation keeps the hero cash-flow number short enough to fit at 28px
+// in a 3-column layout without truncation.
+function formatCashFlowHero(cf: number): string {
+  const abs = Math.abs(cf)
+  const sign = cf >= 0 ? "+" : "\u2212"
+  if (abs >= 10_000) return `${sign}$${Math.round(abs / 1_000)}k`
+  if (abs >= 1_000)  return `${sign}$${(abs / 1_000).toFixed(1)}k`
+  return `${sign}$${Math.round(abs)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -432,9 +442,8 @@ export default function DossierPanel({
   const cap = analysis.capRate
 
   const dscrStr = Number.isFinite(dscr) ? dscr.toFixed(2) : "\u221E"
-  const cfStr = (cf >= 0 ? "+" : "\u2212") +
-    formatCurrency(Math.abs(cf), 0).replace("-", "") + "/mo"
-  const capStr = formatPercent(cap, 2)
+  const cfStr   = formatCashFlowHero(cf)
+  const capStr  = formatPercent(cap, 2)
 
   // Pulse keys force the number element to re-mount on change → CSS animation re-fires
   const pulseKey = `${workingInputs.downPaymentPercent}-${workingInputs.loanInterestRate}-${workingInputs.monthlyRent}-${workingInputs.vacancyRatePercent}-${analysis.monthlyCashFlow}`
@@ -456,33 +465,33 @@ export default function DossierPanel({
 
   return (
     <div className="h-full flex flex-col bg-background">
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="px-7 pt-7 pb-5">
+      <div className="flex-1 overflow-y-auto min-h-0" style={{ overscrollBehavior: "contain" }}>
+        <div className="px-7">
 
-          {/* ── Property identity ── */}
-          <div className="mb-7 space-y-1.5">
+          {/* ── Module 1: Property identity ── */}
+          <div className="pt-6 pb-5 border-b border-white/[0.06] space-y-1.5">
             <div className="flex items-center gap-2 min-w-0">
               {address && (
-                <h2 className="text-[13px] font-semibold tracking-tight text-foreground truncate"
-                    style={{ letterSpacing: "-0.012em" }}>
+                <h2 className="text-[14px] font-semibold text-foreground truncate"
+                    style={{ letterSpacing: "-0.014em" }}>
                   {address}
                 </h2>
               )}
               <SourceBadge source={source} />
             </div>
-            <p className="text-[11px] text-muted-foreground/55 font-mono rv-num">
+            <p className="text-[12px] rv-t3 font-mono rv-num">
               {[
-                pf?.beds   != null && `${pf.beds} bd`,
-                pf?.baths  != null && `${pf.baths} ba`,
-                pf?.sqft   != null && `${pf.sqft.toLocaleString()} sqft`,
+                pf?.beds      != null && `${pf.beds} bd`,
+                pf?.baths     != null && `${pf.baths} ba`,
+                pf?.sqft      != null && `${pf.sqft.toLocaleString()} sqft`,
                 pf?.yearBuilt != null && `${pf.yearBuilt}`,
                 workingInputs.purchasePrice > 0 && `Asking ${formatCurrency(workingInputs.purchasePrice, 0)}`,
               ].filter(Boolean).join("  \u00b7  ")}
             </p>
           </div>
 
-          {/* ── HERO: three numbers — only the worst-offending metric carries color ── */}
-          <div className="grid grid-cols-3 gap-5 pb-7 border-b border-white/6">
+          {/* ── Module 2: Hero metrics — only the worst-offending metric carries color ── */}
+          <div className="grid grid-cols-3 gap-5 py-7 border-b border-white/[0.06]">
             <HeroNumber
               label="DSCR"
               value={dscrStr}
@@ -491,7 +500,7 @@ export default function DossierPanel({
               pulseKey={`dscr-${pulseKey}`}
             />
             <HeroNumber
-              label="Cash flow"
+              label="Cash / mo"
               value={cfStr}
               caption={cashFlowCaption(cf)}
               tone={tonedSeverity("cashFlow", dscr, cf, cap)}
@@ -506,88 +515,90 @@ export default function DossierPanel({
             />
           </div>
 
-          {/* ── Factual summary ── */}
-          <p className="text-[13px] text-muted-foreground/75 leading-[1.55] py-7 max-w-[60ch]">
-            {summary}
-          </p>
-
-          {/* ── Break-even (demoted) ── */}
-          {breakEvenPrice != null && (
-            <p className="text-[11px] text-muted-foreground/50 font-mono rv-num pb-6">
-              Break-even price&nbsp;
-              <span className="text-foreground/70 font-semibold">
-                {formatCurrency(breakEvenPrice, 0)}
-              </span>
-              {breakEvenDelta != null && (
-                <span className="text-muted-foreground/40">
-                  &nbsp;&middot;&nbsp;
-                  {breakEvenDelta >= 0
-                    ? `${formatCurrency(breakEvenDelta, 0)} above asking`
-                    : `${formatCurrency(Math.abs(breakEvenDelta), 0)} below asking`}
-                </span>
-              )}
-              {isDirty && (
-                <span className="ml-2 text-[10px] uppercase tracking-[0.08em] rv-tone-warn opacity-80">
-                  edited
-                </span>
-              )}
+          {/* ── Module 3: Summary + break-even ── */}
+          <div className="py-6 border-b border-white/[0.06]">
+            <p className="text-[14px] rv-t1 leading-[1.55] max-w-[60ch]">
+              {summary}
             </p>
-          )}
+            {breakEvenPrice != null && (
+              <p className="text-[12px] rv-t3 font-mono rv-num mt-3">
+                Break-even price&nbsp;
+                <span className="rv-t2 font-semibold">
+                  {formatCurrency(breakEvenPrice, 0)}
+                </span>
+                {breakEvenDelta != null && (
+                  <span className="rv-t4">
+                    &nbsp;&middot;&nbsp;
+                    {breakEvenDelta >= 0
+                      ? `${formatCurrency(breakEvenDelta, 0)} above asking`
+                      : `${formatCurrency(Math.abs(breakEvenDelta), 0)} below asking`}
+                  </span>
+                )}
+                {isDirty && (
+                  <span className="ml-2 text-[10px] uppercase tracking-[0.08em] rv-tone-warn opacity-80">
+                    edited
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
 
-          {/* ── Assumptions (always visible, editable) ── */}
-          <div className="border-t border-white/6 pt-5 pb-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55 mb-3">
+          {/* ── Module 4: Assumptions — slight surface lift to frame the module ── */}
+          <div className="py-6 border-b border-white/[0.06]">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] rv-t2 mb-4">
               Assumptions
             </p>
-            <div className="grid grid-cols-2 gap-x-4">
-              <AssumptionInput
-                label="Down payment"
-                value={workingInputs.downPaymentPercent}
-                suffix="%"
-                step={1}
-                min={0}
-                max={100}
-                onChange={(v) => setWorkingInputs((s) => ({ ...s, downPaymentPercent: v }))}
-              />
-              <AssumptionInput
-                label="Interest rate"
-                value={workingInputs.loanInterestRate}
-                suffix="%"
-                step={0.125}
-                min={0}
-                max={20}
-                onChange={(v) => setWorkingInputs((s) => ({ ...s, loanInterestRate: v }))}
-              />
-              <AssumptionInput
-                label="Rent"
-                value={workingInputs.monthlyRent}
-                prefix="$"
-                suffix="/mo"
-                step={50}
-                min={0}
-                onChange={(v) => setWorkingInputs((s) => ({ ...s, monthlyRent: v }))}
-              />
-              <AssumptionInput
-                label="Vacancy"
-                value={workingInputs.vacancyRatePercent}
-                suffix="%"
-                step={1}
-                min={0}
-                max={50}
-                onChange={(v) => setWorkingInputs((s) => ({ ...s, vacancyRatePercent: v }))}
-              />
+            <div className="rounded-lg bg-white/[0.02] px-4 py-1">
+              <div className="grid grid-cols-2 gap-x-4">
+                <AssumptionInput
+                  label="Down payment"
+                  value={workingInputs.downPaymentPercent}
+                  suffix="%"
+                  step={1}
+                  min={0}
+                  max={100}
+                  onChange={(v) => setWorkingInputs((s) => ({ ...s, downPaymentPercent: v }))}
+                />
+                <AssumptionInput
+                  label="Interest rate"
+                  value={workingInputs.loanInterestRate}
+                  suffix="%"
+                  step={0.125}
+                  min={0}
+                  max={20}
+                  onChange={(v) => setWorkingInputs((s) => ({ ...s, loanInterestRate: v }))}
+                />
+                <AssumptionInput
+                  label="Rent"
+                  value={workingInputs.monthlyRent}
+                  prefix="$"
+                  suffix="/mo"
+                  step={50}
+                  min={0}
+                  onChange={(v) => setWorkingInputs((s) => ({ ...s, monthlyRent: v }))}
+                />
+                <AssumptionInput
+                  label="Vacancy"
+                  value={workingInputs.vacancyRatePercent}
+                  suffix="%"
+                  step={1}
+                  min={0}
+                  max={50}
+                  onChange={(v) => setWorkingInputs((s) => ({ ...s, vacancyRatePercent: v }))}
+                />
+              </div>
             </div>
             {rentNote && (
-              <p className="text-[11px] rv-tone-warn opacity-80 leading-snug mt-2 max-w-[50ch]">
+              <p className="text-[11px] rv-tone-warn opacity-80 leading-snug mt-3 max-w-[50ch]">
                 {rentNote}
               </p>
             )}
           </div>
 
-          {/* ── Collapsed details ── */}
-          <div className="mt-6">
+          {/* ── Module 5: Collapsible detail sections ── */}
+          <div className="pb-4">
             <CollapsibleSection title="Monthly breakdown">
-              <p className="text-[11px] text-muted-foreground/55 mb-3 leading-relaxed">
+              <p className="text-[11px] rv-t3 mb-3 leading-relaxed">
                 Rent in, every expense out, mortgage last.
               </p>
               <WaterfallChart analysis={analysis} />
@@ -601,8 +612,6 @@ export default function DossierPanel({
               <ProjectionRow analysis={analysis} />
             </CollapsibleSection>
           </div>
-
-          <div className="h-4" />
         </div>
       </div>
 
