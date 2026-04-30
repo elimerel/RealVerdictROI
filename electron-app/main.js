@@ -350,6 +350,8 @@ function createBrowserView() {
       url,
       title:     browserView.webContents.getTitle(),
       isListing: LISTING_RE.test(url),
+      canGoBack: browserView.webContents.canGoBack(),
+      canGoForward: browserView.webContents.canGoForward(),
       ...(ready ? { loading: false } : {}),   // only did-stop-loading clears the loading flag
     })
   }
@@ -401,12 +403,26 @@ ipcMain.handle("browser:show", (_e, bounds) => {
   if (!browserView) return { exists: false }
   pendingBounds = bounds; showBrowserView()
   const url = browserView.webContents.getURL()
-  return { exists: true, url, title: browserView.webContents.getTitle(), isListing: LISTING_RE.test(url) }
+  return {
+    exists: true,
+    url,
+    title: browserView.webContents.getTitle(),
+    isListing: LISTING_RE.test(url),
+    canGoBack: browserView.webContents.canGoBack(),
+    canGoForward: browserView.webContents.canGoForward(),
+  }
 })
 ipcMain.handle("browser:get-state", () => {
   if (!browserView) return { exists: false }
   const url = browserView.webContents.getURL()
-  return { exists: true, url, title: browserView.webContents.getTitle(), isListing: LISTING_RE.test(url) }
+  return {
+    exists: true,
+    url,
+    title: browserView.webContents.getTitle(),
+    isListing: LISTING_RE.test(url),
+    canGoBack: browserView.webContents.canGoBack(),
+    canGoForward: browserView.webContents.canGoForward(),
+  }
 })
 ipcMain.handle("browser:navigate",     (_e, url) => browserView?.webContents.loadURL(url))
 ipcMain.handle("browser:back",         () => { if (browserView?.webContents.canGoBack())    browserView.webContents.goBack()    })

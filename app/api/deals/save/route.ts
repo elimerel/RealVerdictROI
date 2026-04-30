@@ -22,6 +22,8 @@ type SaveBody = {
   inputs: DealInputs;
   address?: string;
   propertyFacts?: PropertyFacts;
+  sourceUrl?: string;
+  sourceSite?: string;
 };
 
 export const POST = withErrorReporting("api.deals-save", async (req: Request) => {
@@ -97,6 +99,8 @@ export const POST = withErrorReporting("api.deals-save", async (req: Request) =>
     .insert({
       user_id: userRes.user.id,
       address: body.address?.trim() || null,
+      source_url: body.sourceUrl?.trim() || null,
+      source_site: body.sourceSite?.trim().toLowerCase() || null,
       inputs,
       results: analysis,
       verdict: analysis.verdict.tier,

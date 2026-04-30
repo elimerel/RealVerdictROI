@@ -5,8 +5,9 @@ import {
 } from "react"
 import {
   ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X, Plus, Search, MapPin,
-  AlertTriangle,
+  AlertTriangle, Building2, Home, Clock3, ChevronLeft, ChevronRight, PanelRightOpen,
 } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -97,8 +98,58 @@ function normalizeUrl(raw: string): string {
   return "https://" + t
 }
 
+function toBrowseTarget(raw: string): string {
+  const value = raw.trim()
+  if (!value) return ""
+  const hasScheme = /^https?:\/\//i.test(value)
+  const looksLikeDomain = /^(www\.)?[a-z0-9.-]+\.[a-z]{2,}([/:?#].*)?$/i.test(value)
+  if (hasScheme || looksLikeDomain) {
+    return normalizeUrl(value)
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(value)}`
+}
+
+const SUPPORTED_SITES = [
+  { id: "zillow", label: "Zillow", url: "https://www.zillow.com" },
+  { id: "redfin", label: "Redfin", url: "https://www.redfin.com" },
+  { id: "realtor", label: "Realtor.com", url: "https://www.realtor.com" },
+  { id: "homes", label: "Homes.com", url: "https://www.homes.com" },
+  { id: "trulia", label: "Trulia", url: "https://www.trulia.com" },
+] as const
+
+type RecentListing = {
+  url: string
+  address?: string
+  source?: ListingSource
+  viewedAt: number
+}
+
+function initialCollapsed(): boolean {
+  if (typeof window === "undefined") return false
+  return window.localStorage.getItem("rv:right-panel:collapsed") === "1"
+}
+
+function initialRecentListings(): RecentListing[] {
+  if (typeof window === "undefined") return []
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem("rv:recent-listings") ?? "[]") as RecentListing[]
+    return Array.isArray(parsed) ? parsed.slice(0, 5) : []
+  } catch {
+    return []
+  }
+}
+
 function hostnameOf(url: string) {
   try { return new URL(url).hostname.replace("www.", "") } catch { return url }
+}
+
+function isSupportedDomain(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace("www.", "")
+    return /(^|\.)zillow\.com$|(^|\.)redfin\.com$|(^|\.)realtor\.com$|(^|\.)homes\.com$|(^|\.)trulia\.com$/.test(host)
+  } catch {
+    return false
+  }
 }
 
 function buildAnalysisFromExtract(data: ExtractPayload, currentUrl: string): AnalysisResult {
@@ -188,15 +239,21 @@ function ElectronBrowsePage() {
   const [browserActive, setBrowserActive] = useState(false)
   const [currentUrl, setCurrentUrl]       = useState("")
   const [urlEditing, setUrlEditing]       = useState(false)
-  const [urlInput, setUrlInput]           = useState("https://www.zillow.com")
+  const [urlInput, setUrlInput]           = useState("")
   const [browserLoading, setBrowserLoading] = useState(false)
   const [isListingPage, setIsListingPage] = useState(false)
+  const [canGoBack, setCanGoBack] = useState(false)
+  const [canGoForward, setCanGoForward] = useState(false)
+  const [panelCollapsed, setPanelCollapsed] = useState(initialCollapsed)
+  const [recentListings, setRecentListings] = useState<RecentListing[]>(initialRecentListings)
+  const searchParams = useSearchParams()
   const urlInputRef = useRef<HTMLInputElement>(null)
 
   // Analysis state
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [idleHint, setIdleHint] = useState<"default" | "supported-non-listing" | "captcha">("default")
   const lastAutoAnalyzedUrl = useRef("")
   const analysisEpochRef    = useRef(0)
 
@@ -244,11 +301,15 @@ function ElectronBrowsePage() {
     })
   }, [supabaseConfigured])
 
+  useEffect(() => {
+    window.localStorage.setItem("rv:right-panel:collapsed", panelCollapsed ? "1" : "0")
+  }, [panelCollapsed])
+
   // Listen for navigation updates from the main process
   useEffect(() => {
     const api = window.electronAPI
     if (!api) return
-    const unsub = api.onNavUpdate(({ url, isListing, loading }) => {
+    const unsub = api.onNavUpdate(({ url, isListing, loading, canGoBack: canBack, canGoForward: canFwd }) => {
       if (url !== undefined && isListing && url !== lastAutoAnalyzedUrl.current) {
         setAnalysis(null)
       }
@@ -262,8 +323,11 @@ function ElectronBrowsePage() {
           lastAutoAnalyzedUrl.current = ""
           setAnalysis(null)
           setSavedDealId(undefined)
+          setIdleHint(url && isSupportedDomain(url) ? "supported-non-listing" : "default")
         }
       }
+      if (typeof canBack === "boolean") setCanGoBack(canBack)
+      if (typeof canFwd === "boolean") setCanGoForward(canFwd)
       if (loading !== undefined) setBrowserLoading(loading)
     })
     return unsub
@@ -287,10 +351,29 @@ function ElectronBrowsePage() {
         if (epoch !== analysisEpochRef.current) return
         const r = result as ExtractPayload
         if (r.error) {
+          if (/robot|captcha|verify/i.test(r.error)) {
+            setIdleHint("captcha")
+          }
           setError(r.error)
           return
         }
-        setAnalysis(buildAnalysisFromExtract({ ...r, inputs: r.inputs as Partial<DealInputs> }, currentUrl))
+        const next = buildAnalysisFromExtract({ ...r, inputs: r.inputs as Partial<DealInputs> }, currentUrl)
+        setAnalysis(next)
+        setIdleHint("default")
+        if (currentUrl) {
+          const source = detectSource(currentUrl)
+          window.localStorage.setItem("rv:last-listing-url", currentUrl)
+          if (source) window.localStorage.setItem("rv:last-listing-site", source)
+          const row: RecentListing = {
+            url: currentUrl,
+            address: next.address,
+            source,
+            viewedAt: Date.now(),
+          }
+          const merged = [row, ...recentListings.filter((item) => item.url !== row.url)].slice(0, 5)
+          setRecentListings(merged)
+          window.localStorage.setItem("rv:recent-listings", JSON.stringify(merged))
+        }
       })
       .catch((err: unknown) => {
         if (epoch !== analysisEpochRef.current) return
@@ -299,7 +382,7 @@ function ElectronBrowsePage() {
       .finally(() => {
         if (epoch === analysisEpochRef.current) setAnalysisLoading(false)
       })
-  }, [isListingPage, currentUrl, browserActive, browserLoading])
+  }, [isListingPage, currentUrl, browserActive, browserLoading, recentListings])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -321,21 +404,8 @@ function ElectronBrowsePage() {
     }
   }, [])
 
-  // Lazy-create the BrowserView the first time we mount
-  useEffect(() => {
-    const api = window.electronAPI
-    if (!api || browserActive) return
-    void (async () => {
-      await api.createBrowser(calcBounds(sidebarOpen))
-      await api.navigate(urlInput)
-      setBrowserActive(true)
-      setCurrentUrl(urlInput)
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const navigateTo = useCallback(async (raw: string) => {
-    const url = normalizeUrl(raw)
+    const url = toBrowseTarget(raw)
     if (!url) return
     setBrowserLoading(true)
     setError(null)
@@ -346,6 +416,17 @@ function ElectronBrowsePage() {
     await window.electronAPI?.navigate(url)
     setUrlEditing(false)
   }, [browserActive, sidebarOpen])
+
+  // Handle deep-link into Browse with a target URL (from Pipeline)
+  useEffect(() => {
+    const target = searchParams.get("url") ?? window.localStorage.getItem("rv:browse:return-url")
+    if (!target) return
+    const id = window.setTimeout(() => {
+      void navigateTo(target)
+    }, 0)
+    window.localStorage.removeItem("rv:browse:return-url")
+    return () => window.clearTimeout(id)
+  }, [navigateTo, searchParams])
 
   const submitUrlBar = (e: React.FormEvent) => {
     e.preventDefault()
@@ -380,6 +461,8 @@ function ElectronBrowsePage() {
           inputs: analysis.inputs,
           address: analysis.address,
           propertyFacts: analysis.propertyFacts,
+          sourceUrl: currentUrl || null,
+          sourceSite: analysis.source || null,
         }),
       })
       const payload = await res.json()
@@ -387,7 +470,7 @@ function ElectronBrowsePage() {
     } finally {
       setIsSaving(false)
     }
-  }, [signedIn, isPro, analysis, isSaving, savedDealId])
+  }, [signedIn, isPro, analysis, isSaving, savedDealId, currentUrl])
 
   const showPanel = analysisLoading || analysis != null
 
@@ -403,7 +486,7 @@ function ElectronBrowsePage() {
         <div className="no-drag-region flex items-center gap-1 shrink-0">
           <button
             onClick={() => window.electronAPI?.back()}
-            disabled={!browserActive || browserLoading}
+            disabled={!browserActive || browserLoading || !canGoBack}
             className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] disabled:opacity-30 text-muted-foreground/70 transition-colors duration-100"
             aria-label="Back"
           >
@@ -411,7 +494,7 @@ function ElectronBrowsePage() {
           </button>
           <button
             onClick={() => window.electronAPI?.forward()}
-            disabled={!browserActive || browserLoading}
+            disabled={!browserActive || browserLoading || !canGoForward}
             className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] disabled:opacity-30 text-muted-foreground/70 transition-colors duration-100"
             aria-label="Forward"
           >
@@ -436,7 +519,7 @@ function ElectronBrowsePage() {
               onChange={(e) => setUrlInput(e.target.value)}
               onFocus={() => setUrlEditing(true)}
               onBlur={() => setUrlEditing(false)}
-              placeholder="https://www.zillow.com"
+              placeholder="Search or enter listing URL"
               className="flex-1 min-w-0 bg-transparent text-[13px] font-mono rv-num text-foreground/85 placeholder:text-muted-foreground/50"
             />
           </div>
@@ -464,7 +547,7 @@ function ElectronBrowsePage() {
                     autoFocus
                     value={pasteValue}
                     onChange={(e) => setPasteValue(e.target.value)}
-                    placeholder="zillow.com/homedetails/&hellip;"
+                    placeholder="listing URL or search query"
                     className="flex-1 bg-transparent text-[13px] font-mono"
                   />
                 </div>
@@ -493,11 +576,71 @@ function ElectronBrowsePage() {
       {/* Body */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: BrowserView placeholder. Electron WebContentsView is layered on top. */}
-        <div className="flex-1 bg-zinc-950 relative flex flex-col min-w-0">
+        <div className="flex-1 rv-surface-1 relative flex flex-col min-w-0">
           {!browserActive && (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin opacity-40" />
-              <p className="text-xs opacity-50">Loading browser&hellip;</p>
+            <div className="flex-1 flex flex-col items-center justify-center px-8">
+              <div className="w-full max-w-3xl space-y-7">
+                <div className="space-y-2 text-center">
+                  <h2 className="text-2xl font-semibold tracking-tight">Browse listings</h2>
+                  <p className="text-sm rv-t2">Paste a listing URL or search the web to find one.</p>
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void navigateTo(urlInput)
+                  }}
+                  className="rv-surface-2 rounded-xl p-4 border border-white/6"
+                >
+                  <div className="rv-input flex items-center gap-2 px-3 py-3">
+                    <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+                    <input
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="Paste listing URL or type an address/search"
+                      className="flex-1 bg-transparent text-[14px]"
+                    />
+                  </div>
+                  <p className="text-[11px] rv-t3 mt-2">
+                    Non-URL input opens a Google search in the browser pane.
+                  </p>
+                </form>
+                <div className="grid grid-cols-5 gap-3">
+                  {SUPPORTED_SITES.map((site) => (
+                    <button
+                      key={site.id}
+                      type="button"
+                      onClick={() => void navigateTo(site.url)}
+                      className="rv-surface-2 border border-white/6 rounded-lg p-3 text-left hover:border-white/15 transition-colors"
+                    >
+                      <Building2 className="h-4 w-4 rv-t3 mb-2" />
+                      <p className="text-sm">{site.label}</p>
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-[0.08em] rv-t2 inline-flex items-center gap-1.5">
+                    <Clock3 className="h-3.5 w-3.5" />
+                    Recently viewed
+                  </p>
+                  <div className="grid grid-cols-5 gap-3">
+                    {recentListings.length === 0 ? (
+                      <div className="col-span-5 rv-surface-2 border border-white/6 rounded-lg p-4 text-sm rv-t3">
+                        Analyze a listing to populate recent history.
+                      </div>
+                    ) : recentListings.map((item) => (
+                      <button
+                        key={item.url}
+                        type="button"
+                        onClick={() => void navigateTo(item.url)}
+                        className="rv-surface-2 border border-white/6 rounded-lg p-3 text-left hover:border-white/15 transition-colors"
+                      >
+                        <Home className="h-4 w-4 rv-t3 mb-2" />
+                        <p className="text-xs truncate">{item.address ?? hostnameOf(item.url)}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
           {browserActive && currentUrl && (
@@ -509,10 +652,22 @@ function ElectronBrowsePage() {
 
         {/* Right: side panel */}
         <div
-          className="shrink-0 flex flex-col border-l border-border bg-background"
-          style={{ width: RIGHT_PANEL_W }}
+          className="shrink-0 flex flex-col border-l border-border rv-surface-1 overflow-hidden"
+          style={{ width: panelCollapsed ? 32 : RIGHT_PANEL_W }}
         >
-          {showPanel ? (
+          <button
+            type="button"
+            onClick={() => setPanelCollapsed((v) => !v)}
+            className="h-8 w-8 m-1 rounded border border-border/80 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={panelCollapsed ? "Expand panel" : "Collapse panel"}
+          >
+            {panelCollapsed ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+          {panelCollapsed ? (
+            <div className="flex-1 flex items-center justify-center">
+              <PanelRightOpen className="h-4 w-4 rv-t3" />
+            </div>
+          ) : showPanel ? (
             analysisLoading && !analysis ? (
               <DossierPanelSkeleton />
             ) : analysis ? (
@@ -523,6 +678,7 @@ function ElectronBrowsePage() {
                 address={analysis.address}
                 propertyFacts={analysis.propertyFacts}
                 source={analysis.source}
+                sourceUrl={currentUrl}
                 inputProvenance={analysis.inputProvenance}
                 signedIn={signedIn}
                 isPro={isPro}
@@ -534,7 +690,7 @@ function ElectronBrowsePage() {
               />
             ) : null
           ) : (
-            <IdleSidePanel />
+            <IdleSidePanel hint={idleHint} />
           )}
         </div>
       </div>
@@ -546,12 +702,18 @@ function ElectronBrowsePage() {
 // IdleSidePanel — calm empty state when no listing is detected
 // ---------------------------------------------------------------------------
 
-function IdleSidePanel() {
+function IdleSidePanel({ hint = "default" }: { hint?: "default" | "supported-non-listing" | "captcha" }) {
+  const copy =
+    hint === "captcha"
+      ? "Verify you're not a robot to continue. The panel will populate once the listing loads."
+      : hint === "supported-non-listing"
+        ? "Navigate to a listing to see underwriting."
+        : "Navigate to a property listing on Zillow, Redfin, Realtor, Homes, or Trulia to begin."
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6 text-center select-none gap-3">
       <Globe className="h-8 w-8 text-muted-foreground/15" strokeWidth={1.5} />
       <p className="text-[13px] text-muted-foreground/55 leading-relaxed max-w-[28ch]">
-        Navigate to a listing to see underwriting.
+        {copy}
       </p>
     </div>
   )
@@ -650,6 +812,8 @@ function WebBrowsePage() {
           inputs: result.inputs,
           address: result.address,
           propertyFacts: result.propertyFacts,
+          sourceUrl: isListingUrl ? normalizeUrl(query) : null,
+          sourceSite: isListingUrl ? detectSource(normalizeUrl(query)) : null,
         }),
       })
       const payload = await res.json()
@@ -677,7 +841,7 @@ function WebBrowsePage() {
             <Input
               value={query}
               onChange={(e) => { setQuery(e.target.value); setError(null) }}
-              placeholder="Paste a Zillow URL or type an address&hellip;"
+              placeholder="Paste a listing URL or type an address&hellip;"
               className="border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             {query && (
@@ -705,7 +869,7 @@ function WebBrowsePage() {
             </div>
           ) : (
             <p className="text-[13px] text-muted-foreground/50 leading-relaxed max-w-[36ch]">
-              Underwrite any listing on any site, instantly. Open the desktop app to browse Zillow, Redfin, and Realtor with live underwriting in the side panel.
+              Underwrite listings instantly from URL or address. Open the desktop app for full multi-site browse mode with live side-panel underwriting.
             </p>
           )}
         </div>

@@ -17,6 +17,10 @@ import {
   AlertTriangle,
   Columns3,
   Download,
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  BarChart3,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
@@ -35,7 +39,6 @@ import {
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
 import DossierPanel, {
-  DossierPanelSkeleton,
   type PropertyFacts,
 } from "../_components/DossierPanel"
 import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
@@ -61,6 +64,11 @@ const LISTING_URL_RE =
   /^https?:\/\/(www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i
 const AUTOFILL_CACHE_NS = "autofill:v4"
 const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
+
+function initialPanelCollapsed(): boolean {
+  if (typeof window === "undefined") return false
+  return window.localStorage.getItem("rv:right-panel:collapsed") === "1"
+}
 
 type QuickFilter = "all" | "cf-positive" | "dscr-1" | "cap-6"
 
@@ -236,6 +244,7 @@ export function DealsClient({
   const [pendingCard, setPendingCard] = useState<PendingCard | null>(null)
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set())
   const [compareOpen, setCompareOpen] = useState(false)
+  const [panelCollapsed, setPanelCollapsed] = useState(initialPanelCollapsed)
 
   // ── Right panel width ──
   const rightPanelRef = useRef<HTMLDivElement>(null)
@@ -286,6 +295,12 @@ export function DealsClient({
       return true
     return false
   }, [selectedId, deals, pendingCard])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("rv:right-panel:collapsed", panelCollapsed ? "1" : "0")
+    }
+  }, [panelCollapsed])
 
   // ── Track right panel width ──
   useEffect(() => {
@@ -354,6 +369,8 @@ export function DealsClient({
         probabilisticVerdict: pendingCard.probabilisticVerdict ?? null,
         walkAwayConfidenceNote: pendingCard.walkAwayConfidenceNote ?? null,
         inputProvenance: pendingCard.inputProvenance ?? null,
+        source: null,
+        sourceUrl: null,
       }
     }
 
@@ -382,6 +399,16 @@ export function DealsClient({
         probabilisticVerdict: null,
         walkAwayConfidenceNote: null,
         inputProvenance: null,
+        source: (deal.source_site as
+          | "zillow"
+          | "redfin"
+          | "realtor"
+          | "homes"
+          | "trulia"
+          | "movoto"
+          | null
+          | undefined) ?? null,
+        sourceUrl: deal.source_url ?? null,
       }
     }
 
@@ -399,6 +426,10 @@ export function DealsClient({
             inputs: result.analysis.inputs,
             address: result.address,
             propertyFacts: result.propertyFacts,
+            sourceUrl:
+              typeof window !== "undefined" ? window.localStorage.getItem("rv:last-listing-url") : null,
+            sourceSite:
+              typeof window !== "undefined" ? window.localStorage.getItem("rv:last-listing-site") : null,
           }),
         })
         if (!res.ok) {
@@ -487,6 +518,10 @@ export function DealsClient({
           inputs: pendingCard.analysis.inputs,
           address: pendingCard.address,
           propertyFacts: pendingCard.propertyFacts,
+          sourceUrl:
+            typeof window !== "undefined" ? window.localStorage.getItem("rv:last-listing-url") : null,
+          sourceSite:
+            typeof window !== "undefined" ? window.localStorage.getItem("rv:last-listing-site") : null,
         }),
       })
       if (!res.ok) return
@@ -899,7 +934,7 @@ export function DealsClient({
   // ── Render ──
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background relative">
 
       {/* ═══════════════════════════════════════════════
           LEFT ZONE — search + filter + grid
@@ -938,7 +973,7 @@ export function DealsClient({
                   if (suggestions.length > 0) setShowSuggestions(true)
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="Zillow URL or address…"
+                placeholder="Listing URL or address…"
                 disabled={isSearching}
                 className="flex-1 min-w-0 bg-transparent text-sm placeholder:text-muted-foreground/60 disabled:opacity-50"
               />
@@ -1070,7 +1105,7 @@ export function DealsClient({
         {!hasDeals ? (
           <EmptyPipeline />
         ) : viewMode === "table" ? (
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 pipeline-scroll">
               <ComparisonTable
                 rows={sortedTableRows}
                 pendingCard={pendingCard}
@@ -1094,10 +1129,14 @@ export function DealsClient({
                 onSelectPending={(id) => setSelectedId(id)}
                 onDelete={handleDelete}
                 onRetry={(text) => submitSearch(text)}
+                onOpenOriginal={(url) => {
+                  window.localStorage.setItem("rv:browse:return-url", url)
+                  router.push(`/research?url=${encodeURIComponent(url)}`)
+                }}
               />
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 pipeline-scroll">
             <div
               className={cn(
                 "grid gap-2 p-3",
@@ -1166,14 +1205,28 @@ export function DealsClient({
       {/* ═══════════════════════════════════════════════
           RIGHT ZONE — AnalysisPanel
       ═══════════════════════════════════════════════ */}
-      <div
-        className={cn(
-          "transition-all duration-200 overflow-hidden relative",
-          panelOpen ? "flex-1" : "w-0"
-        )}
-      >
+      <div className={cn(
+        "overflow-hidden relative border-l border-border/70 rv-surface-1",
+        panelOpen ? (panelCollapsed ? "w-8" : "flex-1") : "w-0"
+      )}>
         {panelOpen && panelData && (
           <div ref={rightPanelRef} className="h-full w-full">
+            <button
+              onClick={() => setPanelCollapsed((v) => !v)}
+              className="absolute top-3 left-2 z-20 flex items-center justify-center h-7 w-7 rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:border-border/60 transition-colors"
+              aria-label={panelCollapsed ? "Expand panel" : "Collapse panel"}
+            >
+              {panelCollapsed ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            </button>
+            {panelCollapsed ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="rotate-90 inline-flex items-center gap-1.5 text-[10px] tracking-[0.08em] uppercase rv-t3">
+                  <BarChart3 className="h-3 w-3" />
+                  Analysis
+                </div>
+              </div>
+            ) : (
+              <>
             {/* Close button */}
             <button
               onClick={() => setSelectedId(null)}
@@ -1201,6 +1254,12 @@ export function DealsClient({
               probabilisticVerdict={panelData.probabilisticVerdict}
               walkAwayConfidenceNote={panelData.walkAwayConfidenceNote}
               inputProvenance={panelData.inputProvenance}
+              source={panelData.source}
+              sourceUrl={panelData.sourceUrl}
+              onOpenSource={(url) => {
+                window.localStorage.setItem("rv:browse:return-url", url)
+                router.push(`/research?url=${encodeURIComponent(url)}`)
+              }}
               onSave={
                 panelData.isPending &&
                 !panelData.autoSaveInitiated &&
@@ -1210,6 +1269,8 @@ export function DealsClient({
               }
               onClose={() => setSelectedId(null)}
             />
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1225,6 +1286,37 @@ export function DealsClient({
           onClose={() => setCompareOpen(false)}
           onClear={() => { setCompareIds(new Set()); setCompareOpen(false) }}
         />
+      )}
+
+      {compareIds.size > 0 && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full border border-white/10 bg-black/80 backdrop-blur px-4 py-2 text-[12px]">
+          <span className="rv-t2">{compareIds.size} selected</span>
+          <button
+            type="button"
+            className="rv-t1 hover:opacity-80 transition-opacity disabled:opacity-40"
+            disabled={compareIds.size < 2}
+            onClick={() => setCompareOpen(true)}
+          >
+            Compare
+          </button>
+          <button
+            type="button"
+            className="rv-t1 hover:opacity-80 transition-opacity"
+            onClick={() => {
+              const selectedDeals = filteredDeals.filter((d) => compareIds.has(d.id))
+              exportPipelineCsv(selectedDeals.length ? selectedDeals : filteredDeals, dealData)
+            }}
+          >
+            Export
+          </button>
+          <button
+            type="button"
+            className="rv-t3 hover:rv-t1 transition-colors"
+            onClick={() => setCompareIds(new Set())}
+          >
+            Cancel
+          </button>
+        </div>
       )}
     </div>
   )
@@ -1320,6 +1412,7 @@ function ComparisonTable({
   onSelectPending,
   onDelete,
   onRetry,
+  onOpenOriginal,
 }: {
   rows: TableRow[]
   pendingCard: PendingCard | null
@@ -1334,6 +1427,7 @@ function ComparisonTable({
   onSelectPending: (id: string) => void
   onDelete: (id: string) => void
   onRetry: (text: string) => void
+  onOpenOriginal: (url: string) => void
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
 
@@ -1387,8 +1481,8 @@ function ComparisonTable({
                 key={deal.id}
                 onClick={() => { if (!isDeleting) onSelectDeal(deal.id) }}
                 className={cn(
-                  "border-b border-white/[0.04] cursor-pointer transition-colors duration-[50ms] group",
-                  isSelected ? "bg-white/[0.04]" : "hover:bg-white/[0.015]",
+                  "border-b border-white/[0.04] cursor-pointer group",
+                  isSelected ? "rv-surface-2" : "hover:rv-surface-2",
                 )}
                 style={isSelected
                   ? { borderLeft: "2px solid oklch(0.62 0.22 265)" }
@@ -1402,7 +1496,7 @@ function ComparisonTable({
                     onChange={() => onToggleCompare(deal.id)}
                     className={cn(
                       "h-3.5 w-3.5 rounded-sm border-white/15 bg-transparent cursor-pointer transition-opacity",
-                      isCompare ? "opacity-100" : "opacity-0 group-hover:opacity-60",
+                      isCompare || compareIds.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-60",
                     )}
                     aria-label={"Select for compare " + (deal.address ?? "")}
                   />
@@ -1410,7 +1504,10 @@ function ComparisonTable({
 
                 {/* Address */}
                 <td className="px-2 py-3 max-w-[200px]">
-                  <p className="text-[14px] font-medium text-foreground truncate">
+                  <p className="text-[14px] font-medium text-foreground truncate inline-flex items-center gap-1.5">
+                    <span className="h-4 w-4 rounded-full border border-white/10 text-[9px] inline-flex items-center justify-center rv-t3 uppercase">
+                      {(deal.source_site ?? "L").slice(0, 1)}
+                    </span>
                     {deal.address ?? "Unknown address"}
                   </p>
                   {deal.property_facts && (
@@ -1496,12 +1593,26 @@ function ComparisonTable({
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setConfirmingDelete(deal.id) }}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:rv-tone-bad transition-all duration-100"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                      {deal.source_url && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onOpenOriginal(deal.source_url!)
+                          }}
+                          className="text-muted-foreground/50 hover:text-foreground transition-colors"
+                          title="Open original listing"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmingDelete(deal.id) }}
+                        className="text-muted-foreground/40 hover:rv-tone-bad transition-colors"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>

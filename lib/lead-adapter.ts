@@ -21,6 +21,8 @@ export type DealRow = {
   id: string;
   created_at: string;
   address: string | null;
+  source_url?: string | null;
+  source_site?: string | null;
   inputs: DealInputs;
   results: DealAnalysis;
   verdict: string;

@@ -18,7 +18,17 @@ import type { ChatAnalysisContext } from "@/app/api/chat/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
 import type { DistributionResult, ProbabilisticVerdict } from "@/lib/distribution-engine"
 import type { FieldProvenance } from "@/lib/types"
-import { Save, CheckCircle2, Loader2, ChevronDown, ChevronUp } from "lucide-react"
+import {
+  Save,
+  CheckCircle2,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  LineChart,
+  DollarSign,
+  Percent,
+  ExternalLink,
+} from "lucide-react"
 import WaterfallChart from "@/components/charts/waterfall-chart"
 import { tonedSeverity, type Severity } from "@/lib/severity"
 
@@ -46,6 +56,7 @@ export type DossierPanelProps = {
   rentNote?: string | null
   /** Source of the underlying listing — drives the small badge near the address. */
   source?: "zillow" | "redfin" | "realtor" | "homes" | "trulia" | "movoto" | null
+  sourceUrl?: string | null
   // Legacy props — accepted for compat, unused.
   distribution?: DistributionResult | null
   probabilisticVerdict?: ProbabilisticVerdict | null
@@ -65,6 +76,7 @@ export type DossierPanelProps = {
   isLoading?: boolean
   badInputs?: boolean
   propertyFacts?: PropertyFacts
+  onOpenSource?: (url: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -115,12 +127,14 @@ function toneClass(sev: Severity): string {
 
 function HeroNumber({
   label,
+  icon,
   value,
   caption,
   tone,
   pulseKey,
 }: {
   label: string
+  icon: React.ComponentType<{ className?: string }>
   value: string
   caption?: string
   /** Color only when this metric is the worst offender on the deal —
@@ -128,9 +142,11 @@ function HeroNumber({
   tone: Severity
   pulseKey: string | number
 }) {
+  const Icon = icon
   return (
     <div className="space-y-1.5 min-w-0">
-      <p className="text-[11px] font-medium uppercase tracking-[0.07em] rv-t2">
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] rv-t2 flex items-center gap-1.5">
+        <Icon className="h-3 w-3 rv-t3" />
         {label}
       </p>
       <p
@@ -147,7 +163,8 @@ function HeroNumber({
         {value}
       </p>
       {caption && (
-        <p className="text-[11px] rv-t3 leading-snug">
+        <p className="text-[11px] rv-t3 leading-snug inline-flex items-center gap-1.5">
+          <span className={cn("rv-dot", toneClass(tone))} />
           {caption}
         </p>
       )}
@@ -346,11 +363,37 @@ function buildFactualSummary(
 // Source badge
 // ---------------------------------------------------------------------------
 
-function SourceBadge({ source }: { source?: string | null }) {
+function SourceBadge({
+  source,
+  sourceUrl,
+  onOpen,
+}: {
+  source?: string | null
+  sourceUrl?: string | null
+  onOpen?: (url: string) => void
+}) {
   if (!source) return null
-  return (
-    <span className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/40 px-1.5 py-0.5 rounded bg-white/4 border border-white/6">
+  const canOpen = !!sourceUrl && !!onOpen
+  const content = (
+    <>
       {source}
+      {canOpen ? <ExternalLink className="h-2.5 w-2.5" /> : null}
+    </>
+  )
+  if (canOpen && sourceUrl) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpen(sourceUrl)}
+        className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/40 px-1.5 py-0.5 rounded bg-white/4 border border-white/6 inline-flex items-center gap-1 hover:text-foreground/80 transition-colors"
+      >
+        {content}
+      </button>
+    )
+  }
+  return (
+    <span className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/40 px-1.5 py-0.5 rounded bg-white/4 border border-white/6 inline-flex items-center gap-1">
+      {content}
     </span>
   )
 }
@@ -367,6 +410,7 @@ export default function DossierPanel({
   ai_narrative,
   rentNote,
   source,
+  sourceUrl,
   supabaseConfigured,
   onSave,
   savedDealId,
@@ -374,6 +418,7 @@ export default function DossierPanel({
   isLoading,
   badInputs,
   propertyFacts: pf,
+  onOpenSource,
 }: DossierPanelProps) {
   // Loading state has its own component — caller should render that instead.
   // We still support the `isLoading` prop for backward compat.
@@ -464,7 +509,7 @@ export default function DossierPanel({
   // "neutral" for non-worst metrics).
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full flex flex-col rv-surface-1">
       <div className="flex-1 overflow-y-auto min-h-0" style={{ overscrollBehavior: "contain" }}>
         <div className="px-7">
 
@@ -477,7 +522,7 @@ export default function DossierPanel({
                   {address}
                 </h2>
               )}
-              <SourceBadge source={source} />
+              <SourceBadge source={source} sourceUrl={sourceUrl} onOpen={onOpenSource} />
             </div>
             <p className="text-[12px] rv-t3 font-mono rv-num">
               {[
@@ -494,6 +539,7 @@ export default function DossierPanel({
           <div className="grid grid-cols-3 gap-5 py-7 border-b border-white/[0.06]">
             <HeroNumber
               label="DSCR"
+              icon={LineChart}
               value={dscrStr}
               caption={dscrCaption(dscr)}
               tone={tonedSeverity("dscr", dscr, cf, cap)}
@@ -501,6 +547,7 @@ export default function DossierPanel({
             />
             <HeroNumber
               label="Cash / mo"
+              icon={DollarSign}
               value={cfStr}
               caption={cashFlowCaption(cf)}
               tone={tonedSeverity("cashFlow", dscr, cf, cap)}
@@ -508,6 +555,7 @@ export default function DossierPanel({
             />
             <HeroNumber
               label="Cap rate"
+              icon={Percent}
               value={capStr}
               caption={capRateCaption(cap)}
               tone={tonedSeverity("capRate", dscr, cf, cap)}
