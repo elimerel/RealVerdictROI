@@ -90,11 +90,14 @@ export default function WaterfallChart({ analysis }: { analysis: DealAnalysis })
 
   // Layout constants
   const W          = 440
-  const H          = 220
-  const MARGIN     = { top: 12, right: 8, bottom: 28, left: 12 }
+  // Reserve more bottom margin when many bars force rotated labels so the
+  // rotated text doesn't collide with the bars or the next module below.
+  const barCount   = items.length
+  const rotateLabels = barCount > 6
+  const H          = rotateLabels ? 240 : 220
+  const MARGIN     = { top: 12, right: 8, bottom: rotateLabels ? 48 : 28, left: 12 }
   const innerW     = W - MARGIN.left - MARGIN.right
   const innerH     = H - MARGIN.top - MARGIN.bottom
-  const barCount   = items.length
   const gap        = 6
   const barW       = Math.max(20, Math.floor((innerW - gap * (barCount - 1)) / barCount))
 
@@ -222,17 +225,33 @@ export default function WaterfallChart({ analysis }: { analysis: DealAnalysis })
                 </text>
               )}
 
-              {/* X axis label */}
-              <text
-                x={barCenterX}
-                y={H - 4}
-                textAnchor="middle"
-                fontSize={9}
-                fontFamily="var(--font-sans), sans-serif"
-                fill="oklch(0.52 0.009 252)"
-              >
-                {item.label}
-              </text>
+              {/* X axis label — rotate when bar count makes horizontal
+                  labels overlap (this used to render "Mortgage" on top of
+                  "Maint." in the dossier panel). */}
+              {rotateLabels ? (
+                <text
+                  x={barCenterX}
+                  y={H - 14}
+                  textAnchor="end"
+                  fontSize={9}
+                  fontFamily="var(--font-sans), sans-serif"
+                  fill="oklch(0.52 0.009 252)"
+                  transform={`rotate(-35 ${barCenterX} ${H - 14})`}
+                >
+                  {item.label}
+                </text>
+              ) : (
+                <text
+                  x={barCenterX}
+                  y={H - 4}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fontFamily="var(--font-sans), sans-serif"
+                  fill="oklch(0.52 0.009 252)"
+                >
+                  {item.label}
+                </text>
+              )}
             </g>
           )
         })}

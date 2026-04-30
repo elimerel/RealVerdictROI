@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import {
   analyseDeal,
@@ -196,10 +196,14 @@ function AssumptionInput({
   onChange: (v: number) => void
 }) {
   const [draft, setDraft] = useState<string>(formatNum(value))
-
-  useEffect(() => {
+  // "Adjusting state on prop change" — keep the user-editable draft in sync
+  // when the parent loads a new listing without using setState-in-effect
+  // (which the linter rightly flags as cascading-render bait).
+  const [lastValue, setLastValue] = useState<number>(value)
+  if (lastValue !== value) {
+    setLastValue(value)
     setDraft(formatNum(value))
-  }, [value])
+  }
 
   const commit = () => {
     const parsed = parseFloat(draft.replace(/[^0-9.\-]/g, ""))
@@ -285,19 +289,26 @@ function CollapsibleSection({
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border-t border-white/6">
+    <div className="rv-hairline">
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between py-4 text-left group"
       >
-        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55 group-hover:text-muted-foreground/80 transition-colors">
+        <span className="rv-section-label group-hover:text-foreground/80 transition-colors">
           {title}
         </span>
         {open
-          ? <ChevronUp className="h-3 w-3 text-muted-foreground/40" />
-          : <ChevronDown className="h-3 w-3 text-muted-foreground/40" />}
+          ? <ChevronUp className="h-3.5 w-3.5 rv-t3" />
+          : <ChevronDown className="h-3.5 w-3.5 rv-t3" />}
       </button>
-      {open && <div className="pb-5">{children}</div>}
+      {/* min-w-0 + overflow-hidden is the fix for the "words overlap when
+          you expand a section" bug — child charts/SVGs now stay inside
+          their parent column even when the panel is narrow. */}
+      {open && (
+        <div className="pb-5 min-w-0 overflow-hidden">
+          {children}
+        </div>
+      )}
     </div>
   )
 }
@@ -424,13 +435,15 @@ export default function DossierPanel({
   // We still support the `isLoading` prop for backward compat.
   const skeletonInputs = (incomingInputs ?? {}) as DealInputs
 
-  // Local working copy of inputs — assumptions edits update this. When the
-  // parent passes a new `inputs` (different listing), we reset.
+  // Local working copy of inputs — assumption edits update this. When the
+  // parent passes a different `inputs` (new listing) we reset via the
+  // "adjusting state on prop change" pattern instead of setState-in-effect.
   const [workingInputs, setWorkingInputs] = useState<DealInputs>(skeletonInputs)
-
-  useEffect(() => {
-    if (incomingInputs) setWorkingInputs(incomingInputs)
-  }, [incomingInputs])
+  const [lastIncomingInputs, setLastIncomingInputs] = useState<DealInputs | undefined>(incomingInputs)
+  if (incomingInputs && lastIncomingInputs !== incomingInputs) {
+    setLastIncomingInputs(incomingInputs)
+    setWorkingInputs(incomingInputs)
+  }
 
   // Recompute analysis whenever working inputs change. This is local math
   // and runs in <50ms — no loading state needed.
@@ -511,10 +524,10 @@ export default function DossierPanel({
   return (
     <div className="h-full flex flex-col rv-surface-1">
       <div className="flex-1 overflow-y-auto min-h-0" style={{ overscrollBehavior: "contain" }}>
-        <div className="px-7">
+        <div className="px-7 min-w-0">
 
           {/* ── Module 1: Property identity ── */}
-          <div className="pt-6 pb-5 border-b border-white/[0.06] space-y-1.5">
+          <div className="pt-6 pb-5 rv-hairline space-y-1.5">
             <div className="flex items-center gap-2 min-w-0">
               {address && (
                 <h2 className="text-[14px] font-semibold text-foreground truncate"
@@ -536,7 +549,7 @@ export default function DossierPanel({
           </div>
 
           {/* ── Module 2: Hero metrics — only the worst-offending metric carries color ── */}
-          <div className="grid grid-cols-3 gap-5 py-7 border-b border-white/[0.06]">
+          <div className="grid grid-cols-3 gap-5 py-7 rv-hairline">
             <HeroNumber
               label="DSCR"
               icon={LineChart}
@@ -564,7 +577,7 @@ export default function DossierPanel({
           </div>
 
           {/* ── Module 3: Summary + break-even ── */}
-          <div className="py-6 border-b border-white/[0.06]">
+          <div className="py-6 rv-hairline">
             <p className="text-[14px] rv-t1 leading-[1.55] max-w-[60ch]">
               {summary}
             </p>
@@ -592,11 +605,11 @@ export default function DossierPanel({
           </div>
 
           {/* ── Module 4: Assumptions — slight surface lift to frame the module ── */}
-          <div className="py-6 border-b border-white/[0.06]">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] rv-t2 mb-4">
+          <div className="py-6 rv-hairline">
+            <p className="rv-section-label mb-4">
               Assumptions
             </p>
-            <div className="rounded-lg bg-white/[0.02] px-4 py-1">
+            <div className="rounded-lg rv-surface-2 px-4 py-1">
               <div className="grid grid-cols-2 gap-x-4">
                 <AssumptionInput
                   label="Down payment"

@@ -14,6 +14,8 @@ export interface ElectronNavUpdate {
   title?: string
   isListing?: boolean
   loading?: boolean
+  canGoBack?: boolean
+  canGoForward?: boolean
 }
 
 export interface ElectronDomPayload {

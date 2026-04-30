@@ -454,47 +454,46 @@ ipcMain.handle("browser:extract-dom", async () => {
 // fast (~1–2 s), cheap.  No round trip to the Next.js server.
 // ---------------------------------------------------------------------------
 
-const HAIKU_EXTRACTION_PROMPT = `You are a real estate data extractor. Your only job is to read this listing page text and return a single valid JSON object.
+// Site-neutral extraction prompt. Deliberately compact JSON shape — fewer
+// fields means Anthropic's tool-use ceiling never triggers a "schema
+// contains too many properties" error, and the model has fewer chances to
+// confuse mortgage estimates for rent.
+const HAIKU_EXTRACTION_PROMPT = `You read a real-estate listing page and return one JSON object for an underwriting engine.
 
-STRICT RULES — read carefully:
-1. Return null for ANY field not explicitly stated on the page. Never estimate, infer, or invent values.
-2. All money values must be plain numbers — no $ signs, no commas.
-3. This data feeds a financial engine. Wrong numbers produce wrong verdicts. Accuracy over completeness.
+OUTPUT RULES
+- Return null for any field not explicitly stated on the page.
+- Money values are plain numbers (no $, no commas).
+- siteName is the platform: "Zillow", "Redfin", "Realtor.com", "Homes.com", "Trulia", or other.
+- confidence: "high" if both address and price are present, "medium" if one is unclear, "low" if both are missing or this is not a single-property listing page.
 
-RENT — CRITICAL RULE:
-- "monthlyRent" must ONLY be set to a figure explicitly labeled as "Rent Zestimate", "Estimated rent", "Rental estimate", "Market rent", or a clearly labeled monthly rental value.
-- NEVER use "Est. payment", "Estimated payment", "Monthly payment", "P&I", or any figure that represents a mortgage payment, loan payment, or financing estimate as rent. These are completely different numbers.
-- On for-sale listing pages, the large monthly figure shown is almost always the mortgage payment — NOT rent. Do not confuse them.
-- If no explicit rental estimate is shown on the page, return null for monthlyRent.
+RENT — CRITICAL
+- monthlyRent is ONLY a labeled rental estimate ("Rent Zestimate", "Estimated rent", "Rental estimate", "Market rent").
+- NEVER use a mortgage payment, "Est. payment", "Monthly payment", or "P&I" as rent. They are different numbers.
+- If no rental estimate is shown, set monthlyRent to null.
 
-Return exactly this JSON shape (no markdown, no explanation — only the JSON object):
+SITE HINTS
+- Zillow: "Listed for", "Zestimate", "Rent Zestimate". Tax under "Public tax history". HOA in monthly cost breakdown.
+- Redfin: "Listed", "Redfin Estimate". HOA in fees table. Tax under "Property history".
+- Realtor.com: "List Price", payment calculator carries tax / insurance / HOA.
+- Homes.com: "Asking", "Tax history". Rent rarely shown.
+- Trulia: "List price", "Estimated monthly rent". Some rent fields are mortgage estimates — only use the explicitly labeled rental figure.
+
+NON-LISTING PAGES (search results, neighborhood, agent profile, captcha)
+- Set every field to null and confidence to "low".
+
+Return ONLY this JSON shape (no markdown, no commentary):
 {
-  "address": "full street address with city, state, zip — or null",
-  "price": list price as number or null,
-  "beds": bedroom count as number or null,
-  "baths": bathroom count as number or null,
-  "sqft": square footage as number or null,
-  "yearBuilt": year built as number or null,
-  "propertyType": "Single Family" / "Condo" / "Townhouse" / "Multi-Family" / etc or null,
-  "monthlyRent": Rent Zestimate or explicit rental estimate ONLY — never mortgage payment — or null,
-  "monthlyHOA": monthly HOA fee IF explicitly shown or null,
-  "annualPropertyTax": annual property tax IF explicitly shown or null,
-  "annualInsurance": annual homeowners insurance IF explicitly shown or null,
-  "arvEstimate": after-repair value IF explicitly stated (not estimated by you) or null,
-  "rehabCost": rehab/renovation cost IF explicitly stated (not estimated by you) or null,
-  "siteName": platform name e.g. "Zillow" / "Redfin" / "Realtor.com" or null,
-  "confidence": "high" if address and price are clearly present, "medium" if one is unclear, "low" if both are missing,
-  "negativeSignals": [
-    Objects with { "signal": "short description", "severity": "high"|"medium"|"low" } for any of:
-    HIGH — probate/estate sale, foundation/structural issues, title problems, tax liens, mechanic liens
-    MEDIUM — as-is/cash-only, fire/water/flood damage, mold, asbestos, lead paint, needs major work
-    LOW — short sale, REO/bank-owned, pre-foreclosure, auction, easement, HOA violation
-    Empty array [] if none found.
-  ],
-  "pageComps": [
-    Objects with { "address": string, "soldPrice": number, "beds": number|null, "baths": number|null, "sqft": number|null, "soldDate": string|null }
-    for nearby recently-sold properties IF listed on the page. Up to 10. Empty array [] if none.
-  ]
+  "address":           string|null,
+  "price":             number|null,
+  "monthlyRent":       number|null,
+  "beds":              number|null,
+  "baths":             number|null,
+  "sqft":              number|null,
+  "yearBuilt":         number|null,
+  "monthlyHOA":        number|null,
+  "annualPropertyTax": number|null,
+  "siteName":          string|null,
+  "confidence":        "high"|"medium"|"low"
 }`
 
 /**
@@ -564,29 +563,50 @@ let pendingPageComps = null
 // - RentCast is never called automatically (cost leak prevention)
 // ---------------------------------------------------------------------------
 
+// Tagged error codes the renderer maps to calm UI copy.
+//   no_key | page_too_short | captcha | low_confidence
+//   schema_too_complex | network | unknown
+function userMessageFor(code) {
+  switch (code) {
+    case "no_key":             return "Add an Anthropic or OpenAI key in Settings to enable listing analysis."
+    case "page_too_short":     return "Couldn't read enough page content. Try refreshing the listing."
+    case "captcha":            return "Verify you're not a robot to continue. The panel will populate once the listing loads."
+    case "low_confidence":     return "Couldn't fully read this listing — try refreshing or paste the URL."
+    case "schema_too_complex": return "Couldn't fully read this listing — try refreshing or paste the URL."
+    case "network":            return "Network issue talking to the AI. Retry in a moment."
+    default:                   return "Couldn't read this listing. Try refreshing or paste the URL."
+  }
+}
+
+const CAPTCHA_PATTERNS = [
+  /press\s*&?\s*hold/i,
+  /verify\s+you('|’)?re\s+a\s+human/i,
+  /verify\s+you\s+are\s+a\s+human/i,
+  /are\s+you\s+a\s+robot/i,
+  /captcha/i,
+  /please\s+confirm\s+you\s+are\s+a\s+human/i,
+  /access\s+denied/i,
+  /unusual\s+traffic/i,
+]
+
+function looksLikeCaptcha(title, text) {
+  const head = `${title || ""}\n${(text || "").slice(0, 1500)}`
+  return CAPTCHA_PATTERNS.some((re) => re.test(head))
+}
+
 ipcMain.handle("browser:analyze", async () => {
-  if (!browserView) return { error: "No browser session active." }
+  if (!browserView) return { errorCode: "unknown", error: userMessageFor("unknown") }
   pendingPageComps = null
 
-  // Wait for the page to finish loading before extracting.
-  //
-  // Why: browser:analyze is triggered by did-navigate (the URL commit), but
-  // did-navigate fires BEFORE the page is fully rendered.  For full-page loads
-  // (Zillow, Redfin) the listing HTML arrives shortly after, so waiting for
-  // did-stop-loading is sufficient.  For SPA pushState navigations (Zillow
-  // "Similar homes" links), isLoading() stays false but the JS framework
-  // re-renders the new listing asynchronously — the extra 600 ms yield covers
-  // that case without adding perceptible latency on fast connections.
+  // Wait for the page to finish loading before extracting (full-page loads or
+  // SPA pushState navigations on Zillow/Redfin "Similar homes" links).
   if (browserView.webContents.isLoading()) {
     await new Promise((resolve) => {
       const h = () => resolve()
       browserView.webContents.once("did-stop-loading", h)
-      // Safety timeout: never block longer than 12 s
       setTimeout(() => { try { browserView.webContents.off("did-stop-loading", h) } catch {} resolve() }, 12_000)
     })
   } else {
-    // SPA case: URL already changed via pushState but framework hasn't
-    // rendered the new listing content yet.  Brief yield for async renders.
     await new Promise(r => setTimeout(r, 600))
   }
 
@@ -600,88 +620,93 @@ ipcMain.handle("browser:analyze", async () => {
         return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,25000) }
       })()
     `)
-  } catch { return { error: "Could not read the page. Try reloading it." } }
+  } catch {
+    return { errorCode: "page_too_short", error: userMessageFor("page_too_short") }
+  }
 
-  if (!dom || !dom.text || dom.text.length < 50)
-    return { error: "Not enough page content. Make sure you're on a property listing." }
+  if (!dom || !dom.text || dom.text.length < 80) {
+    return { errorCode: "page_too_short", error: userMessageFor("page_too_short") }
+  }
+
+  if (looksLikeCaptcha(dom.title, dom.text)) {
+    return { errorCode: "captcha", error: userMessageFor("captcha") }
+  }
 
   const config = readConfig()
-  const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.", "") } catch { return "listing" } })()
+  const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.", "") } catch { return "the listing" } })()
 
   // Prefer Anthropic: call Haiku directly (no server round trip)
   if (config.anthropicApiKey) {
     try {
       const extracted = await callAnthropicHaiku(config.anthropicApiKey, dom)
-      if (!extracted) return { error: "Claude could not extract property data from this page." }
+      if (!extracted) {
+        return { errorCode: "low_confidence", error: userMessageFor("low_confidence") }
+      }
+
+      const hasUsableData =
+        (extracted.price && extracted.price > 1000) ||
+        (extracted.address && String(extracted.address).length > 5)
+
+      if (!hasUsableData || extracted.confidence === "low") {
+        return {
+          errorCode: "low_confidence",
+          error: userMessageFor("low_confidence"),
+          siteName: extracted.siteName ?? hostname,
+        }
+      }
 
       const inputs = {}
-      const facts  = {}
+      const facts = {}
 
       if (extracted.price)             inputs.purchasePrice     = Math.round(extracted.price)
       if (extracted.monthlyRent)       inputs.monthlyRent       = Math.round(extracted.monthlyRent)
       if (extracted.monthlyHOA)        inputs.monthlyHOA        = Math.round(extracted.monthlyHOA)
       if (extracted.annualPropertyTax) inputs.annualPropertyTax = Math.round(extracted.annualPropertyTax)
-      if (extracted.annualInsurance)   inputs.annualInsurance   = Math.round(extracted.annualInsurance)
       if (extracted.beds)              facts.bedrooms           = extracted.beds
       if (extracted.baths)             facts.bathrooms          = extracted.baths
       if (extracted.sqft)              facts.squareFeet         = extracted.sqft
       if (extracted.yearBuilt)         facts.yearBuilt          = extracted.yearBuilt
-      if (extracted.propertyType)      facts.propertyType       = extracted.propertyType
 
       const siteName   = extracted.siteName ?? hostname
       const confidence = extracted.confidence ?? "medium"
-      const notes      = [`Extracted from ${siteName} via Claude Haiku · confidence: ${confidence}`]
-      const warnings   = []
+      const notes      = [`Read from ${siteName} · confidence: ${confidence}`]
 
-      for (const sig of (extracted.negativeSignals ?? [])) {
-        if (sig.severity === "high") warnings.push(`⚠ ${sig.signal}`)
-      }
-
-      if (Array.isArray(extracted.pageComps) && extracted.pageComps.length > 0) {
-        pendingPageComps = extracted.pageComps
-      }
-
-      // Build per-field provenance so the distribution engine knows which
-      // inputs are solid (from the listing page) vs defaulted.
       const provenance = {}
       if (extracted.price) {
-        provenance.purchasePrice = { source: "zillow-listing", confidence: "high", note: `List price from ${siteName}` }
+        provenance.purchasePrice = { source: "listing", confidence: "high", note: `List price from ${siteName}` }
       }
       if (extracted.monthlyRent) {
-        provenance.monthlyRent = { source: "zillow-listing", confidence: "medium", note: `Rent Zestimate from ${siteName} — verify with local rental comps before offering` }
+        provenance.monthlyRent = { source: "listing", confidence: "medium", note: `Rental estimate from ${siteName} — verify against local comps before offering.` }
       }
       if (extracted.monthlyHOA) {
-        provenance.monthlyHOA = { source: "zillow-listing", confidence: "high", note: `HOA fee stated on listing` }
+        provenance.monthlyHOA = { source: "listing", confidence: "high", note: `HOA shown on the ${siteName} listing.` }
       }
       if (extracted.annualPropertyTax) {
-        provenance.annualPropertyTax = { source: "zillow-listing", confidence: "high", note: `Property tax from listing` }
-      }
-      if (extracted.annualInsurance) {
-        provenance.annualInsurance = { source: "zillow-listing", confidence: "medium", note: `Insurance shown on listing — get a real quote before offering` }
+        provenance.annualPropertyTax = { source: "listing", confidence: "high", note: `Tax line item from ${siteName}.` }
       }
 
       return {
-        address:          extracted.address ?? undefined,
-        inputs, facts, notes, warnings,
+        address:    extracted.address ?? undefined,
+        inputs, facts, notes,
+        warnings:   [],
         provenance,
         siteName,
         confidence,
-        negativeSignals:  extracted.negativeSignals ?? [],
-        arvEstimate:      extracted.arvEstimate  ?? undefined,
-        rehabCostEstimate: extracted.rehabCost   ?? undefined,
-        modelUsed:        "anthropic",
-        pageComps:        Array.isArray(extracted.pageComps) && extracted.pageComps.length > 0
-                            ? extracted.pageComps : undefined,
+        modelUsed:  "anthropic",
       }
     } catch (err) {
-      console.error("[browser:analyze] Haiku error:", err)
-      return { error: err instanceof Error ? err.message : "Extraction failed." }
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[browser:analyze] extractor error:", msg)
+      let code = "unknown"
+      if (/too many properties|tool input schema|input_schema/i.test(msg)) code = "schema_too_complex"
+      else if (/network|fetch|ETIMEDOUT|ECONNRESET|abort/i.test(msg))      code = "network"
+      return { errorCode: code, error: userMessageFor(code) }
     }
   }
 
-  // Fallback: no Anthropic key — forward to /api/extract (uses OpenAI)
+  // Fallback: forward to /api/extract (server-side extraction; uses OpenAI)
   if (!config.openaiApiKey) {
-    return { error: "No AI API key configured. Add an Anthropic or OpenAI key in Settings." }
+    return { errorCode: "no_key", error: userMessageFor("no_key") }
   }
 
   try {
@@ -694,14 +719,19 @@ ipcMain.handle("browser:analyze", async () => {
       body: JSON.stringify({ url: dom.url, title: dom.title, text: dom.text }),
       signal: AbortSignal.timeout(30_000),
     })
-    const body = await res.json()
-    if (!res.ok) return { error: body?.error ?? `Server error ${res.status}` }
-    if (Array.isArray(body.pageComps) && body.pageComps.length > 0) {
-      pendingPageComps = body.pageComps
+    const body = await res.json().catch(() => ({}))
+    // /api/extract now returns errorCode + UI-safe error copy directly.
+    if (body && body.errorCode) {
+      return { errorCode: body.errorCode, error: body.error || userMessageFor(body.errorCode) }
+    }
+    if (!res.ok) {
+      return { errorCode: "unknown", error: userMessageFor("unknown") }
     }
     return body
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Network error." }
+    const msg = err instanceof Error ? err.message : "network"
+    const code = /network|fetch|ETIMEDOUT|ECONNRESET|abort/i.test(msg) ? "network" : "unknown"
+    return { errorCode: code, error: userMessageFor(code) }
   }
 })
 

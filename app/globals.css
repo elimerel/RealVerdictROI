@@ -315,32 +315,48 @@ input[type="number"] {
   }
 }
 
-/* Native-feeling scrollbars — invisible by default, fade in on hover or
-   focus-within. macOS apps don't show persistent scrollbars; this matches
-   that pattern while still keeping the affordance discoverable. */
+/* Native-feeling scrollbars.
+   --------------------------------------------------------------------
+   Earlier this file used `width: 0` by default and `width: 8px` on
+   hover. That caused EVERY scrollable surface to reflow by 8px the
+   moment the cursor entered it. The pipeline grid in particular kept
+   shifting the rows left/right as the user hovered, which the user
+   explicitly called out as "rearranging weirdly".
+   The fix: always reserve the gutter (8px), keep the thumb invisible,
+   and only fade the thumb in on hover. No layout shift, no jank. */
+* { scrollbar-gutter: stable; }
+html, body { scrollbar-gutter: stable; }
+
 ::-webkit-scrollbar {
-  width: 0;
-  height: 0;
+  width: 8px;
+  height: 8px;
   background: transparent;
 }
 ::-webkit-scrollbar-track     { background: transparent; }
-::-webkit-scrollbar-thumb     { background: transparent; border-radius: 9999px; }
+::-webkit-scrollbar-thumb     {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background var(--rv-dur-fast) var(--rv-ease-out);
+}
 ::-webkit-scrollbar-corner    { background: transparent; }
 
-/* Once the user hovers a scrollable surface (or focuses a child input),
-   reveal the bar at a thin, dimmed width. Overshoots: explicit thumb
-   color must be set on hover so the system default doesn't bleed in. */
-*:hover::-webkit-scrollbar,
-*:focus-within::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+/* Reveal the thumb on hover/focus — width is unchanged so the layout
+   never reflows. */
 *:hover::-webkit-scrollbar-thumb,
 *:focus-within::-webkit-scrollbar-thumb {
   background: oklch(1 0 0 / 14%);
 }
 *:hover::-webkit-scrollbar-thumb:hover {
   background: oklch(1 0 0 / 24%);
+}
+
+/* Firefox — same effect, applied broadly. */
+* {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+*:hover, *:focus-within {
+  scrollbar-color: oklch(1 0 0 / 14%) transparent;
 }
 
 /* Electron window chrome
@@ -503,24 +519,41 @@ html.electron body {
 }
 
 .rv-surface-bg { background: var(--rv-surface-bg); }
-.rv-surface-1 { background: var(--rv-surface-1); }
-.rv-surface-2 { background: var(--rv-surface-2); }
+.rv-surface-1  { background: var(--rv-surface-1); }
+.rv-surface-2  { background: var(--rv-surface-2); }
 
-.pipeline-scroll {
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
-
-.pipeline-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-
-.pipeline-scroll::-webkit-scrollbar-thumb {
+/* Pipeline row treatment.
+   --------------------------------------------------------------------
+   Replaces the "cheap-looking square on the left edge" with a clean,
+   full-row Surface 2 background shift on hover, and a single 2px
+   accent stripe (via box-shadow inset) on the selected row. Using
+   box-shadow inset for the stripe avoids the 2px content reflow that
+   border-style toggles cause on <tr> elements. The 1px row separator
+   below the row is rendered as another inset shadow so it's tied to
+   the row state and never appears doubled with the table's own
+   border-b utility. */
+.rv-row {
   background: transparent;
-  border-radius: 4px;
+  box-shadow: inset 0 -1px 0 0 rgba(255, 255, 255, 0.04);
+  transition: background 100ms ease, box-shadow 100ms ease;
+}
+.rv-row--selected {
+  background: var(--rv-surface-2);
+  box-shadow: inset 2px 0 0 0 var(--rv-accent),
+              inset 0 -1px 0 0 rgba(255, 255, 255, 0.04);
 }
 
-.pipeline-scroll:hover::-webkit-scrollbar-thumb,
-.pipeline-scroll:focus-within::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+/* Hairline divider used between dossier modules. */
+.rv-hairline {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Section label — proper small caps, used by every settings/module title. */
+.rv-section-label {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rv-t2);
 }

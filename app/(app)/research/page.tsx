@@ -61,12 +61,22 @@ type ResolverPayload = {
   provenance: Partial<Record<keyof DealInputs, FieldProvenance>>
 }
 
+type ExtractErrorCode =
+  | "no_key"
+  | "page_too_short"
+  | "captcha"
+  | "low_confidence"
+  | "schema_too_complex"
+  | "network"
+  | "unknown"
+
 type ExtractPayload = {
   address?: string
   inputs: Partial<DealInputs>
   siteName?: string | null
   confidence?: string
   error?: string
+  errorCode?: ExtractErrorCode
   facts?: {
     bedrooms?: number
     bathrooms?: number
@@ -249,11 +259,20 @@ function ElectronBrowsePage() {
   const searchParams = useSearchParams()
   const urlInputRef = useRef<HTMLInputElement>(null)
 
-  // Analysis state
+  // Analysis state. Note: there is no top-level `error` state here.
+  // Every analyzer failure is encoded in `idleHint` and rendered as a
+  // calm in-panel empty state by IdleSidePanel below.
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [idleHint, setIdleHint] = useState<"default" | "supported-non-listing" | "captcha">("default")
+  const [idleHint, setIdleHint] = useState<
+    | "default"
+    | "supported-non-listing"
+    | "captcha"
+    | "low_confidence"
+    | "page_too_short"
+    | "network"
+    | "no_key"
+  >("default")
   const lastAutoAnalyzedUrl = useRef("")
   const analysisEpochRef    = useRef(0)
 
@@ -343,18 +362,29 @@ function ElectronBrowsePage() {
     setAnalysis(null)
     setSavedDealId(undefined)
     setAnalysisLoading(true)
-    setError(null)
 
     const epoch = ++analysisEpochRef.current
     window.electronAPI!.analyze()
       .then((result) => {
         if (epoch !== analysisEpochRef.current) return
         const r = result as ExtractPayload
+        // The extractor now returns structured error codes the panel maps
+        // to calm in-panel copy. We never surface the raw error string.
+        if (r.errorCode) {
+          const code = r.errorCode
+          setAnalysis(null)
+          if (code === "captcha") setIdleHint("captcha")
+          else if (code === "low_confidence" || code === "schema_too_complex") setIdleHint("low_confidence")
+          else if (code === "page_too_short") setIdleHint("page_too_short")
+          else if (code === "network") setIdleHint("network")
+          else if (code === "no_key") setIdleHint("no_key")
+          else setIdleHint("low_confidence")
+          return
+        }
         if (r.error) {
-          if (/robot|captcha|verify/i.test(r.error)) {
-            setIdleHint("captcha")
-          }
-          setError(r.error)
+          // Legacy raw error path — collapse to low_confidence empty state.
+          setAnalysis(null)
+          setIdleHint("low_confidence")
           return
         }
         const next = buildAnalysisFromExtract({ ...r, inputs: r.inputs as Partial<DealInputs> }, currentUrl)
@@ -364,25 +394,31 @@ function ElectronBrowsePage() {
           const source = detectSource(currentUrl)
           window.localStorage.setItem("rv:last-listing-url", currentUrl)
           if (source) window.localStorage.setItem("rv:last-listing-site", source)
-          const row: RecentListing = {
-            url: currentUrl,
-            address: next.address,
-            source,
-            viewedAt: Date.now(),
-          }
-          const merged = [row, ...recentListings.filter((item) => item.url !== row.url)].slice(0, 5)
-          setRecentListings(merged)
-          window.localStorage.setItem("rv:recent-listings", JSON.stringify(merged))
+          // Use functional state update so the effect doesn't depend on the
+          // recent-listings array (otherwise we'd re-analyze every viewedAt
+          // change).
+          setRecentListings((prev) => {
+            const row: RecentListing = {
+              url: currentUrl,
+              address: next.address,
+              source,
+              viewedAt: Date.now(),
+            }
+            const merged = [row, ...prev.filter((item) => item.url !== row.url)].slice(0, 5)
+            window.localStorage.setItem("rv:recent-listings", JSON.stringify(merged))
+            return merged
+          })
         }
       })
-      .catch((err: unknown) => {
+      .catch(() => {
         if (epoch !== analysisEpochRef.current) return
-        setError(err instanceof Error ? err.message : "Couldn't read this listing.")
+        setAnalysis(null)
+        setIdleHint("network")
       })
       .finally(() => {
         if (epoch === analysisEpochRef.current) setAnalysisLoading(false)
       })
-  }, [isListingPage, currentUrl, browserActive, browserLoading, recentListings])
+  }, [isListingPage, currentUrl, browserActive, browserLoading])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -408,7 +444,7 @@ function ElectronBrowsePage() {
     const url = toBrowseTarget(raw)
     if (!url) return
     setBrowserLoading(true)
-    setError(null)
+    setIdleHint("default")
     if (!browserActive) {
       await window.electronAPI?.createBrowser(calcBounds(sidebarOpen))
       setBrowserActive(true)
@@ -559,18 +595,11 @@ function ElectronBrowsePage() {
           )}
         </div>
 
-        {error && (
-          <div
-            className="no-drag-region flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs shrink-0 max-w-[240px] rv-tone-bad"
-            style={{ background: "var(--rv-bad-sub)" }}
-          >
-            <AlertTriangle className="h-3 w-3 shrink-0" />
-            <span className="truncate">{error}</span>
-            <button onClick={() => setError(null)} className="shrink-0 ml-1">
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        )}
+        {/* Header intentionally has no inline error toast — every analysis
+            failure category is rendered as a calm empty state inside the
+            side panel itself (IdleSidePanel). The previous toast leaked
+            raw API error strings (e.g. "schema contains too many
+            properties") to the user. */}
       </header>
 
       {/* Body */}
@@ -690,7 +719,7 @@ function ElectronBrowsePage() {
               />
             ) : null
           ) : (
-            <IdleSidePanel hint={idleHint} />
+            <IdleSidePanel hint={idleHint} onReload={() => window.electronAPI?.reload()} />
           )}
         </div>
       </div>
@@ -699,22 +728,74 @@ function ElectronBrowsePage() {
 }
 
 // ---------------------------------------------------------------------------
-// IdleSidePanel — calm empty state when no listing is detected
+// IdleSidePanel — calm empty state for every non-analysis condition
 // ---------------------------------------------------------------------------
 
-function IdleSidePanel({ hint = "default" }: { hint?: "default" | "supported-non-listing" | "captcha" }) {
-  const copy =
-    hint === "captcha"
-      ? "Verify you're not a robot to continue. The panel will populate once the listing loads."
-      : hint === "supported-non-listing"
-        ? "Navigate to a listing to see underwriting."
-        : "Navigate to a property listing on Zillow, Redfin, Realtor, Homes, or Trulia to begin."
+type IdleHint =
+  | "default"
+  | "supported-non-listing"
+  | "captcha"
+  | "low_confidence"
+  | "page_too_short"
+  | "network"
+  | "no_key"
+
+function IdleSidePanel({
+  hint = "default",
+  onReload,
+}: {
+  hint?: IdleHint
+  onReload?: () => void
+}) {
+  const config: Record<IdleHint, { icon: React.ReactNode; copy: string; cta?: string }> = {
+    "default": {
+      icon: <Home className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "Navigate to a property listing on Zillow, Redfin, Realtor, Homes, or Trulia to begin.",
+    },
+    "supported-non-listing": {
+      icon: <Search className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "Navigate to a listing to see underwriting.",
+    },
+    "captcha": {
+      icon: <AlertTriangle className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "Verify you’re not a robot to continue. The panel will populate once the listing loads.",
+    },
+    "low_confidence": {
+      icon: <Building2 className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "Couldn’t fully read this listing — try refreshing or paste the URL.",
+      cta: "Refresh",
+    },
+    "page_too_short": {
+      icon: <Globe className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "Page didn’t load enough content. Try refreshing.",
+      cta: "Refresh",
+    },
+    "network": {
+      icon: <AlertTriangle className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "Network issue talking to the AI. Retry in a moment.",
+      cta: "Retry",
+    },
+    "no_key": {
+      icon: <AlertTriangle className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "Add an Anthropic or OpenAI key in Settings to enable listing analysis.",
+    },
+  }
+  const entry = config[hint]
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6 text-center select-none gap-3">
-      <Globe className="h-8 w-8 text-muted-foreground/15" strokeWidth={1.5} />
-      <p className="text-[13px] text-muted-foreground/55 leading-relaxed max-w-[28ch]">
-        {copy}
+      {entry.icon}
+      <p className="text-[13px] text-muted-foreground/65 leading-relaxed max-w-[30ch]">
+        {entry.copy}
       </p>
+      {entry.cta && onReload && (
+        <button
+          type="button"
+          onClick={onReload}
+          className="mt-1 text-[11px] uppercase tracking-[0.08em] rv-t2 hover:rv-t1 transition-colors"
+        >
+          {entry.cta}
+        </button>
+      )}
     </div>
   )
 }

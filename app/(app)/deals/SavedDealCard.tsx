@@ -74,16 +74,16 @@ export function SavedDealCard({
         if ((e.key === "Enter" || e.key === " ") && !confirmingDelete) onSelect()
       }}
       className={cn(
-        // Phase 1 polish: drop the always-visible border. Cards are now
-        // defined by surface tint differences and spacing — Mercury-style.
-        // The selected state lifts the surface tint slightly instead of
-        // brightening a border. Hover does the same at lower amplitude.
+        // Cards live on Surface 1 by default and shift to Surface 2 on
+        // hover/selection. The selected card carries a 2px accent stripe
+        // on the left edge (via inset box-shadow so it doesn't reflow the
+        // content like a regular border would).
         "group relative w-full text-left rounded-lg p-4 cursor-pointer",
-        "transition-colors duration-100 ease-[var(--rv-ease-out)]",
+        "transition-[background,box-shadow] duration-100 ease-[var(--rv-ease-out)]",
         isSelected
-          ? "bg-white/[0.06]"
-          : "bg-white/[0.02] hover:bg-white/[0.04]",
-        isBadData && "bg-white/[0.02] opacity-80",
+          ? "bg-[var(--rv-surface-2)] shadow-[inset_2px_0_0_0_var(--rv-accent)]"
+          : "bg-[var(--rv-surface-1)] hover:bg-[var(--rv-surface-2)]",
+        isBadData && "opacity-80",
       )}
     >
       {/* Delete affordance */}

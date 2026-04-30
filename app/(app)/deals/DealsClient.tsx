@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BarChart3,
+  Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
@@ -239,7 +240,20 @@ export function DealsClient({
   const [isSearching, setIsSearching] = useState(false)
 
   // ── Deals state ──
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Selected deal id is persisted in sessionStorage so the side panel
+  // restores its last analyzed property when the user navigates away
+  // (Browse -> Pipeline) and back. Pre-fix the panel disappeared on every
+  // view switch.
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null
+    return window.sessionStorage.getItem("rv:pipeline:selectedId")
+  })
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (selectedId) window.sessionStorage.setItem("rv:pipeline:selectedId", selectedId)
+    else window.sessionStorage.removeItem("rv:pipeline:selectedId")
+  }, [selectedId])
   const [activeFilter, setActiveFilter] = useState<QuickFilter>("all")
   const [pendingCard, setPendingCard] = useState<PendingCard | null>(null)
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set())
@@ -695,7 +709,6 @@ export function DealsClient({
       return sortDir === "asc" ? cmp : -cmp
     })
     return rows
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredDeals, dealData, sortKey, sortDir])
 
   const toggleSort = useCallback((key: SortKey) => {
@@ -934,14 +947,16 @@ export function DealsClient({
   // ── Render ──
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background relative">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden rv-surface-bg relative">
 
       {/* ═══════════════════════════════════════════════
           LEFT ZONE — search + filter + grid
+          Uses Surface 1 so the table sits on a calm slab a
+          tone above the page background.
       ═══════════════════════════════════════════════ */}
       <div
         className={cn(
-          "flex flex-col transition-all duration-200 overflow-hidden",
+          "flex flex-col transition-all duration-200 overflow-hidden rv-surface-1",
           "border-r border-border",
           panelOpen ? "w-[340px] shrink-0" : "flex-1"
         )}
@@ -973,7 +988,7 @@ export function DealsClient({
                   if (suggestions.length > 0) setShowSuggestions(true)
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="Listing URL or address…"
+                placeholder="Search or paste listing URL"
                 disabled={isSearching}
                 className="flex-1 min-w-0 bg-transparent text-sm placeholder:text-muted-foreground/60 disabled:opacity-50"
               />
@@ -1105,7 +1120,7 @@ export function DealsClient({
         {!hasDeals ? (
           <EmptyPipeline />
         ) : viewMode === "table" ? (
-          <div className="flex-1 pipeline-scroll">
+          <div className="flex-1 overflow-y-auto">
               <ComparisonTable
                 rows={sortedTableRows}
                 pendingCard={pendingCard}
@@ -1136,7 +1151,7 @@ export function DealsClient({
               />
           </div>
         ) : (
-          <div className="flex-1 pipeline-scroll">
+          <div className="flex-1 overflow-y-auto">
             <div
               className={cn(
                 "grid gap-2 p-3",
@@ -1476,38 +1491,51 @@ function ComparisonTable({
             const dscrCellTone = tonedSeverity("dscr",   dscr, cf, capRate)
             const capTone  = tonedSeverity("capRate",  dscr, cf, capRate)
 
+            const anySelected = compareIds.size > 0
             return (
               <tr
                 key={deal.id}
                 onClick={() => { if (!isDeleting) onSelectDeal(deal.id) }}
                 className={cn(
-                  "border-b border-white/[0.04] cursor-pointer group",
-                  isSelected ? "rv-surface-2" : "hover:rv-surface-2",
+                  "rv-row cursor-pointer group transition-colors duration-100",
+                  isSelected && "rv-row--selected",
+                  !isSelected && "hover:bg-[var(--rv-surface-2)]",
                 )}
-                style={isSelected
-                  ? { borderLeft: "2px solid oklch(0.62 0.22 265)" }
-                  : { borderLeft: "2px solid transparent" }}
               >
-                {/* Compare checkbox */}
-                <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    checked={isCompare}
-                    onChange={() => onToggleCompare(deal.id)}
+                {/* Compare cell — custom indicator (no native checkbox).
+                    Hidden until row is hovered or any row is selected. */}
+                <td className="pl-3 pr-1 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={isCompare}
+                    onClick={() => onToggleCompare(deal.id)}
                     className={cn(
-                      "h-3.5 w-3.5 rounded-sm border-white/15 bg-transparent cursor-pointer transition-opacity",
-                      isCompare || compareIds.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-60",
+                      "h-[14px] w-[14px] rounded-[3px] border flex items-center justify-center transition-all duration-100",
+                      isCompare
+                        ? "bg-[oklch(0.62_0.22_265)] border-[oklch(0.62_0.22_265)] text-white"
+                        : "border-white/20 hover:border-white/40 bg-transparent text-transparent",
+                      isCompare || anySelected
+                        ? "opacity-100"
+                        : "opacity-0 group-hover:opacity-100",
                     )}
                     aria-label={"Select for compare " + (deal.address ?? "")}
-                  />
+                  >
+                    {isCompare && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+                  </button>
                 </td>
 
                 {/* Address */}
-                <td className="px-2 py-3 max-w-[200px]">
+                <td className="px-2 py-3 max-w-[220px]">
                   <p className="text-[14px] font-medium text-foreground truncate inline-flex items-center gap-1.5">
-                    <span className="h-4 w-4 rounded-full border border-white/10 text-[9px] inline-flex items-center justify-center rv-t3 uppercase">
-                      {(deal.source_site ?? "L").slice(0, 1)}
-                    </span>
+                    {deal.source_site && (
+                      <span
+                        className="text-[9px] font-semibold rv-t3 uppercase tracking-[0.06em] shrink-0"
+                        title={`Source: ${deal.source_site}`}
+                      >
+                        {deal.source_site.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
                     {deal.address ?? "Unknown address"}
                   </p>
                   {deal.property_facts && (
@@ -1647,7 +1675,7 @@ function PendingRow({
 }) {
   if (card.kind === "loading") {
     return (
-      <tr className="border-b border-white/4">
+      <tr className="rv-row">
         <td colSpan={10} className="px-3 py-3">
           <div className="flex items-center gap-2 text-muted-foreground/60">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1660,7 +1688,7 @@ function PendingRow({
 
   if (card.kind === "error") {
     return (
-      <tr className="border-b border-white/[0.04]">
+      <tr className="rv-row">
         <td colSpan={10} className="px-3 py-3">
           <div className="flex items-center gap-3">
             <AlertTriangle className="h-3.5 w-3.5 rv-tone-bad shrink-0" />
@@ -1691,12 +1719,9 @@ function PendingRow({
       <tr
         onClick={onSelect}
         className={cn(
-          "border-b border-white/[0.04] cursor-pointer transition-colors duration-100 group",
-          isSelected ? "bg-white/[0.05]" : "hover:bg-white/[0.025]",
+          "rv-row cursor-pointer group transition-colors duration-100",
+          isSelected ? "rv-row--selected" : "hover:bg-[var(--rv-surface-2)]",
         )}
-        style={isSelected
-          ? { borderLeft: "2px solid oklch(0.62 0.22 265)" }
-          : { borderLeft: "2px solid transparent" }}
       >
         <td className="w-8" />
         <td className="px-3 py-4 max-w-[200px]">
