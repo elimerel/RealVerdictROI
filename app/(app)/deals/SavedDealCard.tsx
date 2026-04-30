@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 import { Trash2, AlertTriangle } from "lucide-react"
 import type { DealRow } from "@/lib/lead-adapter"
-import { TIER_ACCENT, TIER_LABEL } from "@/app/(app)/_components/results/tier-style"
 import {
   formatCurrency,
   formatPercent,
@@ -21,42 +20,13 @@ import {
 export type SavedDeal = DealRow
 
 // ---------------------------------------------------------------------------
-// Metric tile
-// ---------------------------------------------------------------------------
-
-function MetricTile({
-  label,
-  value,
-  color,
-}: {
-  label: string
-  value: string
-  color?: "green" | "red"
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span
-        className={cn(
-          "text-sm font-mono tabular-nums font-semibold leading-none",
-          color === "green" && "text-emerald-400",
-          color === "red" && "text-red-400",
-          !color && "text-foreground"
-        )}
-      >
-        {value}
-      </span>
-      <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wide leading-none mt-0.5">{label}</span>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// SavedDealCard
+// Props
 // ---------------------------------------------------------------------------
 
 export type SavedDealCardProps = {
   address: string | null
-  verdict: VerdictTier
+  /** Verdict is accepted for backward compat but not displayed. */
+  verdict?: VerdictTier
   analysis: DealAnalysis
   walkAway: OfferCeiling | null
   propertyFacts?: SavedDeal["property_facts"]
@@ -67,9 +37,12 @@ export type SavedDealCardProps = {
   onDelete?: () => void
 }
 
+// ---------------------------------------------------------------------------
+// SavedDealCard — calm, metrics-first layout. No verdict.
+// ---------------------------------------------------------------------------
+
 export function SavedDealCard({
   address,
-  verdict,
   analysis,
   walkAway,
   propertyFacts,
@@ -78,82 +51,52 @@ export function SavedDealCard({
   onSelect,
   onDelete,
 }: SavedDealCardProps) {
-  const accent = TIER_ACCENT[verdict] ?? "#888"
-  const label = TIER_LABEL[verdict] ?? verdict
-
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const cashFlow = analysis.monthlyCashFlow
-  const capRate = analysis.capRate
-  const dscr = analysis.dscr
-  const dscrStr = !isFinite(dscr) ? "∞" : `${dscr.toFixed(2)}x`
-  const walkAwayPrice = walkAway?.recommendedCeiling?.price
+  const capRate  = analysis.capRate
+  const dscr     = analysis.dscr
+  const dscrStr  = !Number.isFinite(dscr) ? "\u221E" : dscr.toFixed(2)
+  const breakEven = walkAway?.recommendedCeiling?.price ?? null
 
   const isBadData = cashFlow === 0 && capRate === 0
-
   const facts = propertyFacts
   const hasFacts =
-    facts &&
-    (facts.beds != null || facts.baths != null || facts.sqft != null)
-
-  const borderColor = isBadData ? "oklch(0.35 0.009 264)" : accent
+    facts && (facts.beds != null || facts.baths != null || facts.sqft != null)
 
   return (
-    // Outer div — handles card selection click, hosts the delete affordance.
-    // Using div instead of button so we can nest action buttons inside.
     <div
       role="button"
       tabIndex={0}
-      onClick={() => {
-        if (!confirmingDelete) onSelect()
-      }}
+      onClick={() => { if (!confirmingDelete) onSelect() }}
       onKeyDown={(e) => {
         if ((e.key === "Enter" || e.key === " ") && !confirmingDelete) onSelect()
       }}
       className={cn(
-        "group relative w-full text-left rounded-md p-3",
-        "transition-colors duration-150 cursor-pointer",
-        isBadData
-          ? "bg-muted/40 hover:bg-muted/60"
-          : "bg-card hover:bg-muted/30"
+        "group relative w-full text-left rounded-md p-3 transition-colors duration-150 cursor-pointer",
+        "border border-white/8",
+        isSelected ? "bg-white/4 border-white/15" : "bg-card hover:bg-muted/30",
+        isBadData && "bg-muted/30",
       )}
-      style={{
-        borderStyle: "solid",
-        borderTopWidth: "1px",
-        borderRightWidth: "1px",
-        borderBottomWidth: "1px",
-        borderLeftWidth: "4px",
-        borderTopColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
-        borderRightColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
-        borderBottomColor: isSelected ? borderColor : "oklch(1 0 0 / 9%)",
-        borderLeftColor: borderColor,
-        boxShadow: isSelected
-          ? `0 0 0 1px ${borderColor}30, 0 2px 8px rgba(0,0,0,.4)`
-          : "0 1px 3px rgba(0,0,0,.3)",
-      }}
     >
-      {/* ── Delete affordance — revealed on card hover only ── */}
+      {/* Delete affordance */}
       {onDelete && !confirmingDelete && (
         <button
           type="button"
           aria-label="Delete deal"
-          onClick={(e) => {
-            e.stopPropagation()
-            setConfirmingDelete(true)
-          }}
+          onClick={(e) => { e.stopPropagation(); setConfirmingDelete(true) }}
           className={cn(
-            "absolute top-1.5 right-1.5 flex items-center justify-center",
-            "h-5 w-5 rounded",
+            "absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded",
             "opacity-0 group-hover:opacity-100",
-            "text-muted-foreground hover:text-red-400 hover:bg-red-950/40",
-            "transition-all duration-150"
+            "text-muted-foreground/60 hover:text-red-400 hover:bg-red-950/30",
+            "transition-all duration-150",
           )}
         >
           <Trash2 className="h-3 w-3" />
         </button>
       )}
 
-      {/* ── Inline delete confirmation ── */}
+      {/* Inline delete confirmation */}
       {confirmingDelete && (
         <div
           className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-card/95 px-3"
@@ -166,21 +109,14 @@ export function SavedDealCard({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setConfirmingDelete(false)
-                onDelete?.()
-              }}
+              onClick={(e) => { e.stopPropagation(); setConfirmingDelete(false); onDelete?.() }}
               className="rounded px-3 py-1 text-xs font-medium bg-red-600 hover:bg-red-500 text-white transition-colors"
             >
               Remove
             </button>
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setConfirmingDelete(false)
-              }}
+              onClick={(e) => { e.stopPropagation(); setConfirmingDelete(false) }}
               className="rounded px-3 py-1 text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
             >
               Cancel
@@ -189,62 +125,104 @@ export function SavedDealCard({
         </div>
       )}
 
-      {/* ── Card content ── */}
-      <p className="text-sm font-semibold truncate mb-1 pr-6">
+      {/* Address */}
+      <p className="text-[13px] font-semibold truncate mb-0.5 pr-6 text-foreground">
         {address ?? "Unknown address"}
       </p>
 
-      {/* Property facts strip */}
-      {!isBadData && hasFacts && (
-        <p className="text-[10px] text-muted-foreground/60 mb-1.5 font-mono">
+      {/* Facts row */}
+      {hasFacts && (
+        <p className="text-[10px] text-muted-foreground/55 mb-3 font-mono">
           {[
             facts!.beds != null && `${facts!.beds} bd`,
             facts!.baths != null && `${facts!.baths} ba`,
             facts!.sqft != null && `${facts!.sqft.toLocaleString()} sqft`,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+          ].filter(Boolean).join("  \u00b7  ")}
         </p>
       )}
 
       {isBadData ? (
         <p className="text-xs text-muted-foreground italic mt-1 mb-2">
-          Analysis incomplete — click to review inputs
+          Couldn&rsquo;t read this listing. Click to review inputs.
         </p>
       ) : (
         <>
-          {/* Verdict badge — near top so tier is immediately visible on scan */}
-          <span
-            className="inline-block text-[11px] font-semibold px-2 py-0.5 rounded mb-2"
-            style={{ color: accent, backgroundColor: `${accent}22` }}
-          >
-            {label}
-          </span>
+          {/* Asking + break-even */}
+          <p className="text-[11px] text-muted-foreground/55 font-mono tabular-nums mb-2">
+            Asking&nbsp;
+            <span className="text-foreground/70">
+              {formatCurrency(analysis.inputs.purchasePrice, 0)}
+            </span>
+            {breakEven != null && (
+              <>
+                &nbsp;&middot;&nbsp;break-even&nbsp;
+                <span className="text-foreground/70">{formatCurrency(breakEven, 0)}</span>
+              </>
+            )}
+          </p>
 
-          {/* Walk-away price — dominant visual element */}
-          {walkAwayPrice != null && (
-            <p className="text-[22px] font-mono font-bold tabular-nums leading-none mb-2.5">
-              {formatCurrency(walkAwayPrice, 0)}
-            </p>
-          )}
-
-          <div className="flex justify-between mb-2">
-            <MetricTile
-              label="cash flow"
-              value={`${cashFlow >= 0 ? "+" : ""}${formatCurrency(cashFlow, 0)}/mo`}
-              color={cashFlow >= 0 ? "green" : "red"}
+          {/* Three metric tiles — threshold-based color */}
+          <div className="grid grid-cols-3 gap-2">
+            <Metric
+              label="DSCR"
+              value={dscrStr}
+              tone={dscrTone(dscr)}
             />
-            <MetricTile label="cap rate" value={formatPercent(capRate, 1)} />
-            <MetricTile label="dscr" value={dscrStr} />
+            <Metric
+              label="Cash flow"
+              value={(cashFlow >= 0 ? "+" : "\u2212") + formatCurrency(Math.abs(cashFlow), 0)}
+              tone={cashFlow >= 0 ? "neutral" : "bad"}
+            />
+            <Metric
+              label="Cap"
+              value={formatPercent(capRate, 1)}
+              tone={capTone(capRate)}
+            />
           </div>
         </>
       )}
 
-      <div className="flex items-center justify-end">
-        <span className="text-[10px] text-muted-foreground/50 shrink-0">
+      <div className="flex items-center justify-end mt-3">
+        <span className="text-[10px] text-muted-foreground/40 shrink-0 font-mono">
           {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
         </span>
       </div>
+    </div>
+  )
+}
+
+type MetricTone = "neutral" | "good" | "warn" | "bad"
+
+function dscrTone(dscr: number): MetricTone {
+  if (!Number.isFinite(dscr)) return "good"
+  if (dscr >= 1.25) return "neutral"
+  if (dscr >= 1.0)  return "warn"
+  return "bad"
+}
+
+function capTone(cap: number): MetricTone {
+  if (cap >= 0.06) return "neutral"
+  if (cap >= 0.05) return "warn"
+  return "bad"
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone: MetricTone }) {
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <span
+        className={cn(
+          "text-[12px] font-mono tabular-nums font-semibold leading-none truncate",
+          tone === "good" && "text-emerald-400",
+          tone === "bad"  && "text-red-400",
+          tone === "warn" && "text-amber-400",
+          tone === "neutral" && "text-foreground",
+        )}
+      >
+        {value}
+      </span>
+      <span className="text-[9px] text-muted-foreground/45 uppercase tracking-wider leading-none mt-1">
+        {label}
+      </span>
     </div>
   )
 }

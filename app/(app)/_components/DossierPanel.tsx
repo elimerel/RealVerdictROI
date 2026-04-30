@@ -1,8 +1,11 @@
 "use client"
 
-import { useState } from "react" // used in CollapsibleSection
+import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import {
+  analyseDeal,
+  findOfferCeiling,
+  sanitiseInputs,
   type DealAnalysis,
   type DealInputs,
   type OfferCeiling,
@@ -13,17 +16,14 @@ import type { CompsResult } from "@/lib/comps"
 import type { ComparablesAnalysis } from "@/lib/comparables"
 import type { ChatAnalysisContext } from "@/app/api/chat/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
-import { TIER_ACCENT } from "@/lib/tier-constants"
-import { Save, CheckCircle2, Loader2, ChevronDown, ChevronUp, ExternalLink } from "lucide-react"
 import type { DistributionResult, ProbabilisticVerdict } from "@/lib/distribution-engine"
 import type { FieldProvenance } from "@/lib/types"
+import { Save, CheckCircle2, Loader2, ChevronDown, ChevronUp } from "lucide-react"
 import WaterfallChart from "@/components/charts/waterfall-chart"
-import ProjectionAreaChart from "@/components/charts/projection-area-chart"
-import StressViz from "@/components/charts/stress-viz"
-import SourceTag from "@/components/ui/source-tag"
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — kept compatible with existing call sites; verdict-shaped props
+// are accepted but ignored. The panel never displays a verdict.
 // ---------------------------------------------------------------------------
 
 export type PropertyFacts = {
@@ -39,7 +39,13 @@ export type DossierPanelProps = {
   walkAway: OfferCeiling | null
   address?: string
   inputs: DealInputs
+  /** AI factual summary — single sentence. Older callers pass full narrative; we read summary only. */
   ai_narrative?: AiNarrative | null
+  /** Optional rent sanity-check note from AI ("listing mentions full reno…"). */
+  rentNote?: string | null
+  /** Source of the underlying listing — drives the small badge near the address. */
+  source?: "zillow" | "redfin" | "realtor" | "homes" | "trulia" | "movoto" | null
+  // Legacy props — accepted for compat, unused.
   distribution?: DistributionResult | null
   probabilisticVerdict?: ProbabilisticVerdict | null
   walkAwayConfidenceNote?: string | null
@@ -61,164 +67,180 @@ export type DossierPanelProps = {
 }
 
 // ---------------------------------------------------------------------------
-// Tier labels
+// Loading skeleton — exported so callers can render it without supplying inputs
 // ---------------------------------------------------------------------------
 
-const TIER_LABEL: Record<string, string> = {
-  excellent: "STRONG BUY",
-  good:      "GOOD DEAL",
-  fair:      "BORDERLINE",
-  poor:      "PASS",
-  avoid:     "AVOID",
-}
-
-// ---------------------------------------------------------------------------
-// Loading skeleton
-// ---------------------------------------------------------------------------
-
-function LoadingSkeleton() {
+export function DossierPanelSkeleton() {
   return (
-    <div className="p-6 space-y-5 animate-pulse">
-      <div className="h-3 bg-white/5 rounded w-2/3" />
-      <div className="h-14 bg-white/5 rounded w-4/5" />
-      <div className="h-2 bg-white/5 rounded w-full" />
-      <div className="space-y-2 mt-4">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-10 bg-white/5 rounded" />
-        ))}
+    <div className="p-6 space-y-6 animate-pulse">
+      <div className="space-y-2">
+        <div className="h-3 bg-white/5 rounded w-2/3" />
+        <div className="h-2 bg-white/5 rounded w-1/3" />
       </div>
-    </div>
-  )
-}
-
-// Citation replaced — use SourceTag from @/components/ui/source-tag instead.
-
-// ---------------------------------------------------------------------------
-// Distribution bar — hero element
-// ---------------------------------------------------------------------------
-
-const DIST_COLORS: Record<string, string> = {
-  excellent: "#22c55e",
-  good:      "#4ade80",
-  fair:      "#eab308",
-  poor:      "#f97316",
-  avoid:     "#ef4444",
-}
-
-const DIST_LABELS: Record<string, string> = {
-  excellent: "Strong Buy",
-  good:      "Good Deal",
-  fair:      "Borderline",
-  poor:      "Pass",
-  avoid:     "Avoid",
-}
-
-function HeroDistributionBar({
-  tierCounts,
-  total,
-}: {
-  tierCounts: DistributionResult["tierCounts"]
-  total: number
-}) {
-  const tiers = ["excellent", "good", "fair", "poor", "avoid"] as const
-
-  return (
-    <div className="space-y-2 rv-verdict-in rv-delay-1">
-      <div className="flex h-2.5 w-full overflow-hidden rounded-full gap-0.5">
-        {tiers.map((t) => {
-          const pct = total > 0 ? (tierCounts[t] / total) * 100 : 0
-          if (pct < 0.5) return null
-          return (
-            <div
-              key={t}
-              className="rv-bar-grow"
-              style={{
-                width: `${pct}%`,
-                backgroundColor: DIST_COLORS[t],
-                borderRadius: "inherit",
-              }}
-              title={`${DIST_LABELS[t]}: ${Math.round(pct)}% of scenarios`}
-            />
-          )
-        })}
+      <div className="grid grid-cols-3 gap-3 pt-2">
+        <div className="space-y-1.5">
+          <div className="h-2 bg-white/5 rounded w-12" />
+          <div className="h-7 bg-white/5 rounded" />
+          <div className="h-2 bg-white/5 rounded w-16" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-2 bg-white/5 rounded w-12" />
+          <div className="h-7 bg-white/5 rounded" />
+          <div className="h-2 bg-white/5 rounded w-16" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-2 bg-white/5 rounded w-12" />
+          <div className="h-7 bg-white/5 rounded" />
+          <div className="h-2 bg-white/5 rounded w-16" />
+        </div>
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-        {tiers.map((t) => {
-          const count = tierCounts[t]
-          if (!count) return null
-          const pct = Math.round((count / total) * 100)
-          return (
-            <span
-              key={t}
-              className="text-[10px] font-mono tabular-nums"
-              style={{ color: DIST_COLORS[t] }}
-            >
-              {DIST_LABELS[t]} {pct}%
-            </span>
-          )
-        })}
-      </div>
+      <div className="h-3 bg-white/5 rounded w-4/5" />
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Argument-flow metric row
+// HeroNumber — one of the three columns at the top of the panel
 // ---------------------------------------------------------------------------
 
-function ArgRow({
+type HeroTone = "neutral" | "good" | "bad" | "warn"
+
+function toneClass(tone: HeroTone): string {
+  switch (tone) {
+    case "good": return "text-emerald-400"
+    case "bad":  return "text-red-400"
+    case "warn": return "text-amber-400"
+    default:     return "text-foreground"
+  }
+}
+
+function HeroNumber({
   label,
   value,
-  sub,
+  caption,
   tone,
-  provenance,
-  className,
+  pulseKey,
 }: {
   label: string
   value: string
-  sub?: string
-  tone?: "good" | "bad" | "warn" | "neutral"
-  provenance?: FieldProvenance | null
-  className?: string
+  caption?: string
+  tone: HeroTone
+  pulseKey: string | number
 }) {
-  const valueColor =
-    tone === "good"    ? "text-emerald-400" :
-    tone === "bad"     ? "text-red-400"     :
-    tone === "warn"    ? "text-amber-400"   :
-    "text-foreground"
-
   return (
-    <div className={cn("flex items-center justify-between gap-4 py-2.5 border-b border-white/6 last:border-0 group", className)}>
-      <div className="min-w-0 flex items-baseline gap-1.5 flex-1">
-        <span className="text-[13px] text-muted-foreground">{label}</span>
-        {sub && (
-          <span className="text-[11px] text-muted-foreground/40">{sub}</span>
+    <div className="space-y-1.5 min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">
+        {label}
+      </p>
+      <p
+        key={pulseKey}
+        className={cn(
+          "font-mono font-semibold tabular-nums leading-[1.05] truncate rv-number-pulse",
+          toneClass(tone),
         )}
-      </div>
-      <div className="shrink-0 flex items-center gap-1.5">
-        <SourceTag provenance={provenance} />
-        <span className={cn("text-[15px] font-mono font-semibold tabular-nums tracking-tight", valueColor)}>
-          {value}
-        </span>
-      </div>
+        style={{ fontSize: "clamp(20px, 2.4vw, 28px)" }}
+      >
+        {value}
+      </p>
+      {caption && (
+        <p className="text-[10px] text-muted-foreground/55 leading-snug truncate">
+          {caption}
+        </p>
+      )}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Section header
+// AssumptionInput — small inline editable input
 // ---------------------------------------------------------------------------
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function AssumptionInput({
+  label,
+  value,
+  suffix,
+  prefix,
+  step = 1,
+  min = 0,
+  max,
+  onChange,
+}: {
+  label: string
+  value: number
+  suffix?: string
+  prefix?: string
+  step?: number
+  min?: number
+  max?: number
+  onChange: (v: number) => void
+}) {
+  const [draft, setDraft] = useState<string>(formatNum(value))
+
+  useEffect(() => {
+    setDraft(formatNum(value))
+  }, [value])
+
+  const commit = () => {
+    const parsed = parseFloat(draft.replace(/[^0-9.\-]/g, ""))
+    if (!Number.isFinite(parsed)) {
+      setDraft(formatNum(value))
+      return
+    }
+    let next = parsed
+    if (min != null) next = Math.max(min, next)
+    if (max != null) next = Math.min(max, next)
+    onChange(next)
+    setDraft(formatNum(next))
+  }
+
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/40 mb-3">
-      {children}
-    </p>
+    <label className="flex items-center justify-between gap-3 py-2">
+      <span className="text-[12px] text-muted-foreground/70 truncate">{label}</span>
+      <div className="flex items-center gap-1 rounded-md border border-white/8 bg-white/3 px-2 py-1 focus-within:border-white/20 transition-colors min-w-0">
+        {prefix && (
+          <span className="text-[11px] text-muted-foreground/40 font-mono">{prefix}</span>
+        )}
+        <input
+          type="text"
+          inputMode="decimal"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              ;(e.target as HTMLInputElement).blur()
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault()
+              const next = (Number.isFinite(parseFloat(draft)) ? parseFloat(draft) : value) + step
+              onChange(max != null ? Math.min(max, next) : next)
+            }
+            if (e.key === "ArrowDown") {
+              e.preventDefault()
+              const next = (Number.isFinite(parseFloat(draft)) ? parseFloat(draft) : value) - step
+              onChange(min != null ? Math.max(min, next) : next)
+            }
+          }}
+          className="w-16 bg-transparent border-0 outline-none text-[12px] font-mono tabular-nums text-foreground text-right p-0"
+        />
+        {suffix && (
+          <span className="text-[11px] text-muted-foreground/40 font-mono">{suffix}</span>
+        )}
+      </div>
+    </label>
   )
 }
 
+function formatNum(n: number): string {
+  if (!Number.isFinite(n)) return "0"
+  if (Math.abs(n) >= 1000) return Math.round(n).toLocaleString()
+  if (Number.isInteger(n)) return String(n)
+  return n.toFixed(2).replace(/\.?0+$/, "")
+}
+
 // ---------------------------------------------------------------------------
-// Collapsible supporting data section
+// Collapsible section
 // ---------------------------------------------------------------------------
 
 function CollapsibleSection({
@@ -237,16 +259,102 @@ function CollapsibleSection({
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between py-3 text-left group"
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50 group-hover:text-muted-foreground/70 transition-colors">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50 group-hover:text-muted-foreground/70 transition-colors">
           {title}
         </span>
         {open
           ? <ChevronUp className="h-3 w-3 text-muted-foreground/40" />
-          : <ChevronDown className="h-3 w-3 text-muted-foreground/40" />
-        }
+          : <ChevronDown className="h-3 w-3 text-muted-foreground/40" />}
       </button>
-      {open && <div className="pb-5">{children}</div>}
+      {open && <div className="pb-4">{children}</div>}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tone helpers
+// ---------------------------------------------------------------------------
+
+function dscrTone(dscr: number): HeroTone {
+  if (!Number.isFinite(dscr)) return "good"
+  if (dscr >= 1.25) return "neutral"
+  if (dscr >= 1.0)  return "warn"
+  return "bad"
+}
+
+function dscrCaption(dscr: number): string {
+  if (!Number.isFinite(dscr)) return "no debt"
+  if (dscr >= 1.25) return "comfortable"
+  if (dscr >= 1.0)  return "barely covers debt"
+  return "below 1.0"
+}
+
+function cashFlowTone(cf: number): HeroTone {
+  if (cf >= 150) return "neutral"
+  if (cf >= 0)   return "warn"
+  return "bad"
+}
+
+function cashFlowCaption(cf: number): string {
+  if (cf >= 150) return "positive"
+  if (cf >= 0)   return "near break-even"
+  return "negative"
+}
+
+function capRateTone(cap: number): HeroTone {
+  if (cap >= 0.06) return "neutral"
+  if (cap >= 0.05) return "warn"
+  return "bad"
+}
+
+function capRateCaption(cap: number): string {
+  if (cap >= 0.06) return "above 6%"
+  if (cap >= 0.05) return "at threshold"
+  return "below 5%"
+}
+
+// ---------------------------------------------------------------------------
+// Factual one-line summary — fallback when no AI summary is available
+// ---------------------------------------------------------------------------
+
+function buildFactualSummary(
+  inputs: DealInputs,
+  analysis: DealAnalysis,
+  walkAway: OfferCeiling | null,
+  pf?: PropertyFacts,
+  address?: string,
+): string {
+  const beds = pf?.beds
+  const baths = pf?.baths
+  const city = address?.split(",").slice(-3, -1)[0]?.trim()
+
+  const head = [
+    beds != null && baths != null ? `${beds}bd/${baths}ba` : null,
+    pf?.propertyType ?? null,
+    city ? `in ${city}` : null,
+  ].filter(Boolean).join(" ")
+
+  const ask = formatCurrency(inputs.purchasePrice, 0)
+  const rent = formatCurrency(inputs.monthlyRent, 0)
+  const wa = walkAway?.recommendedCeiling?.price
+  const breakEven = wa != null ? formatCurrency(wa, 0) : null
+
+  const lead = head ? `${head}. ` : ""
+  const breakLine = breakEven ? ` Breaks even at ${breakEven}.` : ""
+  void analysis
+  return `${lead}Asking ${ask}, est. rent ${rent}/mo.${breakLine}`
+}
+
+// ---------------------------------------------------------------------------
+// Source badge
+// ---------------------------------------------------------------------------
+
+function SourceBadge({ source }: { source?: string | null }) {
+  if (!source) return null
+  return (
+    <span className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/40 px-1.5 py-0.5 rounded bg-white/4 border border-white/6">
+      {source}
+    </span>
   )
 }
 
@@ -255,15 +363,13 @@ function CollapsibleSection({
 // ---------------------------------------------------------------------------
 
 export default function DossierPanel({
-  analysis,
-  walkAway,
+  analysis: incomingAnalysis,
+  walkAway: incomingWalkAway,
   address,
-  inputs,
+  inputs: incomingInputs,
   ai_narrative,
-  distribution,
-  probabilisticVerdict,
-  walkAwayConfidenceNote,
-  inputProvenance,
+  rentNote,
+  source,
   supabaseConfigured,
   onSave,
   savedDealId,
@@ -272,18 +378,57 @@ export default function DossierPanel({
   badInputs,
   propertyFacts: pf,
 }: DossierPanelProps) {
-  if (isLoading) return <LoadingSkeleton />
+  // Loading state has its own component — caller should render that instead.
+  // We still support the `isLoading` prop for backward compat.
+  const skeletonInputs = (incomingInputs ?? {}) as DealInputs
+
+  // Local working copy of inputs — assumptions edits update this. When the
+  // parent passes a new `inputs` (different listing), we reset.
+  const [workingInputs, setWorkingInputs] = useState<DealInputs>(skeletonInputs)
+
+  useEffect(() => {
+    if (incomingInputs) setWorkingInputs(incomingInputs)
+  }, [incomingInputs])
+
+  // Recompute analysis whenever working inputs change. This is local math
+  // and runs in <50ms — no loading state needed.
+  const { analysis, walkAway, isDirty } = useMemo(() => {
+    if (!incomingInputs || !incomingAnalysis) {
+      return { analysis: incomingAnalysis, walkAway: incomingWalkAway, isDirty: false }
+    }
+    const dirty =
+      workingInputs.downPaymentPercent !== incomingInputs.downPaymentPercent ||
+      workingInputs.loanInterestRate    !== incomingInputs.loanInterestRate ||
+      workingInputs.monthlyRent         !== incomingInputs.monthlyRent ||
+      workingInputs.vacancyRatePercent  !== incomingInputs.vacancyRatePercent
+    if (!dirty) {
+      return { analysis: incomingAnalysis, walkAway: incomingWalkAway, isDirty: false }
+    }
+    try {
+      const sanitized = sanitiseInputs(workingInputs)
+      const a = analyseDeal(sanitized)
+      const w = (() => {
+        try { return findOfferCeiling(sanitized) } catch { return null }
+      })()
+      return { analysis: a, walkAway: w, isDirty: true }
+    } catch {
+      return { analysis: incomingAnalysis, walkAway: incomingWalkAway, isDirty: false }
+    }
+  }, [workingInputs, incomingInputs, incomingAnalysis, incomingWalkAway])
+
+  if (isLoading || !analysis || !incomingInputs) return <DossierPanelSkeleton />
 
   if (badInputs) {
     return (
       <div className="h-full flex flex-col bg-background">
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {address && <h2 className="text-sm font-semibold">{address}</h2>}
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/6 p-4 space-y-2">
-            <p className="text-sm font-medium text-amber-400">Listing data incomplete</p>
+        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+          {address && (
+            <h2 className="text-sm font-semibold tracking-tight text-foreground">{address}</h2>
+          )}
+          <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3">
             <p className="text-[13px] text-muted-foreground leading-relaxed">
-              Monthly rent couldn&apos;t be determined from this listing. Enter rent and other inputs
-              manually to run a valid analysis.
+              Couldn&rsquo;t read enough numbers from this listing to underwrite it.
+              Try refreshing or paste the URL manually.
             </p>
           </div>
         </div>
@@ -291,330 +436,181 @@ export default function DossierPanel({
     )
   }
 
-  const tier          = analysis.verdict.tier
-  const accent        = TIER_ACCENT[tier] ?? "#888"
-  const tierLabel     = TIER_LABEL[tier] ?? tier
+  // Hero numbers
+  const dscr = analysis.dscr
+  const cf = analysis.monthlyCashFlow
+  const cap = analysis.capRate
 
-  const walkAwayPrice  = walkAway?.recommendedCeiling?.price ?? null
-  const listPrice      = inputs.purchasePrice
-  const walkAwayDiff   = walkAwayPrice != null ? walkAwayPrice - listPrice : null
+  const dscrStr = Number.isFinite(dscr) ? dscr.toFixed(2) : "\u221E"
+  const cfStr = (cf >= 0 ? "+" : "\u2212") +
+    formatCurrency(Math.abs(cf), 0).replace("-", "") + "/mo"
+  const capStr = formatPercent(cap, 2)
 
-  const cashFlow  = analysis.monthlyCashFlow
-  const capRate   = analysis.capRate
-  const dscr      = analysis.dscr
-  const coc       = analysis.cashOnCashReturn
-  const dscrStr   = isFinite(dscr) ? dscr.toFixed(2) : "∞"
+  // Pulse keys force the number element to re-mount on change → CSS animation re-fires
+  const pulseKey = `${workingInputs.downPaymentPercent}-${workingInputs.loanInterestRate}-${workingInputs.monthlyRent}-${workingInputs.vacancyRatePercent}-${analysis.monthlyCashFlow}`
 
-  // Gross income → NOI → Cash flow chain
-  const grossRent         = inputs.monthlyRent + inputs.otherMonthlyIncome
-  const effectiveIncome   = analysis.monthlyEffectiveIncome
-  const opex              = analysis.monthlyOperatingExpenses
-  const noi               = analysis.monthlyNOI
-  const mortgagePayment   = analysis.monthlyMortgagePayment
+  // Break-even price (formerly "walk-away price") demoted to a small line
+  const breakEvenPrice = walkAway?.recommendedCeiling?.price ?? null
+  const breakEvenDelta = breakEvenPrice != null ? breakEvenPrice - workingInputs.purchasePrice : null
 
-  // Determine tone for DSCR
-  const dscrTone = !isFinite(dscr) ? "good" : dscr >= 1.25 ? "good" : dscr >= 1.0 ? "warn" : "bad"
-  const cashTone = cashFlow >= 150 ? "good" : cashFlow >= 0 ? "warn" : "bad"
-  const walkTone = walkAwayDiff == null ? "neutral" : walkAwayDiff >= 0 ? "good" : walkAwayDiff > -20000 ? "warn" : "bad"
-
-  const distTotal = distribution
-    ? Object.values(distribution.tierCounts).reduce((s: number, c: number) => s + c, 0)
-    : 0
-
-  // Build the short narrative
-  const hasNarrative = ai_narrative != null && ai_narrative.summary.trim().length > 0
+  // Factual summary — prefer AI's, fall back to formula
+  const aiSummary = ai_narrative?.summary?.trim()
+  const summary = aiSummary && aiSummary.length > 0
+    ? aiSummary
+    : buildFactualSummary(workingInputs, analysis, walkAway, pf, address)
 
   return (
     <div className="h-full flex flex-col bg-background">
       <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="px-6 pt-5 pb-4 space-y-0">
+        <div className="px-6 pt-5 pb-4">
 
-          {/* ── Address + facts ── */}
-          {(address || (pf && (pf.beds != null || pf.sqft != null))) && (
-            <div className="mb-5 space-y-0.5">
+          {/* ── Property identity ── */}
+          <div className="mb-5 space-y-1">
+            <div className="flex items-center gap-2 min-w-0">
               {address && (
-                <h2 className="text-sm font-semibold text-foreground leading-snug tracking-tight">
+                <h2 className="text-[13px] font-semibold tracking-tight text-foreground truncate">
                   {address}
                 </h2>
               )}
-              {pf && (pf.beds != null || pf.baths != null || pf.sqft != null) && (
-                <p className="text-[11px] text-muted-foreground/60 font-mono">
-                  {[
-                    pf.beds   != null && `${pf.beds} bd`,
-                    pf.baths  != null && `${pf.baths} ba`,
-                    pf.sqft   != null && `${pf.sqft.toLocaleString()} sqft`,
-                    pf.yearBuilt != null && `${pf.yearBuilt}`,
-                  ].filter(Boolean).join(" · ")}
-                </p>
-              )}
+              <SourceBadge source={source} />
             </div>
-          )}
-
-          {/* ══════════════════════════════════════
-              HERO — WALK-AWAY PRICE
-          ══════════════════════════════════════ */}
-          {walkAwayPrice != null && (
-            <div className="mb-5 rv-number-in">
-              <p
-                className="font-mono font-bold tabular-nums leading-[1] tracking-tight text-foreground"
-                style={{ fontSize: "var(--rv-size-display)" }}
-              >
-                {formatCurrency(walkAwayPrice, 0)}
-              </p>
-              <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                <span className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground/50">
-                  Walk-away price
-                </span>
-                <span className="text-[12px] font-mono tabular-nums text-muted-foreground/60">
-                  Asking {formatCurrency(listPrice, 0)}
-                </span>
-                {walkAwayDiff != null && (
-                  <span
-                    className={cn(
-                      "text-[12px] font-mono tabular-nums font-semibold",
-                      walkAwayDiff >= 0 ? "text-emerald-400" : "text-amber-400"
-                    )}
-                  >
-                    {walkAwayDiff >= 0
-                      ? `+${formatCurrency(walkAwayDiff, 0)} headroom`
-                      : `${formatCurrency(Math.abs(walkAwayDiff), 0)} below asking`}
-                  </span>
-                )}
-              </div>
-              {walkAwayConfidenceNote && (
-                <p className="mt-1 text-[11px] text-amber-400/60 leading-snug max-w-[44ch]">
-                  {walkAwayConfidenceNote}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* ══════════════════════════════════════
-              VERDICT BADGE
-          ══════════════════════════════════════ */}
-          <div className="mb-4 rv-verdict-in">
-            <div
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-[0.1em]"
-              style={{
-                color: accent,
-                backgroundColor: `${accent}18`,
-                border: `1px solid ${accent}35`,
-              }}
-            >
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: accent }}
-              />
-              {tierLabel}
-              {probabilisticVerdict && probabilisticVerdict.dominantTierFraction < 0.99 && (
-                <span className="ml-1 font-normal text-muted-foreground/60 normal-case tracking-normal">
-                  ({Math.round(probabilisticVerdict.dominantTierFraction * probabilisticVerdict.scenarioCount)}/{probabilisticVerdict.scenarioCount} scenarios)
-                </span>
-              )}
-            </div>
+            <p className="text-[11px] text-muted-foreground/55 font-mono">
+              {[
+                pf?.beds   != null && `${pf.beds} bd`,
+                pf?.baths  != null && `${pf.baths} ba`,
+                pf?.sqft   != null && `${pf.sqft.toLocaleString()} sqft`,
+                pf?.yearBuilt != null && `${pf.yearBuilt}`,
+                workingInputs.purchasePrice > 0 && `Asking ${formatCurrency(workingInputs.purchasePrice, 0)}`,
+              ].filter(Boolean).join("  \u00b7  ")}
+            </p>
           </div>
 
-          {/* ══════════════════════════════════════
-              SCENARIO DISTRIBUTION BAR
-          ══════════════════════════════════════ */}
-          {distribution && distTotal > 0 && (
-            <div className="mb-5">
-              <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/40 mb-2">
-                {distTotal} scenario distribution
-              </p>
-              <HeroDistributionBar tierCounts={distribution.tierCounts} total={distTotal} />
-            </div>
-          )}
-
-          {/* ══════════════════════════════════════
-              NARRATIVE — research-note style
-          ══════════════════════════════════════ */}
-          <div className="mb-5 space-y-2 rv-verdict-in rv-delay-2">
-            {hasNarrative ? (
-              <>
-                {probabilisticVerdict?.headline && probabilisticVerdict.headline !== ai_narrative!.summary && (
-                  <p className="text-[13px] text-foreground/85 leading-relaxed font-medium">
-                    {probabilisticVerdict.headline}
-                  </p>
-                )}
-                <p className="text-[13px] text-muted-foreground leading-relaxed">
-                  {ai_narrative!.summary}
-                </p>
-                {ai_narrative!.opportunity && (
-                  <div className="flex gap-2.5 mt-1">
-                    <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-                    <p className="text-[13px] text-muted-foreground leading-relaxed">
-                      {ai_narrative!.opportunity}
-                    </p>
-                  </div>
-                )}
-                {ai_narrative!.risk && (
-                  <div className="flex gap-2.5">
-                    <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                    <p className="text-[13px] text-muted-foreground leading-relaxed">
-                      {ai_narrative!.risk}
-                    </p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                {probabilisticVerdict?.headline && (
-                  <p className="text-[13px] text-foreground/85 leading-relaxed font-medium">
-                    {probabilisticVerdict.headline}
-                  </p>
-                )}
-                <p className="text-[13px] text-muted-foreground leading-relaxed">
-                  {getInlineSummary(inputs, analysis, walkAwayDiff)}
-                </p>
-                {probabilisticVerdict?.conditionForOutlier && (
-                  <p className="text-[12px] text-muted-foreground/60 leading-relaxed">
-                    {probabilisticVerdict.conditionForOutlier}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* ══════════════════════════════════════
-              ARGUMENT — structured metric chain
-          ══════════════════════════════════════ */}
-          <div className="mb-1 rv-verdict-in rv-delay-3">
-            <SectionLabel>The argument</SectionLabel>
-
-            {/* Income chain */}
-            <ArgRow
-              label="Gross rent"
-              value={`${formatCurrency(grossRent, 0)}/mo`}
-              provenance={inputProvenance?.monthlyRent}
-            />
-            <ArgRow
-              label="After vacancy & operating expenses"
-              sub={`opex ${formatCurrency(opex, 0)}/mo`}
-              value={`${formatCurrency(effectiveIncome - opex, 0)}/mo NOI`}
-              tone={noi > 0 ? "neutral" : "bad"}
-              provenance={inputProvenance?.vacancyRatePercent}
-            />
-            <ArgRow
-              label="Mortgage (P&I)"
-              value={`−${formatCurrency(mortgagePayment, 0)}/mo`}
-              sub={`${inputs.loanInterestRate}% · ${inputs.loanTermYears} yr`}
-              provenance={inputProvenance?.loanInterestRate}
-            />
-            <ArgRow
-              label="Net cash flow"
-              value={`${cashFlow >= 0 ? "+" : ""}${formatCurrency(cashFlow, 0)}/mo`}
-              tone={cashTone}
-            />
-
-            {/* Divider */}
-            <div className="my-3 border-t border-white/6" />
-
-            {/* Ratio chain */}
-            <ArgRow
+          {/* ── HERO: three numbers ── */}
+          <div className="grid grid-cols-3 gap-4 pb-5 border-b border-white/6">
+            <HeroNumber
               label="DSCR"
               value={dscrStr}
-              sub={
-                !isFinite(dscr) ? "no debt"
-                : dscr >= 1.25 ? `${((dscr - 1) * 100).toFixed(0)}% buffer`
-                : dscr >= 1.0  ? "barely covers debt"
-                : "below debt service"
-              }
-              tone={dscrTone}
+              caption={dscrCaption(dscr)}
+              tone={dscrTone(dscr)}
+              pulseKey={`dscr-${pulseKey}`}
             />
-            <ArgRow
+            <HeroNumber
+              label="Cash flow"
+              value={cfStr}
+              caption={cashFlowCaption(cf)}
+              tone={cashFlowTone(cf)}
+              pulseKey={`cf-${pulseKey}`}
+            />
+            <HeroNumber
               label="Cap rate"
-              value={formatPercent(capRate, 2)}
-              sub={capRate >= 0.05 ? "above 5% threshold" : "below 5%"}
-              tone={capRate >= 0.06 ? "good" : capRate >= 0.04 ? "warn" : "bad"}
+              value={capStr}
+              caption={capRateCaption(cap)}
+              tone={capRateTone(cap)}
+              pulseKey={`cap-${pulseKey}`}
             />
-            <ArgRow
-              label="Cash-on-cash"
-              value={formatPercent(coc, 2)}
-              tone={coc >= 0.08 ? "good" : coc >= 0.05 ? "warn" : "bad"}
-            />
-            <ArgRow
-              label="IRR"
-              value={isFinite(analysis.irr) ? formatPercent(analysis.irr, 1) : "∞"}
-              sub="incl. appreciation & exit"
-              tone={analysis.irr >= 0.12 ? "good" : analysis.irr >= 0.07 ? "warn" : "bad"}
-              provenance={inputProvenance?.annualAppreciationPercent}
-            />
-            <ArgRow
-              label="Property tax / yr"
-              value={formatCurrency(inputs.annualPropertyTax, 0)}
-              provenance={inputProvenance?.annualPropertyTax}
-            />
-
-            {/* Walk-away conclusion */}
-            {walkAwayPrice != null && (
-              <>
-                <div className="my-3 border-t border-white/6" />
-                <ArgRow
-                  label="Walk-away price"
-                  value={formatCurrency(walkAwayPrice, 0)}
-                  sub={walkAwayDiff != null
-                    ? walkAwayDiff >= 0
-                      ? `${formatCurrency(walkAwayDiff, 0)} below asking`
-                      : `${formatCurrency(Math.abs(walkAwayDiff), 0)} above asking`
-                    : undefined}
-                  tone={walkTone}
-                />
-              </>
-            )}
-
-            {/* Secondary metrics */}
-            <div className="mt-3 pt-3 border-t border-white/6">
-              <p className="text-[10px] font-mono tabular-nums text-muted-foreground/40">
-                {[
-                  `GRM ${analysis.grossRentMultiplier.toFixed(1)}×`,
-                  `Break-even ${formatPercent(analysis.breakEvenOccupancy, 0)}`,
-                  `LTV ${formatPercent(1 - inputs.downPaymentPercent / 100, 0)}`,
-                  `Total cash in ${formatCurrency(analysis.totalCashInvested, 0)}`,
-                ].join("  ·  ")}
-              </p>
-            </div>
           </div>
 
-          {/* ══════════════════════════════════════
-              SUPPORTING DATA (collapsible)
-          ══════════════════════════════════════ */}
+          {/* ── Factual summary ── */}
+          <p className="text-[13px] text-muted-foreground/80 leading-relaxed py-4 max-w-[60ch]">
+            {summary}
+          </p>
 
-          <CollapsibleSection title="Stress test">
-            <p className="text-[12px] text-muted-foreground/60 mb-3 leading-relaxed">
-              Each bar holds all other inputs fixed and changes one variable. Cash flow under stress.
+          {/* ── Break-even (demoted) ── */}
+          {breakEvenPrice != null && (
+            <p className="text-[11px] text-muted-foreground/50 font-mono pb-4">
+              Break-even price&nbsp;
+              <span className="text-foreground/70 font-semibold">
+                {formatCurrency(breakEvenPrice, 0)}
+              </span>
+              {breakEvenDelta != null && (
+                <span className="text-muted-foreground/40">
+                  &nbsp;&middot;&nbsp;
+                  {breakEvenDelta >= 0
+                    ? `${formatCurrency(breakEvenDelta, 0)} above asking`
+                    : `${formatCurrency(Math.abs(breakEvenDelta), 0)} below asking`}
+                </span>
+              )}
+              {isDirty && (
+                <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-400/70">
+                  edited
+                </span>
+              )}
             </p>
-            <StressViz
-              baseInputs={inputs}
-              baseAnalysis={analysis}
-              distribution={distribution ?? undefined}
-            />
-          </CollapsibleSection>
+          )}
 
-          <CollapsibleSection title="Monthly breakdown">
-            <p className="text-[12px] text-muted-foreground/60 mb-3 leading-relaxed">
-              Rent in, every expense out, mortgage last.
+          {/* ── Assumptions (always visible, editable) ── */}
+          <div className="border-t border-white/6 pt-3 pb-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50 mb-1">
+              Assumptions
             </p>
-            <WaterfallChart analysis={analysis} />
-          </CollapsibleSection>
+            <div className="grid grid-cols-2 gap-x-4">
+              <AssumptionInput
+                label="Down payment"
+                value={workingInputs.downPaymentPercent}
+                suffix="%"
+                step={1}
+                min={0}
+                max={100}
+                onChange={(v) => setWorkingInputs((s) => ({ ...s, downPaymentPercent: v }))}
+              />
+              <AssumptionInput
+                label="Interest rate"
+                value={workingInputs.loanInterestRate}
+                suffix="%"
+                step={0.125}
+                min={0}
+                max={20}
+                onChange={(v) => setWorkingInputs((s) => ({ ...s, loanInterestRate: v }))}
+              />
+              <AssumptionInput
+                label="Rent"
+                value={workingInputs.monthlyRent}
+                prefix="$"
+                suffix="/mo"
+                step={50}
+                min={0}
+                onChange={(v) => setWorkingInputs((s) => ({ ...s, monthlyRent: v }))}
+              />
+              <AssumptionInput
+                label="Vacancy"
+                value={workingInputs.vacancyRatePercent}
+                suffix="%"
+                step={1}
+                min={0}
+                max={50}
+                onChange={(v) => setWorkingInputs((s) => ({ ...s, vacancyRatePercent: v }))}
+              />
+            </div>
+            {rentNote && (
+              <p className="text-[11px] italic text-amber-400/70 leading-snug mt-1 max-w-[50ch]">
+                {rentNote}
+              </p>
+            )}
+          </div>
 
-          <CollapsibleSection title={`${analysis.inputs.holdPeriodYears}-year projection`}>
-            <p className="text-[12px] text-muted-foreground/60 mb-3 leading-relaxed">
-              Equity (solid) and cumulative cash flow (dashed)
-              {distribution ? " with confidence band." : "."}
-            </p>
-            <ProjectionAreaChart
-              projection={analysis.projection}
-              distribution={distribution}
-            />
-          </CollapsibleSection>
+          {/* ── Collapsed details ── */}
+          <div className="mt-4">
+            <CollapsibleSection title="Monthly breakdown">
+              <p className="text-[11px] text-muted-foreground/55 mb-3 leading-relaxed">
+                Rent in, every expense out, mortgage last.
+              </p>
+              <WaterfallChart analysis={analysis} />
+            </CollapsibleSection>
 
-          {/* Bottom padding */}
-          <div className="h-4" />
+            <CollapsibleSection title="Stress test">
+              <StressTestRow analysis={analysis} inputs={workingInputs} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title={`${analysis.inputs.holdPeriodYears}-year projection`}>
+              <ProjectionRow analysis={analysis} />
+            </CollapsibleSection>
+          </div>
+
+          <div className="h-3" />
         </div>
       </div>
 
-      {/* ── Sticky save bar ── */}
+      {/* ── Save bar ── */}
       {onSave && supabaseConfigured && (
         <div className="shrink-0 border-t border-white/6 px-6 py-3 bg-background">
           <button
@@ -622,18 +618,18 @@ export default function DossierPanel({
             onClick={onSave}
             disabled={!!savedDealId || isSaving}
             className={cn(
-              "w-full flex items-center justify-center gap-2 text-sm font-medium rounded-lg px-4 py-2.5 border transition-all duration-150",
+              "w-full flex items-center justify-center gap-2 text-[13px] font-medium rounded-md px-4 py-2.5 transition-all duration-150",
               savedDealId
-                ? "border-emerald-700/50 text-emerald-400 bg-emerald-950/20 cursor-default"
+                ? "bg-emerald-500/8 text-emerald-400 border border-emerald-500/25 cursor-default"
                 : isSaving
-                  ? "border-white/8 text-muted-foreground bg-muted cursor-default"
-                  : "border-white/10 text-foreground bg-white/4 hover:bg-white/8 hover:border-white/18",
+                  ? "bg-white/4 text-muted-foreground border border-white/8 cursor-default"
+                  : "bg-[oklch(0.62_0.22_265)] text-white hover:brightness-110 border border-transparent",
             )}
           >
             {savedDealId ? (
-              <><CheckCircle2 className="h-4 w-4" /> Saved to Pipeline</>
+              <><CheckCircle2 className="h-4 w-4" /> Saved &mdash; view in Pipeline</>
             ) : isSaving ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+              <><Loader2 className="h-4 w-4 animate-spin" /> Saving</>
             ) : (
               <><Save className="h-4 w-4" /> Save to Pipeline</>
             )}
@@ -645,38 +641,77 @@ export default function DossierPanel({
 }
 
 // ---------------------------------------------------------------------------
-// Inline summary generator (when no AI narrative)
+// Single-line stress test ("At 8% rate, cash flow becomes -$1,400/mo.")
 // ---------------------------------------------------------------------------
 
-function getInlineSummary(
-  inputs: DealInputs,
-  analysis: DealAnalysis,
-  walkAwayDiff: number | null,
-): string {
-  const askStr = formatCurrency(inputs.purchasePrice, 0)
-  const cf     = analysis.monthlyCashFlow
-  const dscr   = analysis.dscr
-  const dscrStr = isFinite(dscr) ? dscr.toFixed(2) : "∞"
-  const capStr  = formatPercent(analysis.capRate, 1)
+function StressTestRow({
+  inputs,
+  analysis,
+}: {
+  inputs: DealInputs
+  analysis: DealAnalysis
+}) {
+  void analysis
+  const stressed = useMemo(() => {
+    try {
+      const next = sanitiseInputs({ ...inputs, loanInterestRate: inputs.loanInterestRate + 1 })
+      return analyseDeal(next)
+    } catch {
+      return null
+    }
+  }, [inputs])
 
-  if (isFinite(dscr) && dscr < 1.0) {
-    if (walkAwayDiff != null && walkAwayDiff < 0)
-      return `At ${askStr}, DSCR of ${dscrStr} means this property cannot service its debt — it needs to be ${formatCurrency(Math.abs(walkAwayDiff), 0)} cheaper.`
-    return `At ${askStr}, DSCR of ${dscrStr} — this property cannot service its own debt, bleeding ${formatCurrency(Math.abs(cf), 0)}/mo.`
+  if (!stressed) {
+    return <p className="text-[12px] text-muted-foreground/50">Stress test unavailable.</p>
   }
-  if (walkAwayDiff != null && walkAwayDiff < -4999) {
-    const waPrice = analysis.inputs.purchasePrice + walkAwayDiff
-    const waStr = waPrice > 0 ? formatCurrency(waPrice, 0) : null
-    return `Overpriced by ${formatCurrency(Math.abs(walkAwayDiff), 0)}. At ${askStr}, cash flow is ${formatCurrency(cf, 0)}/mo${waStr ? ` — numbers require ${waStr}` : ""}.`
-  }
-  if (cf < -150)
-    return `At ${askStr}, this property runs at a ${formatCurrency(Math.abs(cf), 0)}/mo loss — ${capStr} cap rate doesn't cover carrying costs.`
-  if (isFinite(dscr) && dscr < 1.25)
-    return `Marginal. DSCR of ${dscrStr} and ${formatCurrency(cf, 0)}/mo leaves almost no room for vacancy or rate movement.`
-  if (walkAwayDiff != null && walkAwayDiff > 9999)
-    return `Strong deal at ${askStr} — ${formatCurrency(cf, 0)}/mo cash flow, ${capStr} cap rate, ${formatCurrency(walkAwayDiff, 0)} of headroom before the numbers break.`
-  if (cf > 0)
-    return `Numbers work at ${askStr} — ${formatCurrency(cf, 0)}/mo cash flow, ${capStr} cap rate, DSCR ${dscrStr}.`
-  return `At ${askStr} — ${formatCurrency(cf, 0)}/mo cash flow, ${capStr} cap rate, DSCR ${dscrStr}.`
+
+  const cf = stressed.monthlyCashFlow
+  return (
+    <p className="text-[12px] text-muted-foreground leading-relaxed">
+      At&nbsp;
+      <span className="font-mono tabular-nums text-foreground">
+        {(inputs.loanInterestRate + 1).toFixed(2)}%
+      </span>
+      &nbsp;rate, cash flow becomes&nbsp;
+      <span className={cn(
+        "font-mono tabular-nums font-semibold",
+        cf >= 0 ? "text-emerald-400" : "text-red-400",
+      )}>
+        {cf >= 0 ? "+" : "\u2212"}{formatCurrency(Math.abs(cf), 0)}/mo
+      </span>.
+    </p>
+  )
 }
 
+// ---------------------------------------------------------------------------
+// Lightweight projection summary
+// ---------------------------------------------------------------------------
+
+function ProjectionRow({ analysis }: { analysis: DealAnalysis }) {
+  const yrs = analysis.inputs.holdPeriodYears
+  const totalProfit = analysis.totalProfit
+  const totalROI = analysis.totalROI
+  const irr = analysis.irr
+  return (
+    <div className="space-y-1">
+      <p className="text-[12px] text-muted-foreground leading-relaxed">
+        Over {yrs} years: total profit&nbsp;
+        <span className={cn(
+          "font-mono tabular-nums font-semibold",
+          totalProfit >= 0 ? "text-foreground" : "text-red-400",
+        )}>
+          {formatCurrency(totalProfit, 0)}
+        </span>
+        , ROI&nbsp;
+        <span className="font-mono tabular-nums text-foreground/80">
+          {formatPercent(totalROI, 0)}
+        </span>
+        , IRR&nbsp;
+        <span className="font-mono tabular-nums text-foreground/80">
+          {Number.isFinite(irr) ? formatPercent(irr, 1) : "\u221E"}
+        </span>
+        .
+      </p>
+    </div>
+  )
+}

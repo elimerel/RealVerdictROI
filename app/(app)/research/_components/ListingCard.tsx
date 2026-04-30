@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils"
 import { MapPin, Home, Calendar, Building } from "lucide-react"
 import { formatCurrency } from "@/lib/calculations"
 import type { VerdictTier } from "@/lib/calculations"
-import { TIER_ACCENT } from "@/lib/tier-constants"
 
 export type ListingCardData = {
   address?: string
@@ -15,20 +14,12 @@ export type ListingCardData = {
   yearBuilt?: number | null
   propertyType?: string | null
   photos?: string[]
+  /** Verdict is accepted for back-compat but never rendered. */
   verdict?: VerdictTier
 }
 
-const TIER_LABEL: Record<VerdictTier, string> = {
-  excellent: "STRONG BUY",
-  good:      "GOOD DEAL",
-  fair:      "BORDERLINE",
-  poor:      "PASS",
-  avoid:     "AVOID",
-}
-
 export default function ListingCard({ data }: { data: ListingCardData }) {
-  const { address, purchasePrice, beds, baths, sqft, yearBuilt, propertyType, photos, verdict } = data
-  const accent = verdict ? TIER_ACCENT[verdict] : undefined
+  const { address, purchasePrice, beds, baths, sqft, yearBuilt, propertyType, photos } = data
 
   return (
     <div className="flex flex-col h-full bg-card overflow-hidden">
@@ -43,26 +34,10 @@ export default function ListingCard({ data }: { data: ListingCardData }) {
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-            {/* Abstract property illustration */}
             <PropertyIllustration />
             <p className="text-[11px] text-muted-foreground/40 font-mono uppercase tracking-wider">
               No photos available
             </p>
-          </div>
-        )}
-
-        {/* Verdict overlay */}
-        {verdict && (
-          <div
-            className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wider backdrop-blur-sm"
-            style={{
-              color: accent,
-              backgroundColor: `${accent}22`,
-              border: `1px solid ${accent}44`,
-            }}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: accent }} />
-            {TIER_LABEL[verdict]}
           </div>
         )}
 

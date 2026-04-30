@@ -9,11 +9,9 @@ import {
   type DealInputs,
   type OfferCeiling,
   formatCurrency,
-  formatPercent,
 } from "@/lib/calculations";
 import type { AiNarrative } from "@/lib/lead-adapter";
 import type { DistributionResult } from "@/lib/distribution-engine";
-import { TIER_LABEL } from "@/lib/tier-constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,155 +33,44 @@ type PostBody = {
 // ---------------------------------------------------------------------------
 
 const NarrativeSchema = z.object({
-  summary: z.string().min(20),
-  opportunity: z.string().min(20),
-  risk: z.string().min(20),
+  summary: z.string().min(10),
 });
 
 // ---------------------------------------------------------------------------
 // Prompts
 // ---------------------------------------------------------------------------
+//
+// One-line factual summary. No verdicts, no opinions, no recommendations.
+// Single sentence describing the property and key numbers.
+// ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are a sharp analyst giving an investor the 30-second briefing before a meeting. Write short declarative sentences. One idea per sentence. No semicolons. No em dashes. No compound clauses joined with "while" or "meaning." No filler phrases like "it is worth noting" or "overall." No generic real estate advice. No hedging. Reference only numbers from the data provided — never hallucinate.
+const SYSTEM_PROMPT = `You write one-sentence factual descriptions of real estate listings. No opinions, no recommendations, no verdicts. Never use words like "good," "bad," "risky," "buy," "avoid," "should," or "consider." Just facts.
 
-When SCENARIO DISTRIBUTION data is provided: lead the summary with confidence language that reflects how many scenarios agree. Write "9 of 10 scenarios" or "all 100 scenarios" not "most scenarios." If there is a condition under which a minority of scenarios produces a better verdict, state it in one clause. Do not repeat the scenario count in all three fields.
+Output exactly one short sentence (under 20 words) following this template:
 
-Return exactly three fields:
+"<beds>bd/<baths>ba <propertyType> in <city>, <state>. Asking $<price>, est. rent $<rent>/mo. Breaks even at $<breakEvenPrice>."
 
-summary: One sentence. When distribution data is present, state how many scenarios produce the dominant verdict and name the single biggest driver. When no distribution data is present, name the verdict and the single biggest reason. Reference the walk-away price or the key metric that drives the verdict. Be direct.
-
-opportunity: Two sentences maximum. Name the specific upside with real numbers. Reference cap rate, DSCR, IRR, cash-on-cash, total ROI, equity at exit, or walk-away headroom — whichever is the strongest signal. If year-1 cash flow is negative but the deal exits profitably, state the specific exit numbers and the year cash flow turns positive.
-
-risk: Two sentences maximum. Name the single biggest threat with real numbers. If scenario distribution shows wide spread (large P10–P90 gap), name the inputs that drive the variance. If year-1 cash flow is negative, state exactly how much the investor is out-of-pocket per month. If DSCR is below 1.0, state that number. If IRR is below 6%, state that. Do not invent risks not in the data.`;
+Substitute real values from the data. Drop any clause for which you don't have data. Use only numbers from the data provided — never hallucinate. Format dollars without decimals.`;
 
 function buildUserMessage(body: PostBody): string {
-  const { analysis, inputs, walkAway, address, distribution } = body;
-  const v = analysis.verdict;
+  const { analysis, inputs, walkAway, address } = body;
   const ceiling = walkAway?.recommendedCeiling;
-  const primary = walkAway?.primaryTarget;
-
-  // Find first year where annual cash flow turns non-negative
-  const firstPositiveYear =
-    analysis.projection.find((y) => y.cashFlow >= 0)?.year ?? null;
-
-  // Year-1 cash flow is negative: compute total out-of-pocket carry
-  const negativeCFYears = analysis.projection.filter((y) => y.cashFlow < 0);
-  const totalNegativeCF = negativeCFYears.reduce(
-    (sum, y) => sum + y.cashFlow,
-    0,
-  );
 
   const lines: string[] = [];
   if (address) lines.push(`Address: ${address}`);
-
-  lines.push(`\n--- DEAL INPUTS ---`);
-  lines.push(`Purchase price: ${formatCurrency(inputs.purchasePrice, 0)}`);
-  lines.push(`Monthly rent: ${formatCurrency(inputs.monthlyRent, 0)}`);
-  lines.push(`Down payment: ${inputs.downPaymentPercent}%`);
-  lines.push(`Interest rate: ${inputs.loanInterestRate}%`);
-  lines.push(`Hold period: ${inputs.holdPeriodYears} years`);
-  lines.push(`Annual appreciation assumption: ${inputs.annualAppreciationPercent}%`);
-  lines.push(`Annual rent growth assumption: ${inputs.annualRentGrowthPercent}%`);
-
-  lines.push(`\n--- YEAR-1 METRICS ---`);
-  lines.push(
-    `Monthly cash flow: ${analysis.monthlyCashFlow >= 0 ? "+" : ""}${formatCurrency(analysis.monthlyCashFlow, 0)}`,
-  );
-  lines.push(`Cap rate: ${formatPercent(analysis.capRate, 2)}`);
-  lines.push(`Cash-on-cash: ${formatPercent(analysis.cashOnCashReturn, 2)}`);
-  lines.push(
-    `DSCR: ${isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "∞ (no debt)"}`,
-  );
-  lines.push(`GRM: ${analysis.grossRentMultiplier.toFixed(1)}x`);
-  lines.push(
-    `Break-even occupancy: ${formatPercent(analysis.breakEvenOccupancy, 0)}`,
-  );
-  lines.push(`Total cash invested: ${formatCurrency(analysis.totalCashInvested, 0)}`);
-
-  lines.push(`\n--- HOLD-PERIOD PROJECTIONS (${inputs.holdPeriodYears}-year hold) ---`);
-  lines.push(`IRR (annualised): ${formatPercent(analysis.irr, 1)}`);
-  lines.push(`Total cash flow over hold: ${formatCurrency(analysis.totalCashFlow, 0)}`);
-  lines.push(`Total principal paydown: ${formatCurrency(analysis.totalPrincipalPaydown, 0)}`);
-  lines.push(`Projected sale price at exit: ${formatCurrency(analysis.salePrice, 0)}`);
-  lines.push(`Net sale proceeds (after loan payoff + selling costs): ${formatCurrency(analysis.netSaleProceeds, 0)}`);
-  lines.push(`Total profit (cash flow + net proceeds − cash invested): ${formatCurrency(analysis.totalProfit, 0)}`);
-  lines.push(`Total ROI: ${formatPercent(analysis.totalROI, 1)}`);
-  lines.push(`Average annual return: ${formatPercent(analysis.averageAnnualReturn, 1)}`);
-  if (firstPositiveYear != null) {
-    lines.push(`First year cash flow turns positive: Year ${firstPositiveYear}`);
-  } else if (analysis.monthlyCashFlow < 0) {
-    lines.push(
-      `Cash flow never turns positive in the hold period (negative throughout)`,
-    );
-  }
-  if (negativeCFYears.length > 0) {
-    lines.push(
-      `Cumulative out-of-pocket carry during negative CF years: ${formatCurrency(totalNegativeCF, 0)} (investor must fund this from reserves)`,
-    );
-  }
-
-  lines.push(`\n--- VERDICT ---`);
-  lines.push(`Verdict tier: ${v.tier}`);
-  lines.push(`Verdict score: ${v.score}/100`);
-  lines.push(`Verdict headline: ${v.headline}`);
+  lines.push(`Asking price: ${formatCurrency(inputs.purchasePrice, 0)}`);
+  lines.push(`Estimated monthly rent: ${formatCurrency(inputs.monthlyRent, 0)}`);
   if (ceiling) {
-    lines.push(
-      `Walk-away ceiling: ${formatCurrency(ceiling.price, 0)} (${ceiling.tier} tier)`,
-    );
+    lines.push(`Break-even price: ${formatCurrency(ceiling.price, 0)}`);
   }
-  if (primary) {
-    lines.push(
-      `Primary target price: ${formatCurrency(primary.price, 0)} (${primary.discountPercent.toFixed(1)}% off asking)`,
-    );
-  }
-
-  // ── Scenario distribution block ──────────────────────────────────────────
-  // When probabilistic data is available, add it so Claude can produce a
-  // confidence-aware narrative rather than treating point values as certain.
-  if (distribution) {
-    const n = distribution.scenarios.length;
-    const tierEntries = (
-      Object.entries(distribution.tierCounts) as [string, number][]
-    )
-      .filter(([, c]) => c > 0)
-      .sort(([, a], [, b]) => b - a)
-      .map(
-        ([t, c]) =>
-          `${TIER_LABEL[t as keyof typeof TIER_LABEL] ?? t} ${c}/${n}`,
-      )
-      .join(", ");
-
-    const fmtCF = (v: number) =>
-      `${v >= 0 ? "+" : ""}${formatCurrency(v, 0)}/mo`;
-
-    lines.push(`\n--- SCENARIO DISTRIBUTION (N=${n} scenarios) ---`);
-    lines.push(`Verdict across scenarios: ${tierEntries}`);
-    lines.push(
-      `Cash flow P10/P50/P90: ${fmtCF(distribution.monthlyCashFlow.p10)} / ${fmtCF(distribution.monthlyCashFlow.p50)} / ${fmtCF(distribution.monthlyCashFlow.p90)}`,
-    );
-    lines.push(
-      `Cap rate P10/P50/P90: ${formatPercent(distribution.capRate.p10, 2)} / ${formatPercent(distribution.capRate.p50, 2)} / ${formatPercent(distribution.capRate.p90, 2)}`,
-    );
-    lines.push(
-      `DSCR P10/P50/P90: ${distribution.dscr.p10.toFixed(2)} / ${distribution.dscr.p50.toFixed(2)} / ${distribution.dscr.p90.toFixed(2)}`,
-    );
-    lines.push(
-      `IRR P10/P50/P90: ${formatPercent(distribution.irr.p10, 1)} / ${formatPercent(distribution.irr.p50, 1)} / ${formatPercent(distribution.irr.p90, 1)}`,
-    );
-    if (distribution.outlierCondition) {
-      const outlierCount =
-        n - (distribution.tierCounts[distribution.dominantTier] ?? 0);
-      lines.push(
-        `Condition for the ${outlierCount} outlier scenario${outlierCount !== 1 ? "s" : ""}: ${distribution.outlierCondition}`,
-      );
-    }
-  }
-
+  // Pulling beds/baths/sqft from inputs is not possible here; that lives in
+  // propertyFacts. The client passes address (which contains city/state); the
+  // model is told to use only fields that were provided.
   return lines.join("\n");
 }
 
 const FALLBACK_NARRATIVE: AiNarrative = {
-  summary: "Analysis complete — review the numbers below for details.",
+  summary: "",
   opportunity: "",
   risk: "",
   generatedAt: new Date().toISOString(),
@@ -249,8 +136,8 @@ export async function POST(req: Request) {
     });
     narrative = {
       summary: object.summary,
-      opportunity: object.opportunity,
-      risk: object.risk,
+      opportunity: "",
+      risk: "",
       generatedAt: new Date().toISOString(),
     };
   } catch (err) {

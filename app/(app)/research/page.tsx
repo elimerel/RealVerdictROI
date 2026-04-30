@@ -1,11 +1,11 @@
 "use client"
 
 import {
-  useState, useCallback, useEffect, useLayoutEffect, useRef,
+  useCallback, useEffect, useLayoutEffect, useRef, useState,
 } from "react"
 import {
-  ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X,
-  AlertTriangle, Zap, Search, MapPin,
+  ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X, Plus, Search, MapPin,
+  AlertTriangle,
 } from "lucide-react"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
@@ -19,26 +19,12 @@ import {
   type DealInputs,
   type DealAnalysis,
   type OfferCeiling,
-  type VerdictTier,
-  formatCurrency,
 } from "@/lib/calculations"
-import { TIER_ACCENT, TIER_LABEL } from "@/lib/tier-constants"
 import { createClient } from "@/lib/supabase/client"
 import { supabaseEnv } from "@/lib/supabase/config"
-import { annotateFromProvenance, worstConfidence } from "@/lib/annotated-inputs"
-import {
-  analyseDistribution,
-  renderProbabilisticVerdict,
-  offerCeilingConfidenceNote,
-  type DistributionResult,
-  type ProbabilisticVerdict,
-} from "@/lib/distribution-engine"
 import type { FieldProvenance } from "@/lib/types"
-import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
-import DossierPanel from "../_components/DossierPanel"
-import ListingCard from "./_components/ListingCard"
-import type { ListingCardData } from "./_components/ListingCard"
+import DossierPanel, { DossierPanelSkeleton } from "../_components/DossierPanel"
 import "@/lib/electron"
 
 // ---------------------------------------------------------------------------
@@ -53,16 +39,25 @@ type PropertyFacts = {
   propertyType?: string | null
 }
 
+type ListingSource = "zillow" | "redfin" | "realtor" | "homes" | "trulia" | "movoto" | null
+
 type AnalysisResult = {
   address?: string
   inputs: DealInputs
   analysis: DealAnalysis
   walkAway: OfferCeiling | null
   propertyFacts?: PropertyFacts
-  distribution: DistributionResult | null
-  probabilisticVerdict: ProbabilisticVerdict | null
-  walkAwayConfidenceNote: string | null
   inputProvenance: Partial<Record<keyof DealInputs, FieldProvenance>>
+  source: ListingSource
+}
+
+type ResolverPayload = {
+  address?: string
+  inputs: Partial<DealInputs>
+  notes: string[]
+  warnings: string[]
+  facts: Record<string, unknown>
+  provenance: Partial<Record<keyof DealInputs, FieldProvenance>>
 }
 
 type ExtractPayload = {
@@ -85,48 +80,39 @@ type ExtractPayload = {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const LISTING_URL_RE =
+  /^https?:\/\/(www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i
+const AUTOFILL_CACHE_NS = "research:autofill:v2"
+const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
+
+function detectSource(url: string): ListingSource {
+  const m = url.match(/^https?:\/\/(?:www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i)
+  return (m?.[1]?.toLowerCase() as ListingSource) ?? null
+}
+
 function normalizeUrl(raw: string): string {
   const t = raw.trim()
   if (!t) return ""
   if (/^https?:\/\//i.test(t)) return t
-  return `https://${t}`
+  return "https://" + t
 }
 
 function hostnameOf(url: string) {
   try { return new URL(url).hostname.replace("www.", "") } catch { return url }
 }
 
-function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
-  // Merge extracted inputs with investor defaults.  Extracted values always win.
+function buildAnalysisFromExtract(data: ExtractPayload, currentUrl: string): AnalysisResult {
   const merged: DealInputs = { ...DEFAULT_INPUTS, ...(data.inputs as Partial<DealInputs>) }
   const sanitized = sanitiseInputs(merged)
   const analysis = analyseDeal(sanitized)
-  const ceiling = findOfferCeiling(sanitized)
-
-  const inputProvenance = (data.provenance ?? {}) as Partial<Record<keyof DealInputs, FieldProvenance>>
-
-  // Run the probabilistic engine.  Wrapped in try/catch so a bug here never
-  // prevents the deterministic verdict from rendering.
-  let distribution: DistributionResult | null = null
-  let probabilisticVerdict: ProbabilisticVerdict | null = null
-  let walkAwayConfidenceNote: string | null = null
-  try {
-    const annotated = annotateFromProvenance(sanitized, inputProvenance)
-    distribution = analyseDistribution(annotated)
-    probabilisticVerdict = renderProbabilisticVerdict(distribution, worstConfidence(annotated))
-    const rentProv = inputProvenance.monthlyRent
-    if (rentProv) {
-      walkAwayConfidenceNote = offerCeilingConfidenceNote(rentProv.confidence, rentProv.source)
-    }
-  } catch {
-    // Distribution is additive — deterministic verdict still renders.
-  }
-
+  const walkAway = (() => {
+    try { return findOfferCeiling(sanitized) } catch { return null }
+  })()
   return {
     address: data.address,
     inputs: sanitized,
     analysis,
-    walkAway: ceiling,
+    walkAway,
     propertyFacts: data.facts ? {
       beds: data.facts.bedrooms ?? null,
       baths: data.facts.bathrooms ?? null,
@@ -134,10 +120,33 @@ function buildAnalysisResult(data: ExtractPayload): AnalysisResult {
       yearBuilt: data.facts.yearBuilt ?? null,
       propertyType: data.facts.propertyType ?? null,
     } : undefined,
-    distribution,
-    probabilisticVerdict,
-    walkAwayConfidenceNote,
-    inputProvenance,
+    inputProvenance: (data.provenance ?? {}) as Partial<Record<keyof DealInputs, FieldProvenance>>,
+    source: detectSource(currentUrl),
+  }
+}
+
+function buildAnalysisFromResolver(payload: ResolverPayload, currentUrl: string): AnalysisResult {
+  const merged = { ...DEFAULT_INPUTS, ...payload.inputs } as DealInputs
+  const inputs = sanitiseInputs(merged)
+  const analysis = analyseDeal(inputs)
+  const walkAway = (() => {
+    try { return findOfferCeiling(inputs) } catch { return null }
+  })()
+  const facts = payload.facts ?? {}
+  return {
+    address: payload.address,
+    inputs,
+    analysis,
+    walkAway,
+    propertyFacts: {
+      beds: typeof facts.bedrooms === "number" ? facts.bedrooms : null,
+      baths: typeof facts.bathrooms === "number" ? facts.bathrooms : null,
+      sqft: typeof facts.squareFeet === "number" ? facts.squareFeet : null,
+      yearBuilt: typeof facts.yearBuilt === "number" ? facts.yearBuilt : null,
+      propertyType: typeof facts.propertyType === "string" ? facts.propertyType : null,
+    },
+    inputProvenance: payload.provenance ?? {},
+    source: detectSource(currentUrl),
   }
 }
 
@@ -155,10 +164,10 @@ function rowIsPro(row: { status: string; current_period_end: string | null } | n
 // ---------------------------------------------------------------------------
 
 const TITLEBAR_H = 28
-const HEADER_H = 56
+const HEADER_H   = 56
 const SIDEBAR_OPEN_W = 256
 const SIDEBAR_ICON_W = 48
-const RIGHT_PANEL_W = 400
+const RIGHT_PANEL_W  = 420
 
 function calcBounds(sidebarOpen: boolean) {
   const x = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
@@ -169,163 +178,54 @@ function calcBounds(sidebarOpen: boolean) {
 }
 
 // ---------------------------------------------------------------------------
-// Tier pill — shown in the toolbar next to the URL bar
-// (TIER_LABEL imported from @/lib/tier-constants)
+// ELECTRON MODE — embedded browser is the only mode
 // ---------------------------------------------------------------------------
 
-function ListingPill({
-  loading,
-  tier,
-}: {
-  loading: boolean
-  tier: VerdictTier | null
-}) {
-  if (loading) {
-    return (
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-700 text-xs text-zinc-400 shrink-0">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Analyzing…
-      </div>
-    )
-  }
+function ElectronBrowsePage() {
+  const { open: sidebarOpen } = useSidebar()
 
-  if (tier != null) {
-    const accent = TIER_ACCENT[tier]
-    return (
-      <div
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0"
-        style={{ backgroundColor: `${accent}14`, color: accent, border: `1px solid ${accent}44` }}
-      >
-        <Zap className="h-3 w-3" />
-        {TIER_LABEL[tier]}
-      </div>
-    )
-  }
+  // Browser state
+  const [browserActive, setBrowserActive] = useState(false)
+  const [currentUrl, setCurrentUrl]       = useState("")
+  const [urlEditing, setUrlEditing]       = useState(false)
+  const [urlInput, setUrlInput]           = useState("https://www.zillow.com")
+  const [browserLoading, setBrowserLoading] = useState(false)
+  const [isListingPage, setIsListingPage] = useState(false)
 
-  return (
-    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-700 text-xs text-zinc-400 shrink-0">
-      <Zap className="h-3 w-3" />
-      Listing
-    </div>
-  )
-}
+  // Analysis state
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const lastAutoAnalyzedUrl = useRef("")
+  const analysisEpochRef    = useRef(0)
 
-// ---------------------------------------------------------------------------
-// Idle right panel state
-// ---------------------------------------------------------------------------
+  // "+" paste-a-URL popover
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [pasteValue, setPasteValue] = useState("")
 
-function IdlePanel({ onLaunch }: { onLaunch: (url: string) => void }) {
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6 text-center select-none">
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium text-zinc-300">Navigate to any listing</p>
-        <p className="text-xs text-zinc-600">to get your verdict</p>
-      </div>
-      <div className="flex flex-col gap-2 w-full max-w-[200px]">
-        {["zillow.com", "redfin.com", "realtor.com"].map((site) => (
-          <button
-            key={site}
-            onClick={() => onLaunch(`https://${site}`)}
-            className="px-4 py-2 rounded-md border border-zinc-800 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-300 hover:bg-zinc-900/60 transition-colors"
-          >
-            {site}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
+  // Save state
+  const [isSaving, setIsSaving] = useState(false)
+  const [savedDealId, setSavedDealId] = useState<string | undefined>(undefined)
+  const [signedIn, setSignedIn] = useState(false)
+  const [isPro, setIsPro] = useState(false)
+  const supabaseConfigured = supabaseEnv().configured
 
-// ---------------------------------------------------------------------------
-// Shared constants & types (used by both Electron and web modes)
-// ---------------------------------------------------------------------------
-
-const LISTING_URL_RE        = /^https?:\/\/(www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i
-const AUTOFILL_CACHE_NS     = "research:autofill:v1"
-const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
-
-type ResolverPayload = {
-  address?: string
-  inputs: Partial<DealInputs>
-  notes: string[]
-  warnings: string[]
-  facts: Record<string, unknown>
-  provenance: Partial<Record<keyof DealInputs, FieldProvenance>>
-}
-
-type HuntResult = {
-  listingData: ListingCardData
-  inputs: DealInputs
-  analysis: DealAnalysis
-  walkAway: OfferCeiling | null
-  distribution: DistributionResult | null
-  probabilisticVerdict: ProbabilisticVerdict | null
-  walkAwayConfidenceNote: string | null
-  inputProvenance: Partial<Record<keyof DealInputs, FieldProvenance>>
-}
-
-// ---------------------------------------------------------------------------
-// ELECTRON MODE — WebContentsView via IPC
-//
-// View modes:
-//   "native" (default) — RealVerdict ListingCard + DossierPanel. Uses the
-//     API resolver (property-resolve) for URL/address input. The WebContents
-//     View is not created. This is the superior experience.
-//   "browser" — WebContentsView showing the live Zillow/Redfin page with
-//     auto-analyze on listing page load. Opt-in for users who want it.
-// ---------------------------------------------------------------------------
-
-function useElectronBounds(active: boolean, sidebarOpen: boolean) {
+  // Sync Electron BrowserView bounds to the container
   const sendBounds = useCallback(() => {
     if (!window.electronAPI) return
     window.electronAPI.updateBounds(calcBounds(sidebarOpen))
   }, [sidebarOpen])
 
   useEffect(() => {
-    if (!active) return
     sendBounds()
     window.addEventListener("resize", sendBounds)
     return () => window.removeEventListener("resize", sendBounds)
-  }, [active, sendBounds])
+  }, [sendBounds])
 
   useEffect(() => {
-    if (!active) return
-    const t = setTimeout(sendBounds, 300)
+    const t = setTimeout(sendBounds, 250)
     return () => clearTimeout(t)
-  }, [sidebarOpen, active, sendBounds])
-}
-
-function ElectronResearchPage() {
-  const { open: sidebarOpen } = useSidebar()
-
-  // "native" is the default — the RealVerdict experience
-  const [viewMode, setViewMode] = useState<"native" | "browser">("native")
-
-  // ----- Native mode state (API-based resolver) -----
-  const [nativeQuery, setNativeQuery]   = useState("")
-  const [nativeLoading, setNativeLoading] = useState(false)
-  const [nativeResult, setNativeResult] = useState<HuntResult | null>(null)
-
-  // ----- Browser mode state (WebContentsView) -----
-  const [browserActive, setBrowserActive]     = useState(false)
-  const [currentUrl, setCurrentUrl]           = useState("")
-  const [isListingPage, setIsListingPage]     = useState(false)
-  const [browserLoading, setBrowserLoading]   = useState(false)
-  const [urlInput, setUrlInput]               = useState("https://zillow.com")
-  const [browserAnalysisResult, setBrowserAnalysisResult] = useState<AnalysisResult | null>(null)
-  const [browserAnalysisLoading, setBrowserAnalysisLoading] = useState(false)
-  const lastAutoAnalyzedUrl = useRef("")
-  const analysisEpochRef    = useRef(0)
-
-  // ----- Shared -----
-  const [error, setError]           = useState<string | null>(null)
-  const [isSaving, setIsSaving]     = useState(false)
-  const [savedDealId, setSavedDealId] = useState<string | undefined>(undefined)
-  const [signedIn, setSignedIn]     = useState(false)
-  const [isPro, setIsPro]           = useState(false)
-  const supabaseConfigured = supabaseEnv().configured
-
-  useElectronBounds(browserActive && viewMode === "browser", sidebarOpen)
+  }, [sidebarOpen, sendBounds])
 
   // Auth
   useEffect(() => {
@@ -343,37 +243,41 @@ function ElectronResearchPage() {
     })
   }, [supabaseConfigured])
 
-  // Browser mode: listen for navigation updates
+  // Listen for navigation updates from the main process
   useEffect(() => {
-    if (viewMode !== "browser") return
     const api = window.electronAPI
     if (!api) return
-    const unsub = api.onNavUpdate(({ url, title, isListing, loading }) => {
+    const unsub = api.onNavUpdate(({ url, isListing, loading }) => {
       if (url !== undefined && isListing && url !== lastAutoAnalyzedUrl.current) {
-        setBrowserAnalysisResult(null)
+        setAnalysis(null)
       }
-      if (url !== undefined) { setCurrentUrl(url); setUrlInput(url) }
-      if (title !== undefined) { void title }
+      if (url !== undefined) {
+        setCurrentUrl(url)
+        if (!urlEditing) setUrlInput(url)
+      }
       if (isListing !== undefined) {
         setIsListingPage(isListing)
-        if (!isListing) { lastAutoAnalyzedUrl.current = ""; setBrowserAnalysisResult(null) }
+        if (!isListing) {
+          lastAutoAnalyzedUrl.current = ""
+          setAnalysis(null)
+          setSavedDealId(undefined)
+        }
       }
       if (loading !== undefined) setBrowserLoading(loading)
     })
     return unsub
-  }, [viewMode])
+  }, [urlEditing])
 
-  // Browser mode: auto-analyze on listing page load
+  // Auto-analyze on listing page load — no manual button needed
   useEffect(() => {
-    if (viewMode !== "browser") return
     if (!isListingPage || !browserActive || !currentUrl) return
     if (browserLoading) return
     if (currentUrl === lastAutoAnalyzedUrl.current) return
     lastAutoAnalyzedUrl.current = currentUrl
 
-    setBrowserAnalysisResult(null)
+    setAnalysis(null)
     setSavedDealId(undefined)
-    setBrowserAnalysisLoading(true)
+    setAnalysisLoading(true)
     setError(null)
 
     const epoch = ++analysisEpochRef.current
@@ -381,400 +285,220 @@ function ElectronResearchPage() {
       .then((result) => {
         if (epoch !== analysisEpochRef.current) return
         const r = result as ExtractPayload
-        if (r.error) { setError(r.error); return }
-        const built = buildAnalysisResult({ ...r, inputs: r.inputs as Partial<DealInputs> })
-        setBrowserAnalysisResult(built)
+        if (r.error) {
+          setError(r.error)
+          return
+        }
+        setAnalysis(buildAnalysisFromExtract({ ...r, inputs: r.inputs as Partial<DealInputs> }, currentUrl))
       })
       .catch((err: unknown) => {
         if (epoch !== analysisEpochRef.current) return
-        setError(err instanceof Error ? err.message : "Analysis failed.")
+        setError(err instanceof Error ? err.message : "Couldn't read this listing.")
       })
       .finally(() => {
-        if (epoch === analysisEpochRef.current) setBrowserAnalysisLoading(false)
+        if (epoch === analysisEpochRef.current) setAnalysisLoading(false)
       })
-  }, [viewMode, isListingPage, currentUrl, browserActive, browserLoading])
+  }, [isListingPage, currentUrl, browserActive, browserLoading])
 
-  // Clean up WebContentsView on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => { window.electronAPI?.hideBrowser() }
   }, [])
 
-  // Switch to browser mode — create and show WebContentsView
-  const activateBrowserMode = useCallback(async () => {
+  // Lazy-create the BrowserView the first time we mount
+  useEffect(() => {
     const api = window.electronAPI
-    if (!api) return
-    setError(null)
-    if (!browserActive) {
-      const nav = urlInput || "https://zillow.com"
+    if (!api || browserActive) return
+    void (async () => {
       await api.createBrowser(calcBounds(sidebarOpen))
-      await api.navigate(nav)
+      await api.navigate(urlInput)
       setBrowserActive(true)
-      setCurrentUrl(nav)
-    } else {
-      api.showBrowser(calcBounds(sidebarOpen))
-    }
-    setViewMode("browser")
-  }, [browserActive, urlInput, sidebarOpen])
-
-  // Switch back to native mode — hide WebContentsView
-  const activateNativeMode = useCallback(() => {
-    window.electronAPI?.hideBrowser()
-    setViewMode("native")
+      setCurrentUrl(urlInput)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Native mode: resolve address or URL via API
-  const nativeResolveAndAnalyze = useCallback(async (text: string): Promise<HuntResult> => {
-    const cacheId = normalizeCacheKey(text)
-    const cached  = sessionGet<ResolverPayload>(AUTOFILL_CACHE_NS, cacheId)
-    let payload: ResolverPayload
-
-    if (cached) {
-      payload = cached
-    } else {
-      const isUrl = LISTING_URL_RE.test(text)
-      const res   = isUrl
-        ? await fetch("/api/property-resolve", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: text }),
-          })
-        : await fetch(`/api/property-resolve?address=${encodeURIComponent(text)}`)
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { message?: string; error?: string }
-        throw new Error(body?.message ?? body?.error ?? "Couldn't resolve that property.")
-      }
-      payload = (await res.json()) as ResolverPayload
-      sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
-    }
-
-    // Surface any resolver-detected mismatch warning as an immediate error.
-    const resolverMismatch = payload.warnings?.find((w: string) =>
-      w.includes("appears to be invalid") || w.includes("URL address says")
-    )
-    if (resolverMismatch) {
-      throw new Error(resolverMismatch)
-    }
-
-    // Strict gate: refuse to run the engine when no real price was found.
-    const priceSource = payload.provenance?.purchasePrice?.source
-    const hasMeaningfulPrice =
-      payload.inputs.purchasePrice != null &&
-      (payload.inputs.purchasePrice as number) > 0 &&
-      priceSource != null &&
-      priceSource !== "default"
-
-    if (!hasMeaningfulPrice) {
-      throw new Error(
-        "This listing couldn't be resolved — no price was found. " +
-        "Try a direct Zillow listing URL (zillow.com/homedetails/…) or a full street address including city and state."
-      )
-    }
-
-    const merged   = { ...DEFAULT_INPUTS, ...payload.inputs } as DealInputs
-    const inputs   = sanitiseInputs(merged)
-    const analysis = analyseDeal(inputs)
-    const walkAway = (() => { try { return findOfferCeiling(inputs) } catch { return null } })()
-    const inputProvenance = payload.provenance ?? {}
-
-    let distribution: DistributionResult | null = null
-    let probabilisticVerdict: ProbabilisticVerdict | null = null
-    let walkAwayConfidenceNote: string | null = null
-    try {
-      const annotated = annotateFromProvenance(inputs, inputProvenance)
-      distribution = analyseDistribution(annotated)
-      probabilisticVerdict = renderProbabilisticVerdict(distribution, worstConfidence(annotated))
-      const rentProv = inputProvenance.monthlyRent
-      if (rentProv) walkAwayConfidenceNote = offerCeilingConfidenceNote(rentProv.confidence, rentProv.source)
-    } catch { /* additive — non-fatal */ }
-
-    const facts = payload.facts ?? {}
-    const listingData: ListingCardData = {
-      address:      payload.address,
-      purchasePrice: inputs.purchasePrice,
-      beds:         typeof facts.bedrooms    === "number" ? facts.bedrooms    : null,
-      baths:        typeof facts.bathrooms   === "number" ? facts.bathrooms   : null,
-      sqft:         typeof facts.squareFeet  === "number" ? facts.squareFeet  : null,
-      yearBuilt:    typeof facts.yearBuilt   === "number" ? facts.yearBuilt   : null,
-      propertyType: typeof facts.propertyType === "string" ? facts.propertyType : null,
-      photos:       Array.isArray(facts.photos) ? facts.photos as string[] : undefined,
-      verdict:      analysis.verdict.tier,
-    }
-
-    return { listingData, inputs, analysis, walkAway, distribution, probabilisticVerdict, walkAwayConfidenceNote, inputProvenance }
-  }, [])
-
-  const nativeSubmit = useCallback(async (text: string) => {
-    const t = text.trim()
-    if (!t) return
-    setError(null)
-    setNativeLoading(true)
-    setNativeResult(null)
-    setSavedDealId(undefined)
-    try {
-      const r = await nativeResolveAndAnalyze(t)
-      setNativeResult(r)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.")
-    } finally {
-      setNativeLoading(false)
-    }
-  }, [nativeResolveAndAnalyze])
-
-  // Browser mode: navigate WebContentsView
-  const launchBrowser = useCallback(async (url: string) => {
-    const api = window.electronAPI!
+  const navigateTo = useCallback(async (raw: string) => {
+    const url = normalizeUrl(raw)
+    if (!url) return
     setBrowserLoading(true)
     setError(null)
-    await api.createBrowser(calcBounds(sidebarOpen))
-    await api.navigate(url)
-    setBrowserActive(true)
-    setCurrentUrl(url)
-    setUrlInput(url)
-  }, [sidebarOpen])
-
-  const handleBrowserNavigate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const url = normalizeUrl(urlInput)
-    if (!url) return
     if (!browserActive) {
-      await launchBrowser(url)
-    } else {
-      setBrowserLoading(true)
-      setError(null)
-      await window.electronAPI?.navigate(url)
+      await window.electronAPI?.createBrowser(calcBounds(sidebarOpen))
+      setBrowserActive(true)
     }
+    await window.electronAPI?.navigate(url)
+    setUrlEditing(false)
+  }, [browserActive, sidebarOpen])
+
+  const submitUrlBar = (e: React.FormEvent) => {
+    e.preventDefault()
+    void navigateTo(urlInput)
+  }
+
+  const submitPaste = (e: React.FormEvent) => {
+    e.preventDefault()
+    const v = pasteValue.trim()
+    if (!v) return
+    void navigateTo(v)
+    setPasteValue("")
+    setPasteOpen(false)
   }
 
   const handleSave = useCallback(async () => {
     if (!signedIn) {
-      window.open(`/login?redirect=${encodeURIComponent("/research")}`, "_blank")
+      window.open("/login?redirect=" + encodeURIComponent("/research"), "_blank")
       return
     }
     if (!isPro) {
       window.open("/pricing", "_blank")
       return
     }
+    if (!analysis || isSaving || savedDealId) return
     setIsSaving(true)
     try {
-      const result = viewMode === "native" ? nativeResult : browserAnalysisResult
-      if (!result || isSaving || savedDealId) return
-      const inputs  = viewMode === "native" ? (result as HuntResult).inputs : (result as AnalysisResult).inputs
-      const address = viewMode === "native" ? (result as HuntResult).listingData.address : (result as AnalysisResult).address
-      const facts   = viewMode === "native" ? {
-        beds: (result as HuntResult).listingData.beds,
-        baths: (result as HuntResult).listingData.baths,
-        sqft: (result as HuntResult).listingData.sqft,
-        yearBuilt: (result as HuntResult).listingData.yearBuilt,
-        propertyType: (result as HuntResult).listingData.propertyType,
-      } : (result as AnalysisResult).propertyFacts
       const res = await fetch("/api/deals/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs, address, propertyFacts: facts }),
+        body: JSON.stringify({
+          inputs: analysis.inputs,
+          address: analysis.address,
+          propertyFacts: analysis.propertyFacts,
+        }),
       })
       const payload = await res.json()
       if (res.ok && payload?.id) setSavedDealId(payload.id as string)
     } finally {
       setIsSaving(false)
     }
-  }, [signedIn, isPro, viewMode, nativeResult, browserAnalysisResult, isSaving, savedDealId])
+  }, [signedIn, isPro, analysis, isSaving, savedDealId])
 
-  const hasNativeResult  = nativeResult != null
-  const hasBrowserResult = browserAnalysisResult != null
-  const browserShowActive  = isListingPage && hasBrowserResult
-  const browserShowLoading = isListingPage && browserAnalysisLoading
+  const showPanel = analysisLoading || analysis != null
 
   return (
     <SidebarInset className="overflow-hidden">
-      {/* Top bar */}
+      {/* Top bar — minimal browser chrome */}
       <header className="h-14 flex items-center gap-2 border-b border-border px-4 shrink-0">
         <SidebarTrigger className="-ml-1" />
 
-        {/* View mode toggle */}
-        <div className="flex items-center bg-muted/40 rounded-md p-0.5 border border-border shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <button
-            onClick={activateNativeMode}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 h-7 rounded text-xs font-medium transition-all",
-              viewMode === "native"
-                ? "bg-background text-foreground shadow-sm border border-white/10"
-                : "text-muted-foreground hover:text-foreground"
-            )}
+            onClick={() => window.electronAPI?.back()}
+            disabled={!browserActive || browserLoading}
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-30 text-muted-foreground transition-colors"
+            aria-label="Back"
           >
-            <Zap className="h-3 w-3" />
-            Native
+            <ArrowLeft className="h-4 w-4" />
           </button>
           <button
-            onClick={activateBrowserMode}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 h-7 rounded text-xs font-medium transition-all",
-              viewMode === "browser"
-                ? "bg-background text-foreground shadow-sm border border-white/10"
-                : "text-muted-foreground hover:text-foreground"
-            )}
+            onClick={() => window.electronAPI?.forward()}
+            disabled={!browserActive || browserLoading}
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-30 text-muted-foreground transition-colors"
+            aria-label="Forward"
           >
-            <Globe className="h-3 w-3" />
-            Browser
+            <ArrowRight className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => window.electronAPI?.reload()}
+            disabled={!browserActive}
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-30 text-muted-foreground transition-colors"
+            aria-label="Refresh"
+          >
+            <RotateCw className={cn("h-3.5 w-3.5", browserLoading && "animate-spin")} />
           </button>
         </div>
 
-        {/* Native mode: search input */}
-        {viewMode === "native" && (
-          <form
-            onSubmit={(e) => { e.preventDefault(); nativeSubmit(nativeQuery) }}
-            className="flex-1 flex items-center gap-2"
+        <form onSubmit={submitUrlBar} className="flex-1 flex items-center min-w-0">
+          <div className="flex-1 flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-muted/30 text-sm focus-within:border-white/15 transition-colors">
+            <Globe className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+            <Input
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onFocus={() => setUrlEditing(true)}
+              onBlur={() => setUrlEditing(false)}
+              placeholder="https://www.zillow.com"
+              className="border-0 bg-transparent p-0 h-auto text-[13px] font-mono focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+          </div>
+        </form>
+
+        {/* Paste-a-URL fallback */}
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setPasteOpen((v) => !v)}
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 text-muted-foreground transition-colors"
+            aria-label="Paste listing URL"
+            title="Paste listing URL"
           >
-            <div className={cn(
-              "flex-1 flex items-center gap-2 h-8 px-3 rounded-md border bg-muted/30 text-sm",
-              error ? "border-amber-500/40" : "border-border focus-within:border-white/20"
-            )}>
-              {LISTING_URL_RE.test(nativeQuery)
-                ? <Globe  className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                : <MapPin className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-              }
-              <Input
-                value={nativeQuery}
-                onChange={(e) => { setNativeQuery(e.target.value); setError(null) }}
-                placeholder="Paste a Zillow URL or type an address…"
-                className="border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-              {nativeQuery && (
-                <button type="button" onClick={() => { setNativeQuery(""); setNativeResult(null); setError(null) }}
-                  className="text-muted-foreground/40 hover:text-muted-foreground shrink-0">
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-            <Button type="submit" size="sm" disabled={nativeLoading || !nativeQuery.trim()}>
-              {nativeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-            </Button>
-          </form>
-        )}
-
-        {/* Browser mode: navigation bar */}
-        {viewMode === "browser" && (
-          <>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => window.electronAPI?.back()}
-                disabled={!browserActive || browserLoading}
-                className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => window.electronAPI?.forward()}
-                disabled={!browserActive || browserLoading}
-                className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-              >
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => window.electronAPI?.reload()}
-                disabled={!browserActive}
-                className="h-7 w-7 rounded flex items-center justify-center hover:bg-muted/60 disabled:opacity-40 text-muted-foreground"
-              >
-                <RotateCw className={cn("h-3.5 w-3.5", browserLoading && "animate-spin")} />
-              </button>
-            </div>
-            <form onSubmit={handleBrowserNavigate} className="flex-1 flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-muted/30 text-sm">
-                <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Plus className="h-4 w-4" />
+          </button>
+          {pasteOpen && (
+            <div className="absolute top-full right-0 mt-2 w-[360px] rounded-lg border border-border bg-card shadow-2xl z-30 p-3">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground/50 mb-2">
+                Paste a listing URL
+              </p>
+              <form onSubmit={submitPaste} className="flex gap-2">
                 <Input
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder="https://zillow.com"
-                  className="border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
+                  autoFocus
+                  value={pasteValue}
+                  onChange={(e) => setPasteValue(e.target.value)}
+                  placeholder="zillow.com/homedetails/&hellip;"
+                  className="flex-1 h-8 text-[13px] font-mono"
                 />
-              </div>
-              <Button type="submit" size="sm" disabled={browserLoading}>
-                {browserLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Go"}
-              </Button>
-            </form>
-          </>
-        )}
-
-        {/* Verdict pill (both modes) */}
-        {viewMode === "native" && hasNativeResult && nativeResult?.analysis && (
-          <VerdictPill tier={nativeResult.analysis.verdict.tier} />
-        )}
-        {viewMode === "browser" && browserActive && isListingPage && (
-          <ListingPill
-            loading={browserAnalysisLoading}
-            tier={browserAnalysisResult?.analysis.verdict.tier ?? null}
-          />
-        )}
+                <Button type="submit" size="sm" disabled={!pasteValue.trim()}>
+                  Go
+                </Button>
+              </form>
+            </div>
+          )}
+        </div>
 
         {error && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-400 shrink-0 max-w-[200px]">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/10 border border-red-500/25 text-xs text-red-400 shrink-0 max-w-[240px]">
             <AlertTriangle className="h-3 w-3 shrink-0" />
             <span className="truncate">{error}</span>
-            <button onClick={() => setError(null)} className="shrink-0 ml-1"><X className="h-3 w-3" /></button>
+            <button onClick={() => setError(null)} className="shrink-0 ml-1">
+              <X className="h-3 w-3" />
+            </button>
           </div>
         )}
       </header>
 
       {/* Body */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-
-        {/* Left side */}
-        <div className="flex-1 overflow-hidden flex flex-col min-w-0">
-          {viewMode === "native" ? (
-            nativeLoading ? (
-              <HuntingLoader />
-            ) : hasNativeResult ? (
-              <div className="flex-1 overflow-y-auto">
-                <ListingCard data={nativeResult!.listingData} />
-              </div>
-            ) : (
-              <NativeIdleState onSetQuery={setNativeQuery} />
-            )
-          ) : (
-            /* Browser mode: this div is the placeholder that Electron's
-               WebContentsView will layer on top of. */
-            <div className="flex-1 bg-zinc-950 relative flex flex-col">
-              {!browserActive && (
-                <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
-                  <Globe className="h-10 w-10 opacity-20" />
-                  <div className="text-center space-y-1">
-                    <p className="text-sm font-medium">Live browser</p>
-                    <p className="text-xs opacity-60">Navigate to any listing for auto-analysis</p>
-                  </div>
-                </div>
-              )}
-              {browserActive && currentUrl && (
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-background/80 backdrop-blur-sm border border-border/50 text-[10px] text-muted-foreground font-mono pointer-events-none">
-                  {hostnameOf(currentUrl)}
-                </div>
-              )}
+        {/* Left: BrowserView placeholder. Electron WebContentsView is layered on top. */}
+        <div className="flex-1 bg-zinc-950 relative flex flex-col min-w-0">
+          {!browserActive && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin opacity-40" />
+              <p className="text-xs opacity-50">Loading browser&hellip;</p>
+            </div>
+          )}
+          {browserActive && currentUrl && (
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-background/80 backdrop-blur-sm border border-border/50 text-[10px] text-muted-foreground/60 font-mono pointer-events-none">
+              {hostnameOf(currentUrl)}
             </div>
           )}
         </div>
 
-        {/* Right: dossier panel — only rendered when a result is available */}
-        {(viewMode === "native" ? hasNativeResult : (browserShowLoading || browserShowActive)) && (
-          <div
-            className="shrink-0 flex flex-col border-l border-zinc-800 bg-zinc-950 overflow-hidden"
-            style={{ width: RIGHT_PANEL_W }}
-          >
-            {viewMode === "native" ? (
+        {/* Right: side panel */}
+        <div
+          className="shrink-0 flex flex-col border-l border-border bg-background overflow-hidden"
+          style={{ width: RIGHT_PANEL_W }}
+        >
+          {showPanel ? (
+            analysisLoading && !analysis ? (
+              <DossierPanelSkeleton />
+            ) : analysis ? (
               <DossierPanel
-                analysis={nativeResult!.analysis}
-                walkAway={nativeResult!.walkAway}
-                inputs={nativeResult!.inputs}
-                address={nativeResult!.listingData.address}
-                propertyFacts={{
-                  beds: nativeResult!.listingData.beds,
-                  baths: nativeResult!.listingData.baths,
-                  sqft: nativeResult!.listingData.sqft,
-                  yearBuilt: nativeResult!.listingData.yearBuilt,
-                  propertyType: nativeResult!.listingData.propertyType,
-                }}
-                distribution={nativeResult!.distribution}
-                probabilisticVerdict={nativeResult!.probabilisticVerdict}
-                walkAwayConfidenceNote={nativeResult!.walkAwayConfidenceNote}
-                inputProvenance={nativeResult!.inputProvenance}
+                analysis={analysis.analysis}
+                walkAway={analysis.walkAway}
+                inputs={analysis.inputs}
+                address={analysis.address}
+                propertyFacts={analysis.propertyFacts}
+                source={analysis.source}
+                inputProvenance={analysis.inputProvenance}
                 signedIn={signedIn}
                 isPro={isPro}
                 supabaseConfigured={supabaseConfigured}
@@ -783,57 +507,44 @@ function ElectronResearchPage() {
                 isSaving={isSaving}
                 savedDealId={savedDealId}
               />
-            ) : browserShowLoading ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-600">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                <p className="text-xs">Running analysis…</p>
-              </div>
-            ) : (
-              <DossierPanel
-                analysis={browserAnalysisResult!.analysis}
-                walkAway={browserAnalysisResult!.walkAway}
-                inputs={browserAnalysisResult!.inputs}
-                address={browserAnalysisResult!.address}
-                propertyFacts={browserAnalysisResult!.propertyFacts}
-                distribution={browserAnalysisResult!.distribution}
-                probabilisticVerdict={browserAnalysisResult!.probabilisticVerdict}
-                walkAwayConfidenceNote={browserAnalysisResult!.walkAwayConfidenceNote}
-                inputProvenance={browserAnalysisResult!.inputProvenance}
-                signedIn={signedIn}
-                isPro={isPro}
-                supabaseConfigured={supabaseConfigured}
-                panelWidth={RIGHT_PANEL_W}
-                onSave={supabaseConfigured ? handleSave : undefined}
-                isSaving={isSaving}
-                savedDealId={savedDealId}
-              />
-            )}
-          </div>
-        )}
+            ) : null
+          ) : (
+            <IdleSidePanel />
+          )}
+        </div>
       </div>
     </SidebarInset>
   )
 }
 
 // ---------------------------------------------------------------------------
-// WEB MODE — full hunting interface
+// IdleSidePanel — calm empty state when no listing is detected
 // ---------------------------------------------------------------------------
 
-function WebResearchPage() {
-  const [query, setQuery]         = useState("")
-  const [loading, setLoading]     = useState(false)
-  const [error, setError]         = useState<string | null>(null)
-  const [result, setResult]       = useState<HuntResult | null>(null)
-  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const [activeSug, setActiveSug] = useState(-1)
-  const [savedDealId, setSavedDealId] = useState<string | undefined>()
-  const [isSaving, setIsSaving]   = useState(false)
-  const [signedIn, setSignedIn]   = useState(false)
-  const [isPro, setIsPro]         = useState(false)
+function IdleSidePanel() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center px-6 text-center select-none gap-3">
+      <Globe className="h-8 w-8 text-muted-foreground/15" strokeWidth={1.5} />
+      <p className="text-[13px] text-muted-foreground/55 leading-relaxed max-w-[28ch]">
+        Navigate to a listing to see underwriting.
+      </p>
+    </div>
+  )
+}
 
-  const formRef    = useRef<HTMLFormElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+// ---------------------------------------------------------------------------
+// WEB MODE — degraded fallback for users on the web app
+// ---------------------------------------------------------------------------
+
+function WebBrowsePage() {
+  const [query, setQuery]       = useState("")
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState<string | null>(null)
+  const [result, setResult]     = useState<AnalysisResult | null>(null)
+  const [savedDealId, setSavedDealId] = useState<string | undefined>()
+  const [isSaving, setIsSaving] = useState(false)
+  const [signedIn, setSignedIn] = useState(false)
+  const [isPro, setIsPro]       = useState(false)
   const supabaseConfigured = supabaseEnv().configured
 
   const isListingUrl = LISTING_URL_RE.test(query)
@@ -849,164 +560,57 @@ function WebResearchPage() {
         .select("status, current_period_end")
         .eq("user_id", user.id)
         .maybeSingle()
-      if (sub && (sub.status === "active" || sub.status === "trialing")) {
-        setIsPro(true)
-      }
+      setIsPro(rowIsPro(sub as { status: string; current_period_end: string | null } | null))
     })
   }, [supabaseConfigured])
-
-  // Address autocomplete
-  useEffect(() => {
-    if (isListingUrl || query.length < 4) {
-      setSuggestions([])
-      setShowSuggestions(false)
-      return
-    }
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/address-autocomplete?q=${encodeURIComponent(query)}`)
-        if (res.ok) {
-          const data = (await res.json()) as AddressSuggestion[]
-          setSuggestions(data)
-          setShowSuggestions(data.length > 0)
-          setActiveSug(-1)
-        }
-      } catch { /* non-critical */ }
-    }, 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [query, isListingUrl])
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (formRef.current && !formRef.current.contains(e.target as Node))
-        setShowSuggestions(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
-
-  const resolveAndAnalyze = useCallback(async (text: string): Promise<HuntResult> => {
-    const cacheId = normalizeCacheKey(text)
-    const cached  = sessionGet<ResolverPayload>(AUTOFILL_CACHE_NS, cacheId)
-    let payload: ResolverPayload
-
-    if (cached) {
-      payload = cached
-    } else {
-      const isUrl = LISTING_URL_RE.test(text)
-      const res = isUrl
-        ? await fetch("/api/property-resolve", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: text }),
-          })
-        : await fetch(`/api/property-resolve?address=${encodeURIComponent(text)}`)
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { message?: string; error?: string }
-        throw new Error(body?.message ?? body?.error ?? "Couldn't resolve that property.")
-      }
-      payload = (await res.json()) as ResolverPayload
-      sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
-    }
-
-    // Strict gate — refuse to run the engine on fabricated data.
-    // If the resolver couldn't find a real purchase price (provenance source
-    // is "default" or missing), no verdict should be computed.
-    const priceSource = payload.provenance?.purchasePrice?.source
-    const hasMeaningfulPrice =
-      payload.inputs.purchasePrice != null &&
-      (payload.inputs.purchasePrice as number) > 0 &&
-      priceSource != null &&
-      priceSource !== "default"
-
-    // Surface any resolver-detected mismatch warning as an immediate error.
-    // The resolver sets warnings (not HTTP errors) when it detects a state
-    // mismatch to keep the shape consistent; the price will be absent.
-    const resolverMismatch = payload.warnings?.find(w =>
-      w.includes("appears to be invalid") || w.includes("URL address says")
-    )
-    if (resolverMismatch) {
-      throw new Error(resolverMismatch)
-    }
-
-    if (!hasMeaningfulPrice) {
-      throw new Error(
-        "This listing couldn't be resolved — no price was found. " +
-        "Try a direct Zillow listing URL (zillow.com/homedetails/…) or a full street address including city and state."
-      )
-    }
-
-    const merged   = { ...DEFAULT_INPUTS, ...payload.inputs } as DealInputs
-    const inputs   = sanitiseInputs(merged)
-    const analysis = analyseDeal(inputs)
-    const walkAway = (() => { try { return findOfferCeiling(inputs) } catch { return null } })()
-    const inputProvenance = payload.provenance ?? {}
-
-    let distribution: DistributionResult | null = null
-    let probabilisticVerdict: ProbabilisticVerdict | null = null
-    let walkAwayConfidenceNote: string | null = null
-    try {
-      const annotated = annotateFromProvenance(inputs, inputProvenance)
-      distribution = analyseDistribution(annotated)
-      probabilisticVerdict = renderProbabilisticVerdict(distribution, worstConfidence(annotated))
-      const rentProv = inputProvenance.monthlyRent
-      if (rentProv) walkAwayConfidenceNote = offerCeilingConfidenceNote(rentProv.confidence, rentProv.source)
-    } catch { /* additive — non-fatal */ }
-
-    const facts = payload.facts ?? {}
-    const listingData: ListingCardData = {
-      address:      payload.address,
-      purchasePrice: inputs.purchasePrice,
-      beds:         typeof facts.bedrooms    === "number" ? facts.bedrooms    : null,
-      baths:        typeof facts.bathrooms   === "number" ? facts.bathrooms   : null,
-      sqft:         typeof facts.squareFeet  === "number" ? facts.squareFeet  : null,
-      yearBuilt:    typeof facts.yearBuilt   === "number" ? facts.yearBuilt   : null,
-      propertyType: typeof facts.propertyType === "string" ? facts.propertyType : null,
-      photos:       Array.isArray(facts.photos) ? facts.photos as string[] : undefined,
-      verdict:      analysis.verdict.tier,
-    }
-
-    return { listingData, inputs, analysis, walkAway, distribution, probabilisticVerdict, walkAwayConfidenceNote, inputProvenance }
-  }, [])
 
   const submit = useCallback(async (text: string) => {
     const t = text.trim()
     if (!t) return
-    const valid = LISTING_URL_RE.test(t) || (/\d/.test(t) && t.length >= 6)
-    if (!valid) { setError("Enter a street address or Zillow/Redfin URL."); return }
-
     setError(null)
     setLoading(true)
     setResult(null)
     setSavedDealId(undefined)
-    setShowSuggestions(false)
     try {
-      const r = await resolveAndAnalyze(t)
-      setResult(r)
+      const cacheId = normalizeCacheKey(t)
+      const cached  = sessionGet<ResolverPayload>(AUTOFILL_CACHE_NS, cacheId)
+      let payload: ResolverPayload
+      if (cached) {
+        payload = cached
+      } else {
+        const isUrl = LISTING_URL_RE.test(t)
+        const res = isUrl
+          ? await fetch("/api/property-resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: t }),
+            })
+          : await fetch("/api/property-resolve?address=" + encodeURIComponent(t))
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { message?: string; error?: string }
+          throw new Error(body?.message ?? body?.error ?? "Couldn't read this listing.")
+        }
+        payload = (await res.json()) as ResolverPayload
+        sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
+      }
+
+      // Strict gate: refuse to underwrite without a real price
+      const priceSource = payload.provenance?.purchasePrice?.source
+      const hasPrice =
+        payload.inputs.purchasePrice != null &&
+        (payload.inputs.purchasePrice as number) > 0 &&
+        priceSource != null && priceSource !== "default"
+      if (!hasPrice) {
+        throw new Error("Couldn't read this listing. Try refreshing or paste the URL manually.")
+      }
+
+      setResult(buildAnalysisFromResolver(payload, isListingUrl ? t : ""))
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.")
     } finally {
       setLoading(false)
     }
-  }, [resolveAndAnalyze])
-
-  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); submit(query.trim()) }
-
-  const handleSuggestionSelect = (s: AddressSuggestion) => {
-    setQuery(s.label)
-    setShowSuggestions(false)
-    submit(s.label)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!showSuggestions || !suggestions.length) return
-    if (e.key === "ArrowDown")  { e.preventDefault(); setActiveSug((i) => Math.min(i + 1, suggestions.length - 1)) }
-    if (e.key === "ArrowUp")    { e.preventDefault(); setActiveSug((i) => Math.max(i - 1, -1)) }
-    if (e.key === "Enter" && activeSug >= 0) { e.preventDefault(); const s = suggestions[activeSug]; if (s) handleSuggestionSelect(s) }
-    if (e.key === "Escape")     { setShowSuggestions(false) }
-  }
+  }, [isListingUrl])
 
   const handleSave = useCallback(async () => {
     if (!result || isSaving || savedDealId) return
@@ -1018,13 +622,9 @@ function WebResearchPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          inputs:        result.inputs,
-          address:       result.listingData.address,
-          propertyFacts: {
-            beds: result.listingData.beds, baths: result.listingData.baths,
-            sqft: result.listingData.sqft, yearBuilt: result.listingData.yearBuilt,
-            propertyType: result.listingData.propertyType,
-          },
+          inputs: result.inputs,
+          address: result.address,
+          propertyFacts: result.propertyFacts,
         }),
       })
       const payload = await res.json()
@@ -1034,35 +634,25 @@ function WebResearchPage() {
     }
   }, [result, isSaving, savedDealId, signedIn, isPro])
 
-  const hasResult = result != null
-
   return (
     <SidebarInset className="overflow-hidden">
       <header className="h-14 flex items-center gap-2 border-b border-border px-4 shrink-0">
         <SidebarTrigger className="-ml-1" />
-
-        {/* Search bar — expands to fill header when in idle state */}
         <form
-          ref={formRef}
-          onSubmit={handleSubmit}
-          className="flex-1 flex items-center gap-2 relative"
+          onSubmit={(e) => { e.preventDefault(); submit(query) }}
+          className="flex-1 flex items-center gap-2"
         >
-          <div
-            className={cn(
-              "flex-1 flex items-center gap-2 h-9 px-3 rounded-lg border bg-card transition-colors",
-              error ? "border-amber-500/40" : "border-border focus-within:border-white/20"
-            )}
-          >
+          <div className={cn(
+            "flex-1 flex items-center gap-2 h-8 px-3 rounded-md border bg-muted/30 text-sm transition-colors",
+            error ? "border-amber-500/40" : "border-border focus-within:border-white/15",
+          )}>
             {isListingUrl
-              ? <Globe   className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-              : <MapPin  className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-            }
+              ? <Globe className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+              : <MapPin className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />}
             <Input
               value={query}
               onChange={(e) => { setQuery(e.target.value); setError(null) }}
-              onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true) }}
-              onKeyDown={handleKeyDown}
-              placeholder="Paste a Zillow URL or type an address…"
+              placeholder="Paste a Zillow URL or type an address&hellip;"
               className="border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             {query && (
@@ -1075,284 +665,60 @@ function WebResearchPage() {
               </button>
             )}
           </div>
-
           <Button type="submit" size="sm" disabled={loading || !query.trim()}>
-            {loading
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : <Search className="h-3.5 w-3.5" />
-            }
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
           </Button>
-
-          {/* Autocomplete */}
-          {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute top-full left-0 right-12 z-50 mt-1.5 rounded-lg border border-border bg-card shadow-2xl overflow-hidden">
-              {suggestions.map((s, i) => (
-                <button
-                  key={s.placeId}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); handleSuggestionSelect(s) }}
-                  className={cn(
-                    "w-full text-left px-3 py-2.5 flex flex-col gap-0.5 hover:bg-muted transition-colors",
-                    i === activeSug && "bg-muted",
-                    i < suggestions.length - 1 && "border-b border-border"
-                  )}
-                >
-                  <span className="text-xs font-medium">{s.primary}</span>
-                  <span className="text-[10px] text-muted-foreground">{s.secondary}</span>
-                </button>
-              ))}
-            </div>
-          )}
         </form>
-
-        {/* Verdict pill when loaded */}
-        {hasResult && result.analysis && (
-          <VerdictPill tier={result.analysis.verdict.tier} />
-        )}
-
-        {error && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/25 text-xs text-amber-400 shrink-0 max-w-[220px]">
-            <AlertTriangle className="h-3 w-3 shrink-0" />
-            <span className="truncate">{error}</span>
-            <button onClick={() => setError(null)} className="shrink-0 ml-1">
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        )}
       </header>
 
-      {/* Body */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left: listing card or idle state */}
-        <div
-          className={cn(
-            "flex flex-col transition-all duration-300 border-r border-border overflow-hidden",
-            hasResult ? "flex-1" : "flex-1"
-          )}
-        >
-          {loading ? (
-            <HuntingLoader />
-          ) : hasResult ? (
-            <div className="flex-1 overflow-y-auto">
-              <ListingCard data={result.listingData} />
+        <div className="flex-1 flex items-center justify-center px-6 text-center bg-zinc-950 min-w-0">
+          {error ? (
+            <div className="space-y-2 max-w-sm">
+              <AlertTriangle className="h-6 w-6 text-amber-500/70 mx-auto" />
+              <p className="text-[13px] text-muted-foreground leading-relaxed">{error}</p>
             </div>
           ) : (
-            <IdleHunting onSubmit={submit} />
+            <p className="text-[13px] text-muted-foreground/50 leading-relaxed max-w-[36ch]">
+              Underwrite any listing on any site, instantly. Open the desktop app to browse Zillow, Redfin, and Realtor with live underwriting in the side panel.
+            </p>
           )}
         </div>
 
-        {/* Right: dossier — only when result is loaded */}
-        {hasResult && result && (
-          <div
-            className="shrink-0 flex flex-col border-l border-border bg-background overflow-hidden"
-            style={{ width: 460 }}
-          >
+        <div
+          className="shrink-0 flex flex-col border-l border-border bg-background overflow-hidden"
+          style={{ width: RIGHT_PANEL_W }}
+        >
+          {loading ? (
+            <DossierPanelSkeleton />
+          ) : result ? (
             <DossierPanel
               analysis={result.analysis}
               walkAway={result.walkAway}
               inputs={result.inputs}
-              address={result.listingData.address}
-              propertyFacts={{
-                beds: result.listingData.beds,
-                baths: result.listingData.baths,
-                sqft: result.listingData.sqft,
-                yearBuilt: result.listingData.yearBuilt,
-                propertyType: result.listingData.propertyType,
-              }}
-              distribution={result.distribution}
-              probabilisticVerdict={result.probabilisticVerdict}
-              walkAwayConfidenceNote={result.walkAwayConfidenceNote}
+              address={result.address}
+              propertyFacts={result.propertyFacts}
+              source={result.source}
               inputProvenance={result.inputProvenance}
               signedIn={signedIn}
               isPro={isPro}
               supabaseConfigured={supabaseConfigured}
-              panelWidth={460}
+              panelWidth={RIGHT_PANEL_W}
               onSave={supabaseConfigured ? handleSave : undefined}
               isSaving={isSaving}
               savedDealId={savedDealId}
             />
-          </div>
-        )}
+          ) : (
+            <IdleSidePanel />
+          )}
+        </div>
       </div>
     </SidebarInset>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Idle hunting state — shown before any search
-// ---------------------------------------------------------------------------
-// Native mode idle state (Electron)
-//
-// Does NOT have site pills — those only make sense in browser mode.
-// Shows exactly what inputs the resolver accepts and lets the user
-// click to pre-fill the search bar with the right format.
-// ---------------------------------------------------------------------------
-
-function NativeIdleState({ onSetQuery }: { onSetQuery: (q: string) => void }) {
-  const ZILLOW_EXAMPLE  = "https://www.zillow.com/homedetails/123-main-st-reno-nv-89501/12345678_zpid/"
-  const ADDRESS_EXAMPLE = "123 Main St, Reno, NV 89501"
-
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 text-center select-none">
-      {/* Illustration */}
-      <div className="h-24 w-24 rounded-2xl bg-white/3 border border-white/8 flex items-center justify-center shrink-0">
-        <svg width="48" height="36" viewBox="0 0 48 36" fill="none">
-          <rect x="4" y="16" width="40" height="18" rx="2" fill="currentColor" className="text-white/8" />
-          <path d="M2 18L24 4L46 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-white/20" />
-          <rect x="10" y="22" width="10" height="12" rx="1" fill="currentColor" className="text-white/12" />
-          <rect x="28" y="22" width="10" height="8" rx="1" fill="currentColor" className="text-white/12" />
-          <line x1="36" y1="6" x2="36" y2="2" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="39" y1="7" x2="42" y2="4" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="40" y1="10" x2="44" y2="10" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </div>
-
-      <div className="space-y-1.5 max-w-xs">
-        <p className="text-sm font-semibold text-foreground">Search for a property above</p>
-        <p className="text-[13px] text-muted-foreground leading-relaxed">
-          Paste a Zillow listing URL or type a full street address. RealVerdict pulls the real numbers and analyzes the deal — no Zillow chrome.
-        </p>
-      </div>
-
-      {/* Format examples */}
-      <div className="w-full max-w-sm space-y-2 text-left">
-        <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider px-1">Accepted formats</p>
-
-        <button
-          type="button"
-          onClick={() => onSetQuery(ZILLOW_EXAMPLE)}
-          className="w-full text-left px-3 py-2.5 rounded-lg border border-white/8 hover:border-white/16 hover:bg-white/4 transition-all group"
-        >
-          <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mb-1">Zillow listing URL</p>
-          <p className="text-[11px] font-mono text-muted-foreground/70 group-hover:text-muted-foreground truncate leading-relaxed">
-            zillow.com/homedetails/…
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSetQuery(ADDRESS_EXAMPLE)}
-          className="w-full text-left px-3 py-2.5 rounded-lg border border-white/8 hover:border-white/16 hover:bg-white/4 transition-all group"
-        >
-          <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mb-1">Street address</p>
-          <p className="text-[11px] font-mono text-muted-foreground/70 group-hover:text-muted-foreground leading-relaxed">
-            {ADDRESS_EXAMPLE}
-          </p>
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-
-function IdleHunting({ onSubmit }: { onSubmit: (text: string) => void }) {
-  const quickStarts = [
-    { label: "Zillow", hint: "zillow.com", url: "https://zillow.com" },
-    { label: "Redfin", hint: "redfin.com", url: "https://redfin.com" },
-    { label: "Realtor", hint: "realtor.com", url: "https://realtor.com" },
-  ]
-
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 text-center select-none">
-      {/* Illustration */}
-      <div className="h-24 w-24 rounded-2xl bg-white/3 border border-white/8 flex items-center justify-center">
-        <svg width="48" height="36" viewBox="0 0 48 36" fill="none">
-          <rect x="4" y="16" width="40" height="18" rx="2" fill="currentColor" className="text-white/8" />
-          <path d="M2 18L24 4L46 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-white/20" />
-          <rect x="10" y="22" width="10" height="12" rx="1" fill="currentColor" className="text-white/12" />
-          <rect x="28" y="22" width="10" height="8" rx="1" fill="currentColor" className="text-white/12" />
-          <line x1="36" y1="6" x2="36" y2="2" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="39" y1="7" x2="42" y2="4" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="40" y1="10" x2="44" y2="10" stroke="oklch(0.62 0.22 265)" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </div>
-
-      <div className="space-y-1.5 max-w-xs">
-        <p className="text-sm font-semibold text-foreground">Hunt for your next deal</p>
-        <p className="text-[13px] text-muted-foreground leading-relaxed">
-          Paste a Zillow or Redfin URL, or type any address. Get a full investor verdict — no Zillow chrome, just the numbers that matter.
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-2 w-full max-w-[200px]">
-        {quickStarts.map((s) => (
-          <button
-            key={s.label}
-            onClick={() => onSubmit(s.url)}
-            className="px-4 py-2.5 rounded-lg border border-white/8 text-xs text-muted-foreground hover:border-white/16 hover:text-foreground hover:bg-white/4 transition-all text-left flex items-center justify-between gap-2"
-          >
-            <span>{s.label}</span>
-            <span className="text-[10px] text-muted-foreground/40 font-mono">{s.hint}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Loading state during analysis
-// ---------------------------------------------------------------------------
-
-function HuntingLoader() {
-  const steps = [
-    "Fetching listing data…",
-    "Pulling market comps…",
-    "Running analysis engine…",
-    "Computing walk-away price…",
-  ]
-  const [step, setStep] = useState(0)
-
-  useEffect(() => {
-    const t = setInterval(() => setStep((s) => Math.min(s + 1, steps.length - 1)), 1200)
-    return () => clearInterval(t)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-5 p-8 text-center">
-      <div className="relative h-12 w-12">
-        <div className="absolute inset-0 rounded-full border-2 border-white/8" />
-        <div className="absolute inset-0 rounded-full border-2 border-t-[oklch(0.62_0.22_265)] border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-      </div>
-      <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">{steps[step]}</p>
-        <div className="flex gap-1 justify-center">
-          {steps.map((_, i) => (
-            <div
-              key={i}
-              className={cn(
-                "h-1 w-1 rounded-full transition-all",
-                i <= step ? "bg-[oklch(0.62_0.22_265)]" : "bg-white/10"
-              )}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Verdict pill in the header
-// ---------------------------------------------------------------------------
-
-function VerdictPill({ tier }: { tier: VerdictTier }) {
-  const accent = TIER_ACCENT[tier]
-  return (
-    <div
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0"
-      style={{ color: accent, backgroundColor: `${accent}14`, border: `1px solid ${accent}44` }}
-    >
-      <Zap className="h-3 w-3" />
-      {TIER_LABEL[tier]}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Root export
+// Root
 // ---------------------------------------------------------------------------
 
 export default function ResearchPage() {
@@ -1364,5 +730,5 @@ export default function ResearchPage() {
   }, [])
 
   if (isElectron === null) return null
-  return isElectron ? <ElectronResearchPage /> : <WebResearchPage />
+  return isElectron ? <ElectronBrowsePage /> : <WebBrowsePage />
 }

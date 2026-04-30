@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation"
-import { LayoutList } from "lucide-react"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { createClient } from "@/lib/supabase/server"
 import { supabaseEnv } from "@/lib/supabase/config"
@@ -32,7 +31,7 @@ export default async function DealsPage() {
 
     if (rows) {
       for (const row of rows) {
-        if (row.inputs && row.results && row.verdict) {
+        if (row.inputs && row.results) {
           deals.push(row as SavedDeal)
         }
       }
@@ -41,17 +40,16 @@ export default async function DealsPage() {
 
   return (
     <SidebarInset>
-      <header className="h-14 flex items-center gap-4 border-b border-border px-4">
+      <header className="h-14 flex items-center gap-3 border-b border-border px-4 shrink-0">
         <SidebarTrigger className="-ml-1" />
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LayoutList className="h-4 w-4" />
-          <span>Pipeline</span>
-          {deals.length > 0 && (
-            <span className="ml-1 text-xs bg-muted px-1.5 py-0.5 rounded">
-              {deals.length}
-            </span>
-          )}
-        </div>
+        <h1 className="text-[13px] font-semibold tracking-tight text-foreground">
+          Pipeline
+        </h1>
+        {deals.length > 0 && (
+          <span className="text-[11px] text-muted-foreground/50 font-mono tabular-nums">
+            {deals.length}
+          </span>
+        )}
       </header>
       <DealsClient
         deals={deals}

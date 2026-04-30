@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
-import { LayoutList, BarChart3, Settings, LogOut, ChevronUp, Search, Zap } from "lucide-react"
+import { LayoutList, Settings, LogOut, ChevronUp, Globe, Zap } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -26,10 +26,9 @@ import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 
 const navItems = [
-  { title: "Research",  icon: Search,     href: "/research",  hint: "Hunt for deals" },
-  { title: "Pipeline",  icon: LayoutList, href: "/deals",     hint: "Compare saved deals" },
-  { title: "Insights",  icon: BarChart3,  href: "/insights",  hint: "Portfolio intelligence" },
-  { title: "Settings",  icon: Settings,   href: "/settings",  hint: undefined },
+  { title: "Browse",   icon: Globe,      href: "/research", hint: "Underwrite as you browse" },
+  { title: "Pipeline", icon: LayoutList, href: "/deals",    hint: "Saved properties" },
+  { title: "Settings", icon: Settings,   href: "/settings", hint: undefined },
 ]
 
 type Props = {
@@ -75,9 +74,6 @@ export function AppSidebar({ userEmail, isPro }: Props) {
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
             <span className="font-bold text-[13px] tracking-tight text-foreground leading-none">
               RealVerdict
-            </span>
-            <span className="text-[9px] text-muted-foreground/40 uppercase tracking-[0.15em] leading-none mt-0.5">
-              Investor intelligence
             </span>
           </div>
         </Link>

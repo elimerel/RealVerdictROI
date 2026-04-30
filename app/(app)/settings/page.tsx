@@ -1,279 +1,281 @@
 "use client"
 
-import { Settings, User, Bell, CreditCard, Key, CheckCircle2 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Settings as SettingsIcon, User, CreditCard, Sliders, CheckCircle2 } from "lucide-react"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { useState, useEffect } from "react"
+import { DEFAULT_INPUTS } from "@/lib/calculations"
 
-function AnthropicKeySection() {
-  const [key, setKey] = useState("")
-  const [saved, setSaved] = useState(false)
-  const [hasSaved, setHasSaved] = useState(false)
-  const api = typeof window !== "undefined" ? (window as any).electronAPI : null
+const DEFAULTS_KEY = "realverdict:defaults:v1"
 
-  useEffect(() => {
-    if (!api) return
-    api.getConfig().then((cfg: any) => {
-      if (cfg?.anthropicApiKey) { setKey(cfg.anthropicApiKey); setHasSaved(true) }
-    })
-  }, [])
-
-  if (!api) return null
-
-  const save = async () => {
-    await api.setAnthropicKey(key.trim())
-    setHasSaved(true)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
-  }
-
-  return (
-    <Card className="bg-card/50 border-violet-500/30">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Key className="h-4 w-4 text-violet-400" />
-          <CardTitle className="text-base">Anthropic API Key</CardTitle>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-400 font-medium">Recommended</span>
-        </div>
-        <CardDescription>
-          Powers analysis with Claude — Anthropic&apos;s most capable model for financial reasoning. If set, this takes priority over OpenAI.
-          {" "}<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline text-foreground">Get a key →</a>
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex gap-2">
-          <Input
-            type="password"
-            placeholder="sk-ant-..."
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            className="font-mono text-sm"
-          />
-          <Button onClick={save} disabled={!key.trim()} size="sm">
-            {saved ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Saved</> : "Save"}
-          </Button>
-        </div>
-        {hasSaved && !saved && (
-          <p className="text-xs text-muted-foreground">Key saved. Restart the app for it to take effect.</p>
-        )}
-      </CardContent>
-    </Card>
-  )
+type AssumptionDefaults = {
+  downPaymentPercent: number
+  loanInterestRate: number
+  vacancyRatePercent: number
+  // The original opex is split into maintenance/management/capex; we surface
+  // a single combined "operating expenses" knob and split it evenly.
+  operatingExpensesPercent: number
 }
 
-function OpenAIKeySection() {
-  const [key, setKey] = useState("")
-  const [saved, setSaved] = useState(false)
-  const [hasSaved, setHasSaved] = useState(false)
-  const api = typeof window !== "undefined" ? (window as any).electronAPI : null
-
-  useEffect(() => {
-    if (!api) return
-    api.getConfig().then((cfg: any) => {
-      if (cfg?.openaiApiKey) { setKey(cfg.openaiApiKey); setHasSaved(true) }
-    })
-  }, [])
-
-  if (!api) return null
-
-  const save = async () => {
-    await api.setOpenAIKey(key.trim())
-    setHasSaved(true)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+function readDefaults(): AssumptionDefaults {
+  if (typeof window === "undefined") return defaultsFromInputs()
+  try {
+    const raw = localStorage.getItem(DEFAULTS_KEY)
+    if (!raw) return defaultsFromInputs()
+    const parsed = JSON.parse(raw) as Partial<AssumptionDefaults>
+    const fallback = defaultsFromInputs()
+    return {
+      downPaymentPercent:
+        typeof parsed.downPaymentPercent === "number" ? parsed.downPaymentPercent : fallback.downPaymentPercent,
+      loanInterestRate:
+        typeof parsed.loanInterestRate === "number" ? parsed.loanInterestRate : fallback.loanInterestRate,
+      vacancyRatePercent:
+        typeof parsed.vacancyRatePercent === "number" ? parsed.vacancyRatePercent : fallback.vacancyRatePercent,
+      operatingExpensesPercent:
+        typeof parsed.operatingExpensesPercent === "number" ? parsed.operatingExpensesPercent : fallback.operatingExpensesPercent,
+    }
+  } catch {
+    return defaultsFromInputs()
   }
+}
 
-  return (
-    <Card className="bg-card/50 border-amber-500/30">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Key className="h-4 w-4 text-amber-500" />
-          <CardTitle className="text-base">OpenAI API Key</CardTitle>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Fallback</span>
-        </div>
-        <CardDescription>
-          Used for analysis when no Anthropic key is set. Your key is stored locally on this Mac and never sent to our servers.
-          {" "}<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline text-foreground">Get a key →</a>
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex gap-2">
-          <Input
-            type="password"
-            placeholder="sk-..."
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            className="font-mono text-sm"
-          />
-          <Button onClick={save} disabled={!key.trim()} size="sm">
-            {saved ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Saved</> : "Save"}
-          </Button>
-        </div>
-        {hasSaved && !saved && (
-          <p className="text-xs text-muted-foreground">Key saved. Restart the app for it to take effect.</p>
-        )}
-      </CardContent>
-    </Card>
-  )
+function defaultsFromInputs(): AssumptionDefaults {
+  return {
+    downPaymentPercent: DEFAULT_INPUTS.downPaymentPercent,
+    loanInterestRate:   DEFAULT_INPUTS.loanInterestRate,
+    vacancyRatePercent: DEFAULT_INPUTS.vacancyRatePercent,
+    operatingExpensesPercent:
+      DEFAULT_INPUTS.maintenancePercent +
+      DEFAULT_INPUTS.propertyManagementPercent +
+      DEFAULT_INPUTS.capexReservePercent,
+  }
 }
 
 export default function SettingsPage() {
   return (
     <SidebarInset>
-      <header className="h-14 flex items-center gap-4 border-b border-border px-4">
+      <header className="h-14 flex items-center gap-3 border-b border-border px-4 shrink-0">
         <SidebarTrigger className="-ml-1" />
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Settings className="h-4 w-4" />
+        <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+          <SettingsIcon className="h-4 w-4" />
           <span>Settings</span>
         </div>
       </header>
 
-      <div className="p-6 max-w-3xl space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage your account preferences and integrations.
-          </p>
-        </div>
-
-        {/* Profile Section */}
-        <Card className="bg-card/50">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <User className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-base">Profile</CardTitle>
-            </div>
-            <CardDescription>Your account information</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  defaultValue="John Doe"
-                  className="bg-background"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  defaultValue="john@example.com"
-                  className="bg-background"
-                />
-              </div>
-            </div>
-            <Button size="sm">Save Changes</Button>
-          </CardContent>
-        </Card>
-
-        {/* AI Keys */}
-        <AnthropicKeySection />
-        <OpenAIKeySection />
-
-        {/* Notifications */}
-        <Card className="bg-card/50">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Bell className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-base">Notifications</CardTitle>
-            </div>
-            <CardDescription>Configure your notification preferences</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Email Alerts</p>
-                <p className="text-xs text-muted-foreground">
-                  Receive deal alerts via email
-                </p>
-              </div>
-              <Switch defaultChecked />
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Weekly Digest</p>
-                <p className="text-xs text-muted-foreground">
-                  Summary of market trends
-                </p>
-              </div>
-              <Switch defaultChecked />
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Price Drop Alerts</p>
-                <p className="text-xs text-muted-foreground">
-                  Notify when tracked properties drop in price
-                </p>
-              </div>
-              <Switch />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* API Keys */}
-        <Card className="bg-card/50">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Key className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-base">API Integrations</CardTitle>
-            </div>
-            <CardDescription>Manage your data source connections</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
-              <div>
-                <p className="text-sm font-medium">RentCast API</p>
-                <p className="text-xs text-muted-foreground">Connected</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-xs text-emerald-400">Active</span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
-              <div>
-                <p className="text-sm font-medium">FRED Economic Data</p>
-                <p className="text-xs text-muted-foreground">Public API</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-xs text-emerald-400">Active</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Subscription */}
-        <Card className="bg-card/50">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-base">Subscription</CardTitle>
-            </div>
-            <CardDescription>Manage your billing and plan</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Pro Plan</p>
-                <p className="text-xs text-muted-foreground">
-                  $49/month, billed monthly
-                </p>
-              </div>
-              <Button variant="outline" size="sm">
-                Manage
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="p-6 max-w-2xl space-y-6">
+        <ProfileCard />
+        <DefaultsCard />
+        <SubscriptionCard />
       </div>
     </SidebarInset>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Profile
+// ---------------------------------------------------------------------------
+
+function ProfileCard() {
+  const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    setName(localStorage.getItem("realverdict:profile:name") ?? "")
+    setEmail(localStorage.getItem("realverdict:profile:email") ?? "")
+  }, [])
+
+  const handleSave = () => {
+    if (typeof window === "undefined") return
+    localStorage.setItem("realverdict:profile:name", name)
+    localStorage.setItem("realverdict:profile:email", email)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <Card className="bg-card/50">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <User className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-base">Profile</CardTitle>
+        </div>
+        <CardDescription>Your account information.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="name" className="text-[12px]">Name</Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="bg-background"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email" className="text-[12px]">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="bg-background"
+            />
+          </div>
+        </div>
+        <Button size="sm" onClick={handleSave}>
+          {saved ? <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />Saved</> : "Save changes"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Defaults — assumption knobs that pre-fill every new analysis
+// ---------------------------------------------------------------------------
+
+function DefaultsCard() {
+  const [defaults, setDefaults] = useState<AssumptionDefaults>(defaultsFromInputs)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    setDefaults(readDefaults())
+  }, [])
+
+  const update = (k: keyof AssumptionDefaults, v: string) => {
+    const num = parseFloat(v)
+    if (!Number.isFinite(num)) return
+    setDefaults((d) => ({ ...d, [k]: num }))
+  }
+
+  const handleSave = () => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults))
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  const handleReset = () => {
+    const next = defaultsFromInputs()
+    setDefaults(next)
+    if (typeof window !== "undefined") {
+      localStorage.setItem(DEFAULTS_KEY, JSON.stringify(next))
+    }
+  }
+
+  return (
+    <Card className="bg-card/50">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Sliders className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-base">Default assumptions</CardTitle>
+        </div>
+        <CardDescription>
+          Pre-fill these on every new listing so you don&rsquo;t have to re-edit each time.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <DefaultField
+            label="Down payment"
+            value={defaults.downPaymentPercent}
+            suffix="%"
+            onChange={(v) => update("downPaymentPercent", v)}
+          />
+          <DefaultField
+            label="Interest rate"
+            value={defaults.loanInterestRate}
+            suffix="%"
+            onChange={(v) => update("loanInterestRate", v)}
+          />
+          <DefaultField
+            label="Vacancy"
+            value={defaults.vacancyRatePercent}
+            suffix="%"
+            onChange={(v) => update("vacancyRatePercent", v)}
+          />
+          <DefaultField
+            label="Operating expenses"
+            value={defaults.operatingExpensesPercent}
+            suffix="% of rent"
+            onChange={(v) => update("operatingExpensesPercent", v)}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <Button size="sm" onClick={handleSave}>
+            {saved ? <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />Saved</> : "Save defaults"}
+          </Button>
+          <button
+            onClick={handleReset}
+            className="text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Reset to factory
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function DefaultField({
+  label,
+  value,
+  suffix,
+  onChange,
+}: {
+  label: string
+  value: number
+  suffix?: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-[12px]">{label}</Label>
+      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5">
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          className="border-0 bg-transparent p-0 h-auto text-sm font-mono tabular-nums focus-visible:ring-0 focus-visible:ring-offset-0"
+        />
+        {suffix && (
+          <span className="text-[11px] font-mono text-muted-foreground/55 shrink-0">{suffix}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Subscription
+// ---------------------------------------------------------------------------
+
+function SubscriptionCard() {
+  return (
+    <Card className="bg-card/50">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CreditCard className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-base">Subscription</CardTitle>
+        </div>
+        <CardDescription>Manage your billing and plan.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[13px] font-medium text-foreground">Pro</p>
+            <p className="text-[11px] text-muted-foreground/65">$12 / month, billed monthly</p>
+          </div>
+          <Button variant="outline" size="sm">Manage</Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

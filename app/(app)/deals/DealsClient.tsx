@@ -7,7 +7,6 @@ import {
   MapPin,
   ArrowRight,
   Loader2,
-  LayoutList,
   X,
   LayoutGrid,
   Table2,
@@ -16,6 +15,8 @@ import {
   ArrowDown,
   Trash2,
   AlertTriangle,
+  Columns3,
+  Download,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
@@ -33,9 +34,11 @@ import {
 } from "@/lib/calculations"
 import type { AddressSuggestion } from "@/app/api/address-autocomplete/route"
 import type { AiNarrative } from "@/lib/lead-adapter"
-import DossierPanel, { type PropertyFacts } from "../_components/DossierPanel"
+import DossierPanel, {
+  DossierPanelSkeleton,
+  type PropertyFacts,
+} from "../_components/DossierPanel"
 import { SavedDealCard, type SavedDeal } from "./SavedDealCard"
-import { TIER_LABEL, TIER_ACCENT } from "@/lib/tier-constants"
 import {
   annotateFromProvenance,
   worstConfidence,
@@ -58,14 +61,14 @@ const LISTING_URL_RE =
 const AUTOFILL_CACHE_NS = "autofill:v4"
 const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
 
-const FILTER_PILLS = [
-  { label: "All", tier: null },
-  { label: "Strong Buy", tier: "excellent" as VerdictTier },
-  { label: "Good Deal", tier: "good" as VerdictTier },
-  { label: "Fair", tier: "fair" as VerdictTier },
-  { label: "Risky", tier: "poor" as VerdictTier },
-  { label: "Walk Away", tier: "avoid" as VerdictTier },
-] as const
+type QuickFilter = "all" | "cf-positive" | "dscr-1" | "cap-6"
+
+const FILTER_PILLS: { label: string; key: QuickFilter }[] = [
+  { label: "All",                  key: "all"          },
+  { label: "Cash flow positive",   key: "cf-positive"  },
+  { label: "DSCR \u2265 1.0",      key: "dscr-1"       },
+  { label: "Cap \u2265 6%",        key: "cap-6"        },
+]
 
 // ---------------------------------------------------------------------------
 // Types
@@ -200,9 +203,9 @@ export function DealsClient({
   const [viewMode, setViewMode] = useState<"table" | "grid">("table")
 
   // ── Sort state for comparison table ──
-  type SortKey = "address" | "asking" | "walkaway" | "gap" | "cashflow" | "dscr" | "caprate" | "verdict" | "date"
-  const [sortKey, setSortKey] = useState<SortKey>("gap")
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
+  type SortKey = "address" | "asking" | "walkaway" | "gap" | "cashflow" | "dscr" | "caprate" | "date"
+  const [sortKey, setSortKey] = useState<SortKey>("date")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
 
   // ── Search state ──
   const [query, setQuery] = useState("")
@@ -214,8 +217,10 @@ export function DealsClient({
 
   // ── Deals state ──
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [activeFilter, setActiveFilter] = useState<VerdictTier | null>(null)
+  const [activeFilter, setActiveFilter] = useState<QuickFilter>("all")
   const [pendingCard, setPendingCard] = useState<PendingCard | null>(null)
+  const [compareIds, setCompareIds] = useState<Set<string>>(new Set())
+  const [compareOpen, setCompareOpen] = useState(false)
 
   // ── Right panel width ──
   const rightPanelRef = useRef<HTMLDivElement>(null)
@@ -562,15 +567,24 @@ export function DealsClient({
     [router, localNarratives]
   )
 
-  // ── Filtered saved deals — exclude optimistically deleted and apply verdict filter ──
+  // ── Filtered saved deals — exclude optimistically deleted and apply metric filter ──
   const filteredDeals = useMemo(() => {
     const live = deals.filter((d) => !deletedDealIds.has(d.id))
-    if (activeFilter === null) return live
-    return live.filter((d) => d.verdict === activeFilter)
-  }, [deals, activeFilter, deletedDealIds])
+    if (activeFilter === "all") return live
+    return live.filter((d) => {
+      const computed = dealData.get(d.id)
+      if (!computed) return false
+      const a = computed.analysis
+      switch (activeFilter) {
+        case "cf-positive": return a.monthlyCashFlow > 0
+        case "dscr-1":      return !Number.isFinite(a.dscr) || a.dscr >= 1.0
+        case "cap-6":       return a.capRate >= 0.06
+      }
+      return true
+    })
+  }, [deals, activeFilter, deletedDealIds, dealData])
 
   // ── Sorted table rows ──
-  const tierRank: Record<string, number> = { excellent: 5, good: 4, fair: 3, poor: 2, avoid: 1 }
 
   const sortedTableRows = useMemo(() => {
     const rows = filteredDeals.map((d) => {
@@ -605,9 +619,6 @@ export function DealsClient({
           break
         case "caprate":
           cmp = a.computed.analysis.capRate - b.computed.analysis.capRate
-          break
-        case "verdict":
-          cmp = (tierRank[a.deal.verdict] ?? 0) - (tierRank[b.deal.verdict] ?? 0)
           break
         case "date":
           cmp = new Date(a.deal.created_at).getTime() - new Date(b.deal.created_at).getTime()
@@ -847,13 +858,8 @@ export function DealsClient({
     }
   }
 
-  // ── Pending card grid visibility ──
-  const showPendingInGrid =
-    pendingCard !== null &&
-    (pendingCard.kind === "loading" ||
-      pendingCard.kind === "error" ||
-      (pendingCard.kind === "done" &&
-        (activeFilter === null || pendingCard.verdict === activeFilter)))
+  // ── Pending card grid visibility — always show pending cards regardless of filter ──
+  const showPendingInGrid = pendingCard !== null
 
   const hasDeals = deals.length > 0 || pendingCard !== null
 
@@ -952,20 +958,20 @@ export function DealsClient({
           </form>
         </div>
 
-        {/* Filter pills + view toggle — hidden when no deals */}
+        {/* Filter pills + actions — hidden when no deals */}
         {hasDeals && (
           <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-border overflow-x-auto whitespace-nowrap scrollbar-hide">
-            {FILTER_PILLS.map(({ label, tier }) => {
-              const isActive = activeFilter === tier
+            {FILTER_PILLS.map(({ label, key }) => {
+              const isActive = activeFilter === key
               return (
                 <button
-                  key={label}
-                  onClick={() => setActiveFilter(tier)}
+                  key={key}
+                  onClick={() => setActiveFilter(key)}
                   className={cn(
                     "shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors duration-150",
                     isActive
                       ? "bg-foreground text-background border-foreground"
-                      : "bg-transparent text-muted-foreground border-border hover:border-border/60 hover:text-foreground"
+                      : "bg-transparent text-muted-foreground border-border hover:border-border/60 hover:text-foreground",
                   )}
                 >
                   {label}
@@ -973,8 +979,31 @@ export function DealsClient({
               )
             })}
 
-            {/* Spacer */}
             <div className="flex-1" />
+
+            {/* Compare button — visible when 2+ rows are selected */}
+            {compareIds.size >= 2 && (
+              <button
+                type="button"
+                onClick={() => setCompareOpen(true)}
+                className="shrink-0 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md border border-[oklch(0.62_0.22_265)]/40 bg-[oklch(0.62_0.22_265)]/10 text-[oklch(0.72_0.18_265)] hover:bg-[oklch(0.62_0.22_265)]/20 transition-colors"
+              >
+                <Columns3 className="h-3 w-3" />
+                Compare ({compareIds.size})
+              </button>
+            )}
+
+            {/* CSV export */}
+            {isPro && filteredDeals.length > 0 && (
+              <button
+                type="button"
+                onClick={() => exportPipelineCsv(filteredDeals, dealData)}
+                className="shrink-0 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors"
+                title="Export CSV"
+              >
+                <Download className="h-3 w-3" />
+              </button>
+            )}
 
             {/* View toggle */}
             <div className="flex items-center gap-0.5 shrink-0 rounded-md border border-border p-0.5">
@@ -982,9 +1011,9 @@ export function DealsClient({
                 onClick={() => setViewMode("table")}
                 className={cn(
                   "h-5 w-5 flex items-center justify-center rounded text-muted-foreground transition-colors",
-                  viewMode === "table" ? "bg-muted text-foreground" : "hover:text-foreground"
+                  viewMode === "table" ? "bg-muted text-foreground" : "hover:text-foreground",
                 )}
-                title="Comparison table"
+                title="Table"
               >
                 <Table2 className="h-3 w-3" />
               </button>
@@ -992,7 +1021,7 @@ export function DealsClient({
                 onClick={() => setViewMode("grid")}
                 className={cn(
                   "h-5 w-5 flex items-center justify-center rounded text-muted-foreground transition-colors",
-                  viewMode === "grid" ? "bg-muted text-foreground" : "hover:text-foreground"
+                  viewMode === "grid" ? "bg-muted text-foreground" : "hover:text-foreground",
                 )}
                 title="Card grid"
               >
@@ -1007,24 +1036,30 @@ export function DealsClient({
           <EmptyPipeline />
         ) : viewMode === "table" ? (
           <div className="flex-1 overflow-auto">
-            <ComparisonTable
-              rows={sortedTableRows}
-              pendingCard={pendingCard}
-              showPendingInGrid={showPendingInGrid}
-              selectedId={selectedId}
-              sortKey={sortKey}
-              sortDir={sortDir}
-              onToggleSort={toggleSort}
-              onSelectDeal={(id) => {
-                const deal = filteredDeals.find((d) => d.id === id)
-                const computed = dealData.get(id)
-                if (deal && computed) handleSelectSavedDeal(deal, computed)
-                else setSelectedId(id)
-              }}
-              onSelectPending={(id) => setSelectedId(id)}
-              onDelete={handleDelete}
-              onRetry={(text) => submitSearch(text)}
-            />
+              <ComparisonTable
+                rows={sortedTableRows}
+                pendingCard={pendingCard}
+                showPendingInGrid={showPendingInGrid}
+                selectedId={selectedId}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onToggleSort={toggleSort}
+                compareIds={compareIds}
+                onToggleCompare={(id) => setCompareIds((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(id)) next.delete(id); else next.add(id)
+                  return next
+                })}
+                onSelectDeal={(id) => {
+                  const deal = filteredDeals.find((d) => d.id === id)
+                  const computed = dealData.get(id)
+                  if (deal && computed) handleSelectSavedDeal(deal, computed)
+                  else setSelectedId(id)
+                }}
+                onSelectPending={(id) => setSelectedId(id)}
+                onDelete={handleDelete}
+                onRetry={(text) => submitSearch(text)}
+              />
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
@@ -1143,6 +1178,19 @@ export function DealsClient({
           </div>
         )}
       </div>
+
+      {/* ═══════════════════════════════════════════════
+          COMPARE VIEW — full-screen overlay
+      ═══════════════════════════════════════════════ */}
+      {compareOpen && (
+        <CompareView
+          ids={Array.from(compareIds)}
+          deals={deals}
+          dealData={dealData}
+          onClose={() => setCompareOpen(false)}
+          onClear={() => { setCompareIds(new Set()); setCompareOpen(false) }}
+        />
+      )}
     </div>
   )
 }
@@ -1153,23 +1201,15 @@ export function DealsClient({
 
 function EmptyPipeline() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-5 p-8 text-center">
-      <div className="h-20 w-20 rounded-2xl bg-white/3 border border-white/8 flex items-center justify-center">
-        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-          {/* Three stacked property bars — comparison surface illustration */}
-          <rect x="4"  y="28" width="10" height="8" rx="1" fill="currentColor" className="text-white/10" />
-          <rect x="15" y="20" width="10" height="16" rx="1" fill="currentColor" className="text-white/15" />
-          <rect x="26" y="14" width="10" height="22" rx="1" fill="currentColor" className="text-white/20" />
-          {/* Green signal on best bar */}
-          <circle cx="31" cy="10" r="3" fill="#22c55e" opacity="0.7" />
-        </svg>
-      </div>
-      <div className="space-y-1.5">
-        <p className="text-sm font-semibold text-foreground">No deals in your Pipeline</p>
-        <p className="text-[13px] text-muted-foreground leading-relaxed max-w-xs">
-          Analyze a property on the Research page, or paste a Zillow URL or address in the search bar above.
-        </p>
-      </div>
+    <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+      <svg width="32" height="32" viewBox="0 0 40 40" fill="none" className="text-muted-foreground/20">
+        <rect x="4"  y="28" width="10" height="8"  rx="1" fill="currentColor" />
+        <rect x="15" y="20" width="10" height="16" rx="1" fill="currentColor" opacity="0.7" />
+        <rect x="26" y="14" width="10" height="22" rx="1" fill="currentColor" opacity="0.5" />
+      </svg>
+      <p className="text-[13px] text-muted-foreground/65 leading-relaxed max-w-[28ch]">
+        No saved properties yet. Browse a listing and click Save to Pipeline.
+      </p>
     </div>
   )
 }
@@ -1185,8 +1225,6 @@ type TableRow = {
   gap: number | null
 }
 
-// TIER_LABEL and TIER_ACCENT imported from @/lib/tier-constants (single source of truth)
-
 function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
   if (!active) return <ArrowUpDown className="h-3 w-3 opacity-30" />
   return dir === "asc"
@@ -1194,7 +1232,7 @@ function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
     : <ArrowDown className="h-3 w-3 text-[oklch(0.62_0.22_265)]" />
 }
 
-type SortKey = "address" | "asking" | "walkaway" | "gap" | "cashflow" | "dscr" | "caprate" | "verdict" | "date"
+type SortKey = "address" | "asking" | "walkaway" | "gap" | "cashflow" | "dscr" | "caprate" | "date"
 
 function Th({
   label,
@@ -1240,6 +1278,8 @@ function ComparisonTable({
   sortKey,
   sortDir,
   onToggleSort,
+  compareIds,
+  onToggleCompare,
   onSelectDeal,
   onSelectPending,
   onDelete,
@@ -1252,6 +1292,8 @@ function ComparisonTable({
   sortKey: SortKey
   sortDir: "asc" | "desc"
   onToggleSort: (k: SortKey) => void
+  compareIds: Set<string>
+  onToggleCompare: (id: string) => void
   onSelectDeal: (id: string) => void
   onSelectPending: (id: string) => void
   onDelete: (id: string) => void
@@ -1264,14 +1306,15 @@ function ComparisonTable({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-white/6 bg-muted/20 sticky top-0 z-10">
-            <Th label="Property"  sortKey="address"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} align="left" />
-            <Th label="Asking"    sortKey="asking"   activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-            <Th label="Walk-Away" sortKey="walkaway" activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-            <Th label="Gap"       sortKey="gap"      activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-            <Th label="CF/mo"     sortKey="cashflow" activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-            <Th label="DSCR"      sortKey="dscr"     activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-            <Th label="Cap"       sortKey="caprate"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-            <Th label="Verdict"   sortKey="verdict"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <th className="w-8" />
+            <Th label="Property"   sortKey="address"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} align="left" />
+            <Th label="Asking"     sortKey="asking"   activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Break-even" sortKey="walkaway" activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Gap"        sortKey="gap"      activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Cash flow"  sortKey="cashflow" activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="DSCR"       sortKey="dscr"     activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Cap"        sortKey="caprate"  activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            <Th label="Saved"      sortKey="date"     activeSortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             <th className="w-8" />
           </tr>
         </thead>
@@ -1288,12 +1331,14 @@ function ComparisonTable({
 
           {/* Saved deal rows */}
           {rows.map(({ deal, computed, walkAwayPrice, gap }) => {
-            const accent   = TIER_ACCENT[deal.verdict as VerdictTier] ?? "#888"
             const cf       = computed.analysis.monthlyCashFlow
             const dscr     = computed.analysis.dscr
             const capRate  = computed.analysis.capRate
             const isSelected = selectedId === deal.id
             const isDeleting = confirmingDelete === deal.id
+            const isCompare = compareIds.has(deal.id)
+            const created = new Date(deal.created_at)
+            const dateStr = created.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 
             return (
               <tr
@@ -1301,14 +1346,28 @@ function ComparisonTable({
                 onClick={() => { if (!isDeleting) onSelectDeal(deal.id) }}
                 className={cn(
                   "border-b border-white/4 cursor-pointer transition-colors group",
-                  isSelected
-                    ? "bg-white/6"
-                    : "hover:bg-white/3"
+                  isSelected ? "bg-white/6" : "hover:bg-white/3",
                 )}
-                style={isSelected ? { borderLeft: `3px solid ${accent}` } : { borderLeft: "3px solid transparent" }}
+                style={isSelected
+                  ? { borderLeft: "2px solid oklch(0.62 0.22 265)" }
+                  : { borderLeft: "2px solid transparent" }}
               >
+                {/* Compare checkbox */}
+                <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isCompare}
+                    onChange={() => onToggleCompare(deal.id)}
+                    className={cn(
+                      "h-3.5 w-3.5 rounded-sm border-white/15 bg-transparent cursor-pointer transition-opacity",
+                      isCompare ? "opacity-100" : "opacity-0 group-hover:opacity-60",
+                    )}
+                    aria-label={"Select for compare " + (deal.address ?? "")}
+                  />
+                </td>
+
                 {/* Address */}
-                <td className="px-3 py-3 max-w-[180px]">
+                <td className="px-3 py-3 max-w-[200px]">
                   <p className="text-[13px] font-medium text-foreground truncate">
                     {deal.address ?? "Unknown address"}
                   </p>
@@ -1318,7 +1377,7 @@ function ComparisonTable({
                         deal.property_facts.beds   != null && `${deal.property_facts.beds}bd`,
                         deal.property_facts.baths  != null && `${deal.property_facts.baths}ba`,
                         deal.property_facts.sqft   != null && `${(deal.property_facts.sqft / 1000).toFixed(1)}k sqft`,
-                      ].filter(Boolean).join(" · ")}
+                      ].filter(Boolean).join("  \u00b7  ")}
                     </p>
                   )}
                 </td>
@@ -1330,9 +1389,9 @@ function ComparisonTable({
                   </span>
                 </td>
 
-                {/* Walk-away */}
+                {/* Break-even (formerly walk-away) */}
                 <td className="px-3 py-3 text-right">
-                  <span className="text-[13px] font-mono tabular-nums font-semibold text-foreground">
+                  <span className="text-[13px] font-mono tabular-nums text-foreground/85">
                     {walkAwayPrice != null ? formatCurrency(walkAwayPrice, 0) : "—"}
                   </span>
                 </td>
@@ -1340,12 +1399,7 @@ function ComparisonTable({
                 {/* Gap */}
                 <td className="px-3 py-3 text-right">
                   {gap != null ? (
-                    <span
-                      className={cn(
-                        "text-[13px] font-mono tabular-nums font-semibold",
-                        gap >= 0 ? "text-emerald-400" : "text-amber-400"
-                      )}
-                    >
+                    <span className="text-[13px] font-mono tabular-nums text-muted-foreground">
                       {gap >= 0 ? "+" : ""}{formatCurrency(gap, 0)}
                     </span>
                   ) : (
@@ -1358,40 +1412,45 @@ function ComparisonTable({
                   <span
                     className={cn(
                       "text-[13px] font-mono tabular-nums",
-                      cf >= 0 ? "text-emerald-400" : "text-red-400"
+                      cf >= 0 ? "text-foreground/85" : "text-red-400",
                     )}
                   >
                     {cf >= 0 ? "+" : ""}{formatCurrency(cf, 0)}
                   </span>
                 </td>
 
-                {/* DSCR */}
+                {/* DSCR — red when < 1.0, amber when 1.0\u20131.25, neutral otherwise */}
                 <td className="px-3 py-3 text-right">
                   <span
                     className={cn(
                       "text-[13px] font-mono tabular-nums",
-                      !isFinite(dscr) || dscr >= 1.25 ? "text-foreground/80" :
-                      dscr >= 1.0 ? "text-amber-400" : "text-red-400"
+                      !isFinite(dscr) || dscr >= 1.25 ? "text-foreground/85"
+                        : dscr >= 1.0 ? "text-amber-400"
+                        : "text-red-400",
                     )}
                   >
                     {isFinite(dscr) ? dscr.toFixed(2) : "∞"}
                   </span>
                 </td>
 
-                {/* Cap rate */}
+                {/* Cap rate — amber when < 5% */}
                 <td className="px-3 py-3 text-right">
-                  <span className="text-[13px] font-mono tabular-nums text-foreground/80">
+                  <span
+                    className={cn(
+                      "text-[13px] font-mono tabular-nums",
+                      capRate >= 0.06 ? "text-foreground/85"
+                        : capRate >= 0.05 ? "text-amber-400"
+                        : "text-red-400",
+                    )}
+                  >
                     {formatPercent(capRate, 1)}
                   </span>
                 </td>
 
-                {/* Verdict */}
+                {/* Saved date */}
                 <td className="px-3 py-3 text-right">
-                  <span
-                    className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded"
-                    style={{ color: accent, backgroundColor: `${accent}18` }}
-                  >
-                    {TIER_LABEL[deal.verdict as VerdictTier] ?? deal.verdict}
+                  <span className="text-[11px] font-mono text-muted-foreground/50">
+                    {dateStr}
                   </span>
                 </td>
 
@@ -1409,7 +1468,7 @@ function ComparisonTable({
                         onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null) }}
                         className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        ✕
+                        ×
                       </button>
                     </div>
                   ) : (
@@ -1429,7 +1488,7 @@ function ComparisonTable({
 
       {rows.length === 0 && (
         <div className="py-12 text-center text-sm text-muted-foreground/40">
-          No deals match the current filter.
+          No properties match the current filter.
         </div>
       )}
     </div>
@@ -1454,10 +1513,10 @@ function PendingRow({
   if (card.kind === "loading") {
     return (
       <tr className="border-b border-white/4">
-        <td colSpan={9} className="px-3 py-3">
-          <div className="flex items-center gap-2 text-muted-foreground/50">
+        <td colSpan={10} className="px-3 py-3">
+          <div className="flex items-center gap-2 text-muted-foreground/60">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            <span className="text-xs">Analyzing…</span>
+            <span className="text-xs">Reading listing&hellip;</span>
           </div>
         </td>
       </tr>
@@ -1467,7 +1526,7 @@ function PendingRow({
   if (card.kind === "error") {
     return (
       <tr className="border-b border-white/4">
-        <td colSpan={9} className="px-3 py-3">
+        <td colSpan={10} className="px-3 py-3">
           <div className="flex items-center gap-3">
             <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
             <span className="text-xs text-red-400 flex-1 truncate">{card.message}</span>
@@ -1484,7 +1543,6 @@ function PendingRow({
   }
 
   if (card.kind === "done") {
-    const accent   = TIER_ACCENT[card.verdict as VerdictTier] ?? "#888"
     const cf       = card.analysis.monthlyCashFlow
     const dscr     = card.analysis.dscr
     const capRate  = card.analysis.capRate
@@ -1496,11 +1554,14 @@ function PendingRow({
         onClick={onSelect}
         className={cn(
           "border-b border-white/4 cursor-pointer transition-colors group",
-          isSelected ? "bg-white/6" : "hover:bg-white/3"
+          isSelected ? "bg-white/6" : "hover:bg-white/3",
         )}
-        style={isSelected ? { borderLeft: `3px solid ${accent}` } : { borderLeft: "3px solid transparent" }}
+        style={isSelected
+          ? { borderLeft: "2px solid oklch(0.62 0.22 265)" }
+          : { borderLeft: "2px solid transparent" }}
       >
-        <td className="px-3 py-3 max-w-[180px]">
+        <td className="w-8" />
+        <td className="px-3 py-3 max-w-[200px]">
           <p className="text-[13px] font-medium text-foreground truncate">
             {card.address ?? "New analysis"}
           </p>
@@ -1508,7 +1569,7 @@ function PendingRow({
             {card.propertyFacts && [
               card.propertyFacts.beds  != null && `${card.propertyFacts.beds}bd`,
               card.propertyFacts.baths != null && `${card.propertyFacts.baths}ba`,
-            ].filter(Boolean).join(" · ")}
+            ].filter(Boolean).join("  ·  ")}
           </p>
         </td>
         <td className="px-3 py-3 text-right">
@@ -1517,36 +1578,42 @@ function PendingRow({
           </span>
         </td>
         <td className="px-3 py-3 text-right">
-          <span className="text-[13px] font-mono tabular-nums font-semibold text-foreground">
+          <span className="text-[13px] font-mono tabular-nums text-foreground/85">
             {walkAwayPrice != null ? formatCurrency(walkAwayPrice, 0) : "—"}
           </span>
         </td>
         <td className="px-3 py-3 text-right">
           {gap != null ? (
-            <span className={cn("text-[13px] font-mono tabular-nums font-semibold", gap >= 0 ? "text-emerald-400" : "text-amber-400")}>
+            <span className="text-[13px] font-mono tabular-nums text-muted-foreground">
               {gap >= 0 ? "+" : ""}{formatCurrency(gap, 0)}
             </span>
           ) : <span className="text-muted-foreground/30 text-[13px]">—</span>}
         </td>
         <td className="px-3 py-3 text-right">
-          <span className={cn("text-[13px] font-mono tabular-nums", cf >= 0 ? "text-emerald-400" : "text-red-400")}>
+          <span className={cn("text-[13px] font-mono tabular-nums", cf >= 0 ? "text-foreground/85" : "text-red-400")}>
             {cf >= 0 ? "+" : ""}{formatCurrency(cf, 0)}
           </span>
         </td>
         <td className="px-3 py-3 text-right">
-          <span className={cn("text-[13px] font-mono tabular-nums", !isFinite(dscr) || dscr >= 1.25 ? "text-foreground/80" : dscr >= 1.0 ? "text-amber-400" : "text-red-400")}>
+          <span className={cn(
+            "text-[13px] font-mono tabular-nums",
+            !isFinite(dscr) || dscr >= 1.25 ? "text-foreground/85"
+              : dscr >= 1.0 ? "text-amber-400" : "text-red-400",
+          )}>
             {isFinite(dscr) ? dscr.toFixed(2) : "∞"}
           </span>
         </td>
         <td className="px-3 py-3 text-right">
-          <span className="text-[13px] font-mono tabular-nums text-foreground/80">
+          <span className={cn(
+            "text-[13px] font-mono tabular-nums",
+            capRate >= 0.06 ? "text-foreground/85"
+              : capRate >= 0.05 ? "text-amber-400" : "text-red-400",
+          )}>
             {formatPercent(capRate, 1)}
           </span>
         </td>
         <td className="px-3 py-3 text-right">
-          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded" style={{ color: accent, backgroundColor: `${accent}18` }}>
-            {TIER_LABEL[card.verdict as VerdictTier] ?? card.verdict}
-          </span>
+          <span className="text-[11px] font-mono text-muted-foreground/50">just now</span>
         </td>
         <td className="px-2 py-3" />
       </tr>
@@ -1554,4 +1621,230 @@ function PendingRow({
   }
 
   return null
+}
+
+// ---------------------------------------------------------------------------
+// CompareView — side-by-side dossier columns
+// ---------------------------------------------------------------------------
+
+function CompareView({
+  ids,
+  deals,
+  dealData,
+  onClose,
+  onClear,
+}: {
+  ids: string[]
+  deals: SavedDeal[]
+  dealData: Map<string, { analysis: DealAnalysis; walkAway: OfferCeiling | null }>
+  onClose: () => void
+  onClear: () => void
+}) {
+  const cards = ids
+    .map((id) => {
+      const deal = deals.find((d) => d.id === id)
+      const computed = dealData.get(id)
+      if (!deal || !computed) return null
+      return { deal, ...computed }
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null)
+
+  // Pre-compute best/worst per metric so we can highlight winners
+  const dscrVals = cards.map((c) => isFinite(c.analysis.dscr) ? c.analysis.dscr : 999)
+  const cfVals   = cards.map((c) => c.analysis.monthlyCashFlow)
+  const capVals  = cards.map((c) => c.analysis.capRate)
+  const bestDscr = Math.max(...dscrVals)
+  const worstDscr = Math.min(...dscrVals)
+  const bestCf = Math.max(...cfVals)
+  const worstCf = Math.min(...cfVals)
+  const bestCap = Math.max(...capVals)
+  const worstCap = Math.min(...capVals)
+
+  return (
+    <div className="fixed inset-0 z-40 bg-background/95 backdrop-blur-sm flex flex-col">
+      <header className="h-14 flex items-center gap-3 px-5 border-b border-border shrink-0">
+        <h2 className="text-[13px] font-semibold tracking-tight">Compare</h2>
+        <span className="text-[11px] text-muted-foreground/55">{cards.length} properties</span>
+        <div className="flex-1" />
+        <button
+          onClick={onClear}
+          className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded transition-colors"
+        >
+          Clear selection
+        </button>
+        <button
+          onClick={onClose}
+          className="h-7 w-7 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-white/20 transition-colors"
+          aria-label="Close compare"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </header>
+      <div
+        className={cn(
+          "flex-1 overflow-auto grid gap-4 p-5",
+          cards.length === 2 ? "grid-cols-2"
+            : cards.length === 3 ? "grid-cols-3"
+            : "grid-cols-4",
+        )}
+      >
+        {cards.map((c, i) => (
+          <CompareColumn
+            key={c.deal.id}
+            deal={c.deal}
+            analysis={c.analysis}
+            walkAway={c.walkAway}
+            highlightDscr={dscrVals[i] === bestDscr ? "best" : dscrVals[i] === worstDscr ? "worst" : undefined}
+            highlightCf={cfVals[i] === bestCf ? "best" : cfVals[i] === worstCf ? "worst" : undefined}
+            highlightCap={capVals[i] === bestCap ? "best" : capVals[i] === worstCap ? "worst" : undefined}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CompareColumn({
+  deal,
+  analysis,
+  walkAway,
+  highlightDscr,
+  highlightCf,
+  highlightCap,
+}: {
+  deal: SavedDeal
+  analysis: DealAnalysis
+  walkAway: OfferCeiling | null
+  highlightDscr?: "best" | "worst"
+  highlightCf?: "best" | "worst"
+  highlightCap?: "best" | "worst"
+}) {
+  const cf = analysis.monthlyCashFlow
+  const dscr = analysis.dscr
+  const cap = analysis.capRate
+  const breakEven = walkAway?.recommendedCeiling?.price ?? null
+
+  return (
+    <div className="rounded-lg border border-white/8 bg-card p-4 space-y-4 min-w-0">
+      <div>
+        <p className="text-[13px] font-semibold tracking-tight text-foreground truncate">
+          {deal.address ?? "Unknown address"}
+        </p>
+        <p className="text-[11px] text-muted-foreground/55 font-mono">
+          {[
+            deal.property_facts?.beds   != null && `${deal.property_facts.beds} bd`,
+            deal.property_facts?.baths  != null && `${deal.property_facts.baths} ba`,
+            deal.property_facts?.sqft   != null && `${deal.property_facts.sqft.toLocaleString()} sqft`,
+          ].filter(Boolean).join("  ·  ")}
+        </p>
+        <p className="text-[11px] text-muted-foreground/55 font-mono mt-1">
+          Asking {formatCurrency(deal.inputs.purchasePrice, 0)}
+          {breakEven != null && <> · break-even {formatCurrency(breakEven, 0)}</>}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 pt-2 border-t border-white/6">
+        <CompareMetric
+          label="DSCR"
+          value={isFinite(dscr) ? dscr.toFixed(2) : "∞"}
+          highlight={highlightDscr}
+        />
+        <CompareMetric
+          label="Cash flow"
+          value={(cf >= 0 ? "+" : "−") + formatCurrency(Math.abs(cf), 0)}
+          highlight={highlightCf}
+          tone={cf < 0 ? "bad" : undefined}
+        />
+        <CompareMetric
+          label="Cap rate"
+          value={formatPercent(cap, 2)}
+          highlight={highlightCap}
+        />
+      </div>
+    </div>
+  )
+}
+
+function CompareMetric({
+  label,
+  value,
+  highlight,
+  tone,
+}: {
+  label: string
+  value: string
+  highlight?: "best" | "worst"
+  tone?: "bad"
+}) {
+  return (
+    <div className="space-y-1 min-w-0">
+      <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground/50">{label}</p>
+      <p
+        className={cn(
+          "font-mono tabular-nums truncate",
+          highlight === "best"  && "text-foreground font-bold",
+          highlight === "worst" && "text-muted-foreground/40",
+          !highlight && "text-foreground/85",
+          tone === "bad" && "text-red-400",
+        )}
+        style={{ fontSize: "clamp(15px, 1.6vw, 18px)" }}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------------
+
+function exportPipelineCsv(
+  deals: SavedDeal[],
+  dealData: Map<string, { analysis: DealAnalysis; walkAway: OfferCeiling | null }>,
+): void {
+  const headers = [
+    "Address",
+    "Asking",
+    "Break-even",
+    "Gap",
+    "Cash flow / mo",
+    "DSCR",
+    "Cap rate",
+    "Saved",
+  ]
+  const rows = deals.map((deal) => {
+    const computed = dealData.get(deal.id)
+    if (!computed) return null
+    const a = computed.analysis
+    const wa = computed.walkAway?.recommendedCeiling?.price ?? null
+    const gap = wa != null ? wa - deal.inputs.purchasePrice : null
+    return [
+      deal.address ?? "",
+      deal.inputs.purchasePrice,
+      wa ?? "",
+      gap ?? "",
+      Math.round(a.monthlyCashFlow),
+      isFinite(a.dscr) ? a.dscr.toFixed(2) : "",
+      (a.capRate * 100).toFixed(2) + "%",
+      new Date(deal.created_at).toISOString().slice(0, 10),
+    ]
+  }).filter((r): r is (string | number)[] => r !== null)
+
+  const csv = [headers, ...rows]
+    .map((row) => row.map((cell) => {
+      const s = String(cell ?? "")
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }).join(","))
+    .join("\n")
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = `realverdict-pipeline-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
