@@ -1,6 +1,6 @@
 "use strict"
 
-const { app, BrowserWindow, WebContentsView, ipcMain, screen, session } = require("electron")
+const { app, BrowserWindow, WebContentsView, ipcMain, screen, session, Menu } = require("electron")
 const path = require("path")
 const fs = require("fs")
 
@@ -36,6 +36,107 @@ try {
   }
 } catch (err) {
   console.warn("[main] dotenv load skipped:", err?.message ?? err)
+}
+
+// ---------------------------------------------------------------------------
+// Native app menu
+//
+// Without a menu, macOS apps lack Edit (Cut/Copy/Paste), Window (Minimize),
+// and the standard Cmd+Q quit handling. This makes the app feel broken to
+// any Mac user who reaches for those shortcuts instinctively.
+// ---------------------------------------------------------------------------
+
+function buildAppMenu() {
+  const isMac = process.platform === "darwin"
+
+  return Menu.buildFromTemplate([
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    }] : []),
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "pasteAndMatchStyle" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        {
+          label: "Back",
+          accelerator: "CmdOrCtrl+[",
+          click: () => {
+            if (browserView?.webContents.canGoBack()) browserView.webContents.goBack()
+          },
+        },
+        {
+          label: "Forward",
+          accelerator: "CmdOrCtrl+]",
+          click: () => {
+            if (browserView?.webContents.canGoForward()) browserView.webContents.goForward()
+          },
+        },
+        {
+          label: "Reload",
+          accelerator: "CmdOrCtrl+R",
+          click: () => {
+            // If the browser panel is active, reload the listing page.
+            // Otherwise reload the app window (useful when the app itself glitches).
+            if (browserView) browserView.webContents.reload()
+            else appWindow?.webContents.reload()
+          },
+        },
+        { type: "separator" },
+        {
+          label: "Open URL Bar",
+          accelerator: "CmdOrCtrl+L",
+          click: () => appWindow?.webContents.send("browser:focus-urlbar"),
+        },
+        { type: "separator" },
+        {
+          label: "Developer Tools",
+          accelerator: "CmdOrCtrl+Alt+I",
+          click: () => appWindow?.webContents.openDevTools({ mode: "detach" }),
+        },
+        {
+          label: "Developer Tools (Browser Panel)",
+          click: () => browserView?.webContents.openDevTools({ mode: "detach" }),
+          visible: DEV,
+        },
+      ],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        ...(isMac ? [
+          { type: "separator" },
+          { role: "front" },
+          { type: "separator" },
+          { role: "window" },
+        ] : [{ role: "close" }]),
+      ],
+    },
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +507,9 @@ function expandToMainApp() {
   // Restore the user's last window size + position. If they've never opened
   // the app before, or the saved bounds are off-screen (unplugged monitor),
   // readMainBounds() falls back to a centered default.
-  appWindow.setBounds(readMainBounds())
+  // `true` = animated resize on macOS — the window smoothly expands while
+  // the page loads in the background rather than snapping.
+  appWindow.setBounds(readMainBounds(), true)
   appWindow.loadURL(`${BASE_URL}/research`)
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
@@ -421,10 +524,11 @@ function shrinkToLogin() {
   destroyBrowserView()
   isMainMode = false
 
-  // Clear the minimum size before shrinking, then lock resizing
+  // Clear the minimum size before shrinking, then lock resizing.
+  // `true` = animated — the window shrinks smoothly rather than snapping.
   appWindow.setMinimumSize(0, 0)
   appWindow.setResizable(false)
-  appWindow.setBounds(centeredBounds(LOGIN_W, LOGIN_H), true)  // animated
+  appWindow.setBounds(centeredBounds(LOGIN_W, LOGIN_H), true)
 
   // Navigate after the animation has started so it doesn't flash
   setTimeout(() => {
@@ -483,6 +587,28 @@ function createBrowserView() {
   browserView.webContents.setWindowOpenHandler(({ url }) => {
     browserView?.webContents.loadURL(url)
     return { action: "deny" }
+  })
+
+  // Intercept keyboard shortcuts that should act on the app frame rather
+  // than the embedded page. The browser view normally swallows these.
+  browserView.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return
+    const mod = process.platform === "darwin" ? input.meta : input.control
+
+    // Cmd/Ctrl+L — focus OUR URL bar (not Chromium's invisible address bar).
+    // preventDefault stops Chromium from handling it as "select all in URL bar"
+    // which would be a no-op anyway since there's no visible URL bar in the view.
+    if (mod && !input.shift && !input.alt && input.key === "l") {
+      event.preventDefault()
+      appWindow?.webContents.send("browser:focus-urlbar")
+      return
+    }
+
+    // Cmd/Ctrl+Opt+I — DevTools for the browser panel itself.
+    if (mod && input.alt && input.key === "I") {
+      event.preventDefault()
+      browserView.webContents.openDevTools({ mode: "detach" })
+    }
   })
 }
 
@@ -1347,6 +1473,7 @@ ipcMain.handle("extract:debug:last", () => {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(buildAppMenu())
   createAppWindow()
 
   app.on("activate", () => {

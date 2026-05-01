@@ -613,8 +613,8 @@ function ElectronBrowsePage() {
     return () => { window.electronAPI?.hideBrowser() }
   }, [])
 
-  // Keyboard shortcuts integration: ⌘N focuses the URL bar so the user can
-  // immediately type a new listing URL without reaching for the mouse.
+  // Keyboard shortcuts integration: ⌘N / ⌘L focuses the URL bar so the user
+  // can immediately type a new listing URL without reaching for the mouse.
   useEffect(() => {
     const onFocusUrl = () => {
       const el = urlInputRef.current
@@ -622,9 +622,14 @@ function ElectronBrowsePage() {
     }
     window.addEventListener("rv:focus-url", onFocusUrl)
     window.addEventListener("rv:focus-search", onFocusUrl)
+
+    // ⌘L from the browser panel or native menu → same URL bar focus
+    const unsubFocusUrl = window.electronAPI?.onFocusUrlbar?.(() => onFocusUrl())
+
     return () => {
       window.removeEventListener("rv:focus-url", onFocusUrl)
       window.removeEventListener("rv:focus-search", onFocusUrl)
+      unsubFocusUrl?.()
     }
   }, [])
 

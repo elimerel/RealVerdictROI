@@ -47,6 +47,8 @@ export interface ElectronAPI {
   extractDebug: () => Promise<Record<string, unknown>>
   /** Registers a nav-update listener. Returns a cleanup function. */
   onNavUpdate: (cb: (payload: ElectronNavUpdate) => void) => () => void
+  /** Fired when Cmd+L is pressed in the browser panel or from the View menu. */
+  onFocusUrlbar: (cb: () => void) => () => void
   /** Auth events */
   signedIn: () => Promise<void>
   signedOut: () => Promise<void>

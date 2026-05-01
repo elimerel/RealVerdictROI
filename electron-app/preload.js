@@ -40,6 +40,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("browser:nav-update", handler)
     return () => ipcRenderer.removeListener("browser:nav-update", handler)
   },
+  // Fired when Cmd+L is pressed while the browser panel has focus,
+  // or from the native View > Open URL Bar menu item.
+  onFocusUrlbar: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on("browser:focus-urlbar", handler)
+    return () => ipcRenderer.removeListener("browser:focus-urlbar", handler)
+  },
 
   // --- Auth events ---
   signedIn: () => ipcRenderer.invoke("auth:signed-in"),
