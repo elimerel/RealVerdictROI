@@ -68,12 +68,22 @@ function coerceString(v: unknown): string | null {
   return t
 }
 
-function coerceStringArray(v: unknown): string[] {
+/** Risk flags are bounded to short FACTUAL tags (≤3 words, ≤32 chars).
+ *  This is a safety net so even if the model drifts and returns a long
+ *  paraphrase of marketing copy we still strip it before storing —
+ *  the legal posture is "we only persist short factual tags". */
+function coerceRiskFlags(v: unknown): string[] {
   if (!Array.isArray(v)) return []
   return v
     .map((x) => coerceString(x))
     .filter((x): x is string => x !== null)
-    .slice(0, 10)
+    .map((s) => s.trim())
+    .filter((s) => {
+      if (s.length === 0 || s.length > 32) return false
+      const wordCount = s.split(/\s+/).length
+      return wordCount <= 3
+    })
+    .slice(0, 8)
 }
 
 function coerceFacts(raw: Record<string, unknown> | undefined): ListingFacts {
@@ -105,12 +115,14 @@ function coerceFacts(raw: Record<string, unknown> | undefined): ListingFacts {
     annualPropertyTax:  coerceNumber(f.annualPropertyTax ?? f.tax ?? f.propertyTax),
     annualInsuranceEst: coerceNumber(f.annualInsuranceEst ?? f.insurance),
 
-    conditionNotes:     coerceString(f.conditionNotes),
-    riskFlags:          coerceStringArray(f.riskFlags),
+    // conditionTag — accept either the new field name or the legacy
+    // conditionNotes for back-compat with model outputs that haven't
+    // updated to the new prompt yet.
+    conditionTag:       coerceString(f.conditionTag ?? f.conditionNotes),
+    riskFlags:          coerceRiskFlags(f.riskFlags),
 
     mlsNumber:          coerceString(f.mlsNumber),
     listingDate:        coerceString(f.listingDate),
-    listingRemarks:     coerceString(f.listingRemarks),
     schoolRating:       coerceNumber(f.schoolRating),
     walkScore:          coerceNumber(f.walkScore),
 

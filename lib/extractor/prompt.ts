@@ -51,11 +51,10 @@ OUTPUT SHAPE
     "monthlyHOA":         number | null,
     "annualPropertyTax":  number | null,
     "annualInsuranceEst": number | null,
-    "conditionNotes":     string | null,
+    "conditionTag":       string | null,
     "riskFlags":          string[],
     "mlsNumber":          string | null,
     "listingDate":        string | null,
-    "listingRemarks":     string | null,
     "schoolRating":       number | null,
     "walkScore":          number | null,
     "siteName":           string | null
@@ -87,9 +86,29 @@ EXTRACTION RULES
 - If a field is shown as a range (e.g. rent estimate $2,800–$3,200), use the midpoint and note the range in meta.
 - Money values: plain numbers, no $, no commas, no formatting.
 - Lot size: convert acres to square feet if needed (1 acre = 43,560 sq ft) and put result in lotSqft.
-- riskFlags: a SHORT array of verbatim or near-verbatim phrases lifted from the page if they appear, e.g. ["flood zone AE","septic","HOA $480/mo","leasehold","busy road"]. Empty array if none.
-- listingRemarks: 1-3 sentences of the marketing description if shown. Trim to ~280 characters.
-- siteName: the platform as it appears, e.g. "Zillow", "Redfin", "Realtor.com", "Homes.com", "Trulia", "Compass", "LoopNet", or the site's own name.
+
+CONTENT-USAGE RULES (important — read carefully)
+RealVerdict only stores STRUCTURED FACTS and SHORT FACTUAL TAGS.
+We do NOT republish marketing copy from the listing. Specifically:
+- riskFlags: short FACTUAL tags you generate yourself, max 3 words each,
+  describing the type of risk in your own words. Examples of acceptable
+  tags: "flood zone", "septic", "high HOA", "leasehold", "busy road",
+  "tenant-occupied", "needs roof", "pre-1978". DO NOT lift sentences,
+  marketing phrases, or descriptive language from the listing copy.
+  Empty array if none of the above apply.
+- conditionTag: a SHORT 1-3 word factual tag in your own words about
+  property condition. Acceptable values: "move-in ready",
+  "needs work", "recently renovated", "as-is", "tear-down",
+  "new construction", or null. NEVER paraphrase the listing's
+  marketing description.
+- siteName: the platform as it appears, e.g. "Zillow", "Redfin",
+  "Realtor.com", "Homes.com", "Trulia", "Compass", "LoopNet", or the
+  site's own name.
+
+DO NOT EXTRACT (deliberately omitted from the schema):
+- Marketing descriptions / "about this home" / agent remarks (copyrighted)
+- Photos, captions, image URLs (copyrighted)
+- Walkthroughs, virtual-tour text, broker commentary (copyrighted)
 
 RENT — CRITICAL
 - monthlyRent is ONLY a labeled rental estimate ("Rent Zestimate", "Estimated rent", "Rental estimate", "Market rent", "Estimated monthly rent").

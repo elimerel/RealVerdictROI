@@ -42,7 +42,8 @@ export type LimiterName =
   | "stripe-webhook"
   | "stripe-checkout"
   | "analysis-free-anon"
-  | "analysis-free-user";
+  | "analysis-free-user"
+  | "report-concern";
 
 type LimiterSpec = {
   /** Human-readable budget, for logging / debugging. */
@@ -105,6 +106,11 @@ const LIMITS: Record<LimiterName, LimiterSpec> = {
     tokens: 3,
     windowSeconds: 7 * 24 * 3600,
   },
+
+  // Public concern-report form (DMCA / abuse / privacy / data-accuracy).
+  // 5 / hour per IP is plenty for a real reporter; anything past that
+  // reads as harassment or scripted spam.
+  "report-concern": { label: "report-concern", tokens: 5, windowSeconds: 3600 },
 };
 
 const MAX_WINDOW_MS = Math.max(

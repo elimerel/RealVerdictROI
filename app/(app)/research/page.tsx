@@ -52,13 +52,14 @@ type AnalysisResult = {
   take?: string | null
   /** Risk phrases lifted verbatim from the listing. */
   riskFlags?: string[]
-  /** Rich detail surface (DOM, price history, remarks, scores, lot). */
+  /** Structured detail surface (DOM, price history, MLS, scores, lot).
+   *  Verbatim listing copy is intentionally NOT here — see legal
+   *  hardening pass. */
   listingDetails?: {
     daysOnMarket?: number | null
     originalListPrice?: number | null
     priceHistoryNote?: string | null
     listingDate?: string | null
-    listingRemarks?: string | null
     mlsNumber?: string | null
     schoolRating?: number | null
     walkScore?: number | null
@@ -102,11 +103,12 @@ type ListingFacts = {
   monthlyHOA: number | null
   annualPropertyTax: number | null
   annualInsuranceEst: number | null
-  conditionNotes: string | null
+  // Renamed from conditionNotes to conditionTag — short factual tag
+  // in the model's own words, never lifted from the listing copy.
+  conditionTag: string | null
   riskFlags: string[]
   mlsNumber: string | null
   listingDate: string | null
-  listingRemarks: string | null
   schoolRating: number | null
   walkScore: number | null
   siteName: string | null
@@ -281,7 +283,6 @@ function buildAnalysisFromExtract(
       originalListPrice: f.originalListPrice,
       priceHistoryNote:  f.priceHistoryNote,
       listingDate:       f.listingDate,
-      listingRemarks:    f.listingRemarks,
       mlsNumber:         f.mlsNumber,
       schoolRating:      f.schoolRating,
       walkScore:         f.walkScore,

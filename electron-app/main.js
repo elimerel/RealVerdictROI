@@ -1,8 +1,21 @@
 "use strict"
 
-const { app, BrowserWindow, WebContentsView, ipcMain, screen } = require("electron")
+const { app, BrowserWindow, WebContentsView, ipcMain, screen, session } = require("electron")
 const path = require("path")
 const fs = require("fs")
+
+// Pinned to the Chromium version inside the current Electron build so the
+// embedded browser presents a clean, indistinguishable Chrome user-agent
+// to Zillow / Redfin / etc. Computed once at module load so we don't pay
+// the cost on every navigation.
+//   - Pulls the major Chrome version (e.g. "130") from process.versions.chrome
+//   - Falls back to a recent stable major if process.versions.chrome is
+//     unavailable (shouldn't happen in any real Electron build)
+const CHROMIUM_MAJOR = (process.versions.chrome || "130").split(".")[0]
+const CHROME_DESKTOP_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+  "AppleWebKit/537.36 (KHTML, like Gecko) " +
+  `Chrome/${CHROMIUM_MAJOR}.0.0.0 Safari/537.36`
 
 // Load .env.local from the repo root in dev so the Anthropic / OpenAI keys
 // reach the main process. Without this, only the Next.js renderer sees env
@@ -244,12 +257,33 @@ function createAppWindow() {
   // (which strips ?source=electron), the small window never shows the
   // website-styled login card crammed into 420×560.
   //
-  // The token also lets the OAuth callback know it's serving an Electron
-  // request, but we're not using that yet.
+  // We DON'T stamp "RealVerdictDesktop/1.0" onto the user-agent anymore —
+  // that suffix made the embedded browser trivially fingerprintable and
+  // single-tool-targetable by Zillow/Redfin. Instead we set a clean
+  // Chromium UA AND inject a private custom request header on the app
+  // window's session, which only realverdict.* endpoints read. Every
+  // outbound request from the app window carries this header, but only
+  // OUR backend knows or looks for it.
   try {
-    const baseUA = appWindow.webContents.getUserAgent()
-    appWindow.webContents.setUserAgent(`${baseUA} RealVerdictDesktop/1.0`)
+    appWindow.webContents.setUserAgent(CHROME_DESKTOP_UA)
   } catch { /* best-effort */ }
+  try {
+    const ses = appWindow.webContents.session
+    ses.webRequest.onBeforeSendHeaders((details, callback) => {
+      // Only stamp our own surfaces — never leak the marker to third-party
+      // sites the user navigates to inside the embedded browser.
+      const url = details.url || ""
+      const isOwnHost =
+        url.startsWith(BASE_URL) ||
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/)/.test(url) ||
+        /^https?:\/\/([a-z0-9-]+\.)*realverdict\.(app|com)(:|\/)/i.test(url)
+      const headers = { ...details.requestHeaders }
+      if (isOwnHost) headers["X-RealVerdict-Desktop"] = "1"
+      callback({ requestHeaders: headers })
+    })
+  } catch (err) {
+    console.warn("[main] failed to install request header:", err?.message ?? err)
+  }
 
   // Cmd+Option+I (macOS) / Ctrl+Alt+I (Win/Linux) opens DevTools in any build.
   // Useful for diagnosing preload / IPC issues without a dev flag.
@@ -403,10 +437,11 @@ function createBrowserView() {
   browserView = new WebContentsView({
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
-  browserView.webContents.setUserAgent(
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-  )
+  // Clean Chrome UA pinned to the current Chromium major. Identical to
+  // what the user would send from a regular Chrome session — no Electron
+  // suffix, no product marker. Required so listings sites don't flag
+  // the WebContentsView as an embedded WebView.
+  browserView.webContents.setUserAgent(CHROME_DESKTOP_UA)
   appWindow.contentView.addChildView(browserView)
 
   // Send a navigation state snapshot to the renderer.
@@ -557,11 +592,10 @@ OUTPUT SHAPE
     "monthlyHOA":         number | null,
     "annualPropertyTax":  number | null,
     "annualInsuranceEst": number | null,
-    "conditionNotes":     string | null,
+    "conditionTag":       string | null,
     "riskFlags":          string[],
     "mlsNumber":          string | null,
     "listingDate":        string | null,
-    "listingRemarks":     string | null,
     "schoolRating":       number | null,
     "walkScore":          number | null,
     "siteName":           string | null
@@ -587,9 +621,25 @@ EXTRACTION RULES
 - Return null for any field NOT explicitly stated on the page. NEVER estimate, infer, or invent.
 - Money values: plain numbers, no $, no commas, no formatting.
 - Lot size: convert acres to square feet (1 acre = 43,560).
-- riskFlags: short array of phrases lifted from the page (e.g. ["flood zone AE","septic","HOA $480/mo"]). Empty array if none.
-- listingRemarks: 1-3 sentences of marketing description if shown. Trim to ~280 chars.
+
+CONTENT-USAGE RULES (read carefully)
+RealVerdict only stores STRUCTURED FACTS and SHORT FACTUAL TAGS in
+your own words. We do NOT republish marketing copy from the listing.
+- riskFlags: short FACTUAL tags YOU GENERATE, max 3 words each, in
+  your own words. Examples: "flood zone", "septic", "high HOA",
+  "leasehold", "busy road", "tenant-occupied", "needs roof",
+  "pre-1978". DO NOT lift sentences or marketing phrases from the
+  listing copy. Empty array if nothing applies.
+- conditionTag: a SHORT 1-3 word factual tag YOU GENERATE about
+  property condition. Acceptable: "move-in ready", "needs work",
+  "recently renovated", "as-is", "tear-down", "new construction",
+  or null. NEVER paraphrase the listing's marketing copy.
 - siteName: the platform as it appears.
+
+DO NOT EXTRACT (deliberately omitted from the schema):
+- Marketing descriptions / "about this home" / agent remarks
+- Photos, captions, image URLs
+- Walkthroughs, virtual-tour text, broker commentary
 
 RENT — CRITICAL
 - monthlyRent is ONLY a labeled rental estimate ("Rent Zestimate", "Estimated rent", "Rental estimate", "Market rent").
@@ -1017,6 +1067,20 @@ function postProcess(raw, hostname, modelUsed) {
     return t
   }
   const arr = (v) => Array.isArray(v) ? v.map(str).filter(Boolean).slice(0, 10) : []
+  /** Risk-flag whitelist: bounded to short FACTUAL tags (≤3 words,
+   *  ≤32 chars). Hard cap of 8 entries. This is a defense-in-depth
+   *  net so that even if the model drifts and returns a paraphrase of
+   *  marketing copy, we never persist verbatim listing text. The
+   *  legal posture is "we only store short factual tags." */
+  const flagArr = (v) => {
+    if (!Array.isArray(v)) return []
+    return v
+      .map(str)
+      .filter(Boolean)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.length <= 32 && s.split(/\s+/).length <= 3)
+      .slice(0, 8)
+  }
   const conf = (v) => (v === "high" || v === "medium" || v === "low") ? v : "low"
 
   const validKinds = new Set([
@@ -1051,11 +1115,12 @@ function postProcess(raw, hostname, modelUsed) {
     monthlyHOA:         num(f.monthlyHOA ?? f.hoa),
     annualPropertyTax:  num(f.annualPropertyTax ?? f.tax ?? f.propertyTax),
     annualInsuranceEst: num(f.annualInsuranceEst ?? f.insurance),
-    conditionNotes:     str(f.conditionNotes),
-    riskFlags:          arr(f.riskFlags),
+    // Accept the new conditionTag OR legacy conditionNotes — for
+    // back-compat with model outputs that haven't updated yet.
+    conditionTag:       str(f.conditionTag ?? f.conditionNotes),
+    riskFlags:          flagArr(f.riskFlags),
     mlsNumber:          str(f.mlsNumber),
     listingDate:        str(f.listingDate),
-    listingRemarks:     str(f.listingRemarks),
     schoolRating:       num(f.schoolRating),
     walkScore:          num(f.walkScore),
     siteName:           str(f.siteName) || hostname,
@@ -1184,12 +1249,10 @@ ipcMain.handle("auth:open-oauth", (_e, oauthUrl) => {
 
     popup.setMenuBarVisibility(false)
 
-    // Spoof a standard Chrome user-agent.  Google rejects OAuth requests from
-    // user-agents that contain "Electron" (embedded WebView policy).
-    const chromeUA =
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    popup.webContents.setUserAgent(chromeUA)
+    // Standard Chrome user-agent. Google rejects OAuth requests from
+    // user-agents that contain "Electron" (embedded WebView policy), so
+    // we send the same clean Chromium UA the rest of the app uses.
+    popup.webContents.setUserAgent(CHROME_DESKTOP_UA)
     popup.loadURL(oauthUrl)
 
     let resolved = false

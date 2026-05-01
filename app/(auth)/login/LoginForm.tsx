@@ -31,6 +31,10 @@ export default function LoginForm({
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Terms acceptance gate for signup (legal hardening pass).
+  // Defaults to false so creating an account is always an affirmative
+  // opt-in. The checkbox is unmounted entirely in sign-in mode.
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [status, setStatus] = useState<
     | { state: "idle" }
     | { state: "loading" }
@@ -91,6 +95,16 @@ export default function LoginForm({
   }, [afterSignIn]);
 
   const signInWithGoogle = async () => {
+    // Same acceptance gate as the email signup path. Google sign-in
+    // can also create an account, so in signup mode we require the
+    // checkbox before kicking off the OAuth round-trip.
+    if (mode === "signup" && !termsAccepted) {
+      setStatus({
+        state: "error",
+        message: "Please agree to the Terms of Service and Privacy Policy to continue.",
+      });
+      return;
+    }
     setStatus({ state: "oauth_loading" });
     const supabase = createClient();
     const callbackUrl = `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`;
@@ -151,6 +165,18 @@ export default function LoginForm({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Sign-up acceptance gate (legal hardening pass). Submitting the
+    // form in signup mode is the affirmative act; the disclosure
+    // appears immediately above the submit button so the agreement is
+    // unambiguous. We re-check it here just in case of an unusual
+    // submission path (Enter key, automation tool, etc.).
+    if (mode === "signup" && !termsAccepted) {
+      setStatus({
+        state: "error",
+        message: "Please agree to the Terms of Service and Privacy Policy to continue.",
+      });
+      return;
+    }
     setStatus({ state: "loading" });
 
     const supabase = createClient();
@@ -258,6 +284,38 @@ export default function LoginForm({
             />
           </div>
 
+          {mode === "signup" && (
+            <label className="mt-1 flex items-start gap-2 text-[11px] leading-snug text-zinc-400">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 rounded border border-zinc-600 bg-zinc-900 text-zinc-100 accent-zinc-100"
+              />
+              <span>
+                I agree to the{" "}
+                <a
+                  href="https://realverdict.com/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-zinc-200 underline underline-offset-2 hover:text-white"
+                >
+                  Terms of Service
+                </a>{" "}
+                and{" "}
+                <a
+                  href="https://realverdict.com/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-zinc-200 underline underline-offset-2 hover:text-white"
+                >
+                  Privacy Policy
+                </a>
+                .
+              </span>
+            </label>
+          )}
+
           {status.state === "error" && (
             <div className="rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-xs text-red-300">
               {status.message}
@@ -266,7 +324,7 @@ export default function LoginForm({
 
           <button
             type="submit"
-            disabled={busy}
+            disabled={busy || (mode === "signup" && !termsAccepted)}
             className="mt-1 inline-flex h-9 items-center justify-center rounded-lg bg-white text-sm font-semibold text-zinc-900 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
@@ -348,6 +406,38 @@ export default function LoginForm({
           )}
         </div>
 
+        {mode === "signup" && (
+          <label className="flex items-start gap-2.5 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border border-zinc-300 text-zinc-900 accent-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:accent-zinc-100"
+            />
+            <span>
+              I agree to the{" "}
+              <a
+                href="/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
+              >
+                Terms of Service
+              </a>{" "}
+              and{" "}
+              <a
+                href="/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
+              >
+                Privacy Policy
+              </a>
+              .
+            </span>
+          </label>
+        )}
+
         {status.state === "error" && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
             {status.message}
@@ -356,7 +446,7 @@ export default function LoginForm({
 
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || (mode === "signup" && !termsAccepted)}
           className="mt-2 inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
           {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}

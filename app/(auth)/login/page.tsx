@@ -23,17 +23,23 @@ export default async function LoginPage({
   const initialMode: "signin" | "signup" =
     sp.mode === "signup" ? "signup" : "signin";
 
-  // Electron auto-detection — the desktop shell stamps "RealVerdictDesktop"
-  // onto its user-agent. Detect it here so we never crash a server-side
-  // redirect (e.g. /deals -> /login when no session) into the website-styled
-  // card inside the 420×560 login window.
+  // Electron auto-detection — the desktop shell sends a private custom
+  // request header on requests to our own origins. We use this header
+  // (NOT a user-agent suffix) so the embedded browser stays an
+  // indistinguishable Chromium UA on third-party sites — that's the
+  // legal/operational hardening from the UA-normalization pass.
   //
-  // Falls back to ?source=electron for older builds without the UA token.
+  // Falls back to:
+  //   - the legacy "RealVerdictDesktop" UA tag (older installed builds)
+  //   - the ?source=electron query param (very old builds + manual link)
+  // so users on stale binaries still get the compact form.
   const reqHeaders = await headers();
   const ua = reqHeaders.get("user-agent") ?? "";
-  const isElectron = ua.includes("RealVerdictDesktop") ||
-                     ua.includes("realverdict-desktop") ||
-                     sp.source === "electron";
+  const isElectron =
+    reqHeaders.get("x-realverdict-desktop") === "1" ||
+    ua.includes("RealVerdictDesktop") ||
+    ua.includes("realverdict-desktop") ||
+    sp.source === "electron";
 
   // Compact layout for the Electron desktop app — dark, no header, no scroll.
   //

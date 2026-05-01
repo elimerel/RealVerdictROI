@@ -17,16 +17,18 @@ export type AiNarrative = {
   generatedAt: string;  // ISO timestamp
 };
 
-/** Rich detail surface lifted by the extractor. Every key is optional —
- *  the extractor doesn't always produce every field, and we never want
- *  the row read to fail because one number was missing. */
+/** Structured detail surface produced by the extractor. Every key is
+ *  optional — the extractor doesn't always produce every field, and we
+ *  never want the row read to fail because one number was missing.
+ *  Note: listingRemarks (verbatim marketing copy) is intentionally NOT
+ *  in this shape. We don't store verbatim listing descriptions; only
+ *  short factual data lives here. */
 export type ListingDetails = {
   daysOnMarket?: number | null;
   originalListPrice?: number | null;
-  /** Plain-English note: "Reduced 4/12: $545k → $530k". */
+  /** Plain-English note in OUR words: "Reduced 4/12: $545k → $530k". */
   priceHistoryNote?: string | null;
   listingDate?: string | null;
-  listingRemarks?: string | null;
   mlsNumber?: string | null;
   /** 0-10. */
   schoolRating?: number | null;
@@ -54,7 +56,9 @@ export type DealRow = {
   ai_narrative?: AiNarrative | null;
   /** Model-written one-sentence take captured at extraction time. */
   ai_take?: string | null;
-  /** Risk phrases lifted verbatim from the listing copy. */
+  /** Short factual risk tags ≤3 words each (model-generated, NOT
+   *  lifted verbatim from the listing copy). Server enforces the
+   *  contract — see app/api/deals/save/route.ts:sanitizeRiskFlags. */
   risk_flags?: string[] | null;
   /** Days-on-market, price history, MLS, school + walk scores, lot size. */
   listing_details?: ListingDetails | null;

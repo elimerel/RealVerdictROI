@@ -27,7 +27,6 @@ import {
   Target,
   Calendar,
   TagIcon,
-  ScrollText,
 } from "lucide-react"
 import WaterfallChart from "@/components/charts/waterfall-chart"
 import { tonedSeverity, type Severity } from "@/lib/severity"
@@ -52,14 +51,20 @@ export type PropertyFacts = {
 export type ListingDetails = {
   daysOnMarket?: number | null
   originalListPrice?: number | null
+  /** Short, factual price-history note in OUR words, never lifted
+   *  verbatim from the listing copy. */
   priceHistoryNote?: string | null
   listingDate?: string | null
-  listingRemarks?: string | null
   mlsNumber?: string | null
   schoolRating?: number | null
   walkScore?: number | null
   lotSqft?: number | null
 }
+// listingRemarks (verbatim marketing description from the source page)
+// is intentionally NOT in this shape. Listing copy is copyrighted by
+// the listing agent / broker and we don't surface it. The dossier
+// instead leads with the AI-written "take" sentence, which IS
+// transformative and our own.
 
 export type DossierPanelProps = {
   analysis: DealAnalysis
@@ -925,7 +930,6 @@ function hasListingDetails(d?: ListingDetails | null): boolean {
     d.originalListPrice != null ||
     d.priceHistoryNote != null ||
     d.listingDate != null ||
-    d.listingRemarks != null ||
     d.mlsNumber != null ||
     d.schoolRating != null ||
     d.walkScore != null ||
@@ -1006,18 +1010,11 @@ function ListingDetailsRow({
         )}
       </div>
 
-      {/* ── Listing remarks — quoted from the page. ────────────────── */}
-      {details.listingRemarks && (
-        <div className="rounded-md border border-[var(--rv-fill-border)] px-3 py-2.5">
-          <p className="text-[10px] uppercase tracking-[0.08em] rv-t3 mb-1 inline-flex items-center gap-1.5">
-            <ScrollText className="h-3 w-3" />
-            From the listing
-          </p>
-          <p className="text-[12px] rv-t1 leading-relaxed italic">
-            “{details.listingRemarks}”
-          </p>
-        </div>
-      )}
+      {/* The verbatim "From the listing" quote block was removed during
+          the legal hardening pass — listing copy is the property of the
+          listing agent / broker, and republishing it crossed into
+          derivative-work territory. The transformative "take" sentence
+          at the top of the dossier remains as our own analytical hook. */}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { MarketingFooter } from "../_components/MarketingFooter";
 
 export const metadata: Metadata = {
   title: "Methodology — How RealVerdict scores a deal",
@@ -223,13 +224,7 @@ export default function MethodologyPage() {
         </article>
       </main>
 
-      <footer className="border-t border-zinc-200/70 dark:border-zinc-800/70">
-        <div className="mx-auto w-full max-w-6xl px-6 py-6 text-xs text-zinc-500 dark:text-zinc-500">
-          RealVerdict is an analytical tool for educational purposes. Always
-          verify assumptions with a qualified agent, lender, and tax advisor
-          before making an offer.
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }

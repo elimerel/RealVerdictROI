@@ -31,7 +31,7 @@
 // ---------------------------------------------------------------------------
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Search, X, Check, Trash2, ExternalLink, Plus, ArrowDown } from "lucide-react"
+import { Search, X, Check, Trash2, ExternalLink, Plus, ArrowDown, Download } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import {
@@ -111,6 +111,89 @@ function sourceInitial(tag: SourceTag): string | null {
  *    2. listing_details.priceHistoryNote (e.g. "Price cut: $20K") — used
  *       only as a fallback when the original price isn't present.
  */
+// ---------------------------------------------------------------------------
+// CSV export (legal hardening pass — Part 4: source attribution)
+//
+// Exports the visible / filtered rows of the pipeline as a CSV. The
+// "Source URL" column is REQUIRED — it preserves the link back to the
+// original listing page in any downstream use, which makes it obvious
+// the file represents the user's own underwriting of pages they
+// browsed (rather than a republished dataset).
+//
+// Includes structured facts + derived calculations only. Marketing
+// copy / risk-flag tags / AI take are deliberately omitted; CSVs are
+// the easiest format to misuse for redistribution and we want them to
+// be a personal-analysis spreadsheet, not a content dump.
+// ---------------------------------------------------------------------------
+
+function csvEscape(v: unknown): string {
+  if (v == null) return ""
+  const s = String(v)
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
+function buildPipelineCsv(rows: ComputedDeal[]): string {
+  const headers = [
+    "Saved at",
+    "Address",
+    "Source",
+    "Source URL",
+    "Beds",
+    "Baths",
+    "SqFt",
+    "Year built",
+    "Asking price",
+    "Down payment %",
+    "Interest rate %",
+    "Monthly rent",
+    "Annual property tax",
+    "Monthly HOA",
+    "Monthly cash flow",
+    "Cap rate %",
+    "Cash-on-cash %",
+    "DSCR",
+    "Total cash invested",
+    "Verdict tier",
+  ]
+  const body = rows.map(({ deal, analysis, source }) => [
+    new Date(deal.created_at).toISOString(),
+    deal.address ?? "",
+    sourceLabel(source) ?? deal.source_site ?? "",
+    deal.source_url ?? "",
+    deal.property_facts?.beds ?? "",
+    deal.property_facts?.baths ?? "",
+    deal.property_facts?.sqft ?? "",
+    deal.property_facts?.yearBuilt ?? "",
+    deal.inputs.purchasePrice ?? "",
+    deal.inputs.downPaymentPercent ?? "",
+    deal.inputs.loanInterestRate ?? "",
+    deal.inputs.monthlyRent ?? "",
+    deal.inputs.annualPropertyTax ?? "",
+    deal.inputs.monthlyHOA ?? "",
+    Math.round(analysis.monthlyCashFlow),
+    (analysis.capRate * 100).toFixed(2),
+    (analysis.cashOnCashReturn * 100).toFixed(2),
+    isFinite(analysis.dscr) ? analysis.dscr.toFixed(2) : "",
+    Math.round(analysis.totalCashInvested),
+    analysis.verdict.tier,
+  ].map(csvEscape).join(","))
+  return [headers.map(csvEscape).join(","), ...body].join("\r\n")
+}
+
+function downloadCsv(filename: string, csv: string) {
+  // Prepend a UTF-8 BOM so Excel on Windows opens it correctly.
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 function priceReductionDelta(deal: SavedDeal): { delta: number; note: string | null } | null {
   const ld = deal.listing_details
   const askPrice = deal.inputs.purchasePrice
@@ -390,6 +473,20 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
             </>
           )}
           <div className="flex-1" />
+          <button
+            type="button"
+            disabled={rows.length === 0}
+            onClick={() => {
+              const csv = buildPipelineCsv(rows)
+              const stamp = new Date().toISOString().slice(0, 10)
+              downloadCsv(`realverdict-pipeline-${stamp}.csv`, csv)
+            }}
+            title="Export visible deals to CSV (includes source URL)"
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] rv-t2 hover:rv-t1 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+          >
+            <Download className="h-3 w-3" />
+            Export CSV
+          </button>
           <button
             type="button"
             disabled={compareIds.size < 2}

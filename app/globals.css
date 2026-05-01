@@ -783,3 +783,66 @@ html.electron body { height: calc(100svh - 0px); } /* the 28px is padding inside
   text-transform: uppercase;
   color: var(--rv-t2);
 }
+
+/* ────────────────────────────────────────────────────────────────────
+   Legal-doc typography (Terms, Privacy).
+   Cheap, dependency-free alternative to @tailwindcss/typography for the
+   handful of long-form static pages we have. Scoped to .legal-doc so it
+   never leaks into product surfaces.
+   ──────────────────────────────────────────────────────────────────── */
+.legal-doc h2 {
+  margin-top: 2.5rem;
+  font-size: 1.25rem;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--foreground);
+}
+.legal-doc h3 {
+  margin-top: 1.5rem;
+  font-size: 1rem;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.legal-doc p {
+  margin-top: 1rem;
+}
+.legal-doc ul {
+  margin-top: 1rem;
+  margin-bottom: 0.25rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+.legal-doc li {
+  margin-top: 0.4rem;
+}
+.legal-doc a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.legal-doc a:hover {
+  opacity: 0.85;
+}
+.legal-doc strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.legal-doc table {
+  margin-top: 1rem;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.legal-doc th,
+.legal-doc td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--rv-fill-border, rgba(0,0,0,0.08));
+  vertical-align: top;
+}
+.legal-doc th {
+  font-weight: 600;
+  color: var(--foreground);
+}

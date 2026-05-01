@@ -78,14 +78,19 @@ export type ListingFacts = {
   annualPropertyTax:  number | null
   annualInsuranceEst: number | null   // model can read "est. insurance" lines
 
-  // Quality / risk signals — short verbatim phrases lifted from the page
-  conditionNotes:   string | null   // "needs work", "move-in ready", "recently renovated"
-  riskFlags:        string[]        // ["flood zone", "septic", "HOA over $400/mo", etc.]
+  // Quality / risk signals — short FACTUAL tags the model generates
+  // in its own words. Bounded vocabulary to avoid republishing
+  // marketing copy from the source listing. See CONTENT-USAGE RULES
+  // in lib/extractor/prompt.ts.
+  conditionTag:     string | null   // "move-in ready" | "needs work" | "recently renovated" | "as-is" | "tear-down" | "new construction"
+  riskFlags:        string[]        // short factual tags ≤3 words: ["flood zone","septic","high HOA",...]
 
   // Listing meta
   mlsNumber:        string | null
   listingDate:      string | null   // ISO date if parseable, else free text
-  listingRemarks:   string | null   // short paragraph of marketing description if shown
+  // (listingRemarks intentionally removed — see CONTENT-USAGE RULES.
+  // Verbatim listing descriptions are copyrighted by the listing
+  // agent / broker and we don't store them anywhere in the system.)
   schoolRating:     number | null   // 1-10 if a single composite is shown
   /** Walk score, transit score, bike score (best-effort). */
   walkScore:        number | null

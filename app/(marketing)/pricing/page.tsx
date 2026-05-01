@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 import GetProButton from "./GetProButton";
+import { MarketingFooter } from "../_components/MarketingFooter";
 
 export const metadata: Metadata = {
   title: "Pricing — RealVerdict",
@@ -84,13 +85,7 @@ export default async function PricingPage() {
         </div>
       </main>
 
-      <footer className="border-t border-zinc-200/70 dark:border-zinc-800/70">
-        <div className="mx-auto w-full max-w-6xl px-6 py-6 text-xs text-zinc-500 dark:text-zinc-500">
-          RealVerdict is an analytical tool for educational purposes. Always
-          verify assumptions with a qualified agent, lender, and tax advisor
-          before making an offer.
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }
@@ -247,6 +242,15 @@ function ProTierCard({ signedIn }: { signedIn: boolean }) {
 
       <div className="mt-8">
         <GetProButton signedIn={signedIn} />
+        <p className="mt-3 text-center text-[11px] text-zinc-500 dark:text-zinc-500">
+          Cancel anytime · 7-day refund ·{" "}
+          <Link
+            href="/terms"
+            className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-200"
+          >
+            Terms apply
+          </Link>
+        </p>
       </div>
     </div>
   );

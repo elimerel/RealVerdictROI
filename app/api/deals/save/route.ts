@@ -21,14 +21,20 @@ type PropertyFacts = {
 type ListingDetails = {
   daysOnMarket?: number | null;
   originalListPrice?: number | null;
+  /** A short, factual price-history note in OUR words (not lifted
+   *  from the source page). Example: "Reduced 4/12: $545k → $530k". */
   priceHistoryNote?: string | null;
   listingDate?: string | null;
-  listingRemarks?: string | null;
   mlsNumber?: string | null;
   schoolRating?: number | null;
   walkScore?: number | null;
   lotSqft?: number | null;
 };
+// listingRemarks (verbatim marketing description) is intentionally NOT
+// in the schema. We don't accept it from clients, don't store it, don't
+// surface it. Verbatim listing copy is copyrighted by the listing
+// agent / broker and persisting it crosses into derivative-work
+// territory. The legal posture is: facts + structured tags only.
 
 type SaveBody = {
   inputs: DealInputs;
@@ -38,21 +44,31 @@ type SaveBody = {
   sourceSite?: string;
   /** AI-written one-sentence take from the extractor. */
   take?: string | null;
-  /** Risk-flag strings lifted verbatim from the listing. */
+  /** Short factual risk tags ≤3 words each (model-generated, not
+   *  lifted from listing copy). Server clamps to this contract. */
   riskFlags?: string[] | null;
-  /** Rich listing-detail surface (DOM, price history, MLS, scores, lot). */
+  /** Rich listing-detail surface (price history, MLS, scores, lot,
+   *  days-on-market). Marketing descriptions are explicitly excluded
+   *  — see ListingDetails type comment. */
   listingDetails?: ListingDetails | null;
 };
 
-/** Light defensive normalization. We don't want stray clients to write
- *  arbitrarily large or wrong-shape blobs into the JSONB columns. */
+/** Risk flags stored on the deal must be SHORT FACTUAL TAGS (≤3 words,
+ *  ≤32 chars each). This is the same bound enforced in the extractor
+ *  coercer — duplicating it here is defense-in-depth so a hand-crafted
+ *  request to the API can't smuggle in a 2000-character marketing
+ *  paraphrase under the riskFlags key. The legal contract is: server
+ *  refuses to store anything that isn't a short factual tag. */
 function sanitizeRiskFlags(input: unknown): string[] | null {
   if (!Array.isArray(input)) return null;
   const cleaned = input
     .filter((v): v is string => typeof v === "string")
     .map((s) => s.trim())
-    .filter((s) => s.length > 0 && s.length <= 200)
-    .slice(0, 12); // hard cap: a real listing won't credibly have more
+    .filter((s) => {
+      if (s.length === 0 || s.length > 32) return false;
+      return s.split(/\s+/).length <= 3;
+    })
+    .slice(0, 8);
   return cleaned.length > 0 ? cleaned : null;
 }
 
@@ -60,7 +76,7 @@ function sanitizeListingDetails(input: ListingDetails | null | undefined): Listi
   if (!input || typeof input !== "object") return null;
   const num = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) ? v : null;
-  const str = (v: unknown, max = 600): string | null => {
+  const str = (v: unknown, max = 240): string | null => {
     if (typeof v !== "string") return null;
     const t = v.trim();
     if (!t) return null;
@@ -69,9 +85,10 @@ function sanitizeListingDetails(input: ListingDetails | null | undefined): Listi
   const out: ListingDetails = {
     daysOnMarket:      num(input.daysOnMarket),
     originalListPrice: num(input.originalListPrice),
+    // priceHistoryNote is short by design — we cap it tight (240 chars)
+    // so even a noncompliant client can't slip in a verbatim paragraph.
     priceHistoryNote:  str(input.priceHistoryNote, 240),
     listingDate:       str(input.listingDate, 40),
-    listingRemarks:    str(input.listingRemarks, 2000),
     mlsNumber:         str(input.mlsNumber, 60),
     schoolRating:      num(input.schoolRating),
     walkScore:         num(input.walkScore),

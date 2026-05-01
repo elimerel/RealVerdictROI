@@ -5,6 +5,7 @@ import {
   ArrowRight, DollarSign, BarChart3, Percent, ShieldCheck,
   Zap, Search,
 } from "lucide-react"
+import { MarketingFooter } from "./_components/MarketingFooter"
 
 export const metadata: Metadata = {
   title: "RealVerdict — Know your walk-away price before you make an offer",
@@ -317,24 +318,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Footer ── */}
-        <footer className="border-t border-zinc-200/80 dark:border-zinc-800/80 py-10">
-          <div className="mx-auto max-w-6xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-900 dark:bg-zinc-50">
-                <TrendingUp className="h-3.5 w-3.5 text-white dark:text-zinc-900" />
-              </div>
-              <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">RealVerdict</span>
-            </Link>
-            <nav className="flex items-center gap-5 text-xs text-zinc-500 dark:text-zinc-500">
-              <Link href="/about"       className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">About</Link>
-              <Link href="/methodology" className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">Methodology</Link>
-              <Link href="/pricing"     className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">Pricing</Link>
-              <Link href="/download"    className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">Download</Link>
-              <Link href="/deals"      className="hover:text-zinc-900 dark:hover:text-zinc-200 transition">Web app</Link>
-            </nav>
-          </div>
-        </footer>
+        <MarketingFooter />
       </main>
     </div>
   )
