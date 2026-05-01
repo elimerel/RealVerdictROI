@@ -13,7 +13,14 @@ export default function AppLayout({
       <ElectronExpand />
       <KeyboardShortcuts />
       <SidebarDataLoader />
-      <main className="flex-1 overflow-auto">{children}</main>
+      {/* overflow-hidden + flex column: the page itself never scrolls, so
+          children (Pipeline list, dossier, browse webview) own their scroll
+          regions and the sticky header at the top of each page stays fixed.
+          The previous overflow-auto caused the whole window to scroll past
+          the header, hitting the literal top of the screen. */}
+      <main className="flex-1 overflow-hidden flex flex-col min-h-0 min-w-0">
+        {children}
+      </main>
     </SidebarProvider>
   )
 }

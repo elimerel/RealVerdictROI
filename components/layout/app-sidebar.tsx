@@ -44,7 +44,7 @@ export function AppSidebar({ userEmail, isPro }: Props) {
     ? userEmail.slice(0, 2).toUpperCase()
     : "—"
 
-  const api = typeof window !== "undefined" ? (window as any).electronAPI : null
+  const api = typeof window !== "undefined" ? window.electronAPI : null
 
   const signOut = async () => {
     const supabase = createClient()
@@ -63,18 +63,27 @@ export function AppSidebar({ userEmail, isPro }: Props) {
     // that hovering with intent feels responsive.
     <TooltipProvider delay={500}>
       <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-        {/* Header — drag region for macOS; traffic lights sit above this zone */}
-        <SidebarHeader className="pt-7 pb-3 flex items-center px-3 border-b border-sidebar-border select-none drag-region">
+        {/* Header — height matches the page header (h-14 / 56px) so the
+            entire top of the window reads as one continuous chrome strip.
+            macOS traffic lights overlay the left side of this strip; the
+            pl-[78px] expanded-mode padding clears them. The whole strip is
+            a drag region. */}
+        <SidebarHeader className="h-14 flex items-center px-3 border-b border-sidebar-border select-none drag-region group-data-[collapsible=icon]:px-2">
           <Link
             href="/research"
             className="no-drag-region flex items-center gap-2.5 group-data-[collapsible=icon]:justify-center"
           >
-            {/* Logo mark — indigo signal tower */}
+            {/* Logo mark — neutral chrome with subtle inset highlight. The
+                cream stamp inside doubles as a brand mark and as the only
+                non-financial accent that should appear in the chrome. */}
             <div
-              className="flex h-7 w-7 items-center justify-center rounded-lg shrink-0"
-              style={{ background: "oklch(0.62 0.22 265)" }}
+              className="flex h-7 w-7 items-center justify-center rounded-[7px] shrink-0"
+              style={{
+                background: "linear-gradient(180deg, oklch(0.20 0.008 80) 0%, oklch(0.14 0.008 80) 100%)",
+                boxShadow: "inset 0 0 0 0.5px oklch(0.96 0.012 80 / 18%), 0 1px 0 0 oklch(0 0 0 / 60%)",
+              }}
             >
-              <Zap className="h-3.5 w-3.5 text-white" />
+              <Zap className="h-3.5 w-3.5" style={{ color: "oklch(0.94 0.012 80)" }} strokeWidth={2.25} />
             </div>
             <div className="flex flex-col group-data-[collapsible=icon]:hidden">
               <span className="font-semibold text-[13px] tracking-tight text-foreground leading-none"

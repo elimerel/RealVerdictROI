@@ -33,7 +33,10 @@ export type Provider =
   | { kind: "anthropic"; apiKey: string }
   | { kind: "openai"; apiKey: string }
 
-const ANTHROPIC_MODEL = "claude-haiku-4-5"
+// Anthropic requires the dated suffix on the public API; the bare
+// "claude-haiku-4-5" 404s. Override at runtime via ANTHROPIC_MODEL env
+// var when Anthropic ships a newer build.
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001"
 const OPENAI_MODEL = "gpt-4o-mini"
 
 const VALID_KINDS: PageKind[] = [

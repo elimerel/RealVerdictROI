@@ -339,20 +339,22 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
                     )}
                     onClick={() => setSelectedId(deal.id)}
                   >
-                    {/* Compare checkbox */}
+                    {/* Compare checkbox — always slightly visible so the
+                        column reads as a real affordance, not a hidden
+                        easter egg. Filled when checked. */}
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggleCompare(deal.id) }}
                       className={cn(
                         "h-4 w-4 rounded-[3px] flex items-center justify-center transition-all",
-                        "border border-white/10 hover:border-white/30",
+                        "border border-white/15 hover:border-white/40",
                         isCompared
                           ? "bg-[var(--rv-accent)] border-[var(--rv-accent)] opacity-100"
-                          : "opacity-0 group-hover:opacity-60",
+                          : "opacity-50 group-hover:opacity-100",
                       )}
                       aria-label={isCompared ? "Remove from compare" : "Add to compare"}
                     >
-                      {isCompared && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                      {isCompared && <Check className="h-3 w-3 text-black" strokeWidth={3} />}
                     </button>
 
                     {/* Address + source */}
@@ -416,7 +418,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
       <div className="flex-1 min-w-0 flex flex-col">
         {selected ? (
           <>
-            <div className="shrink-0 flex items-center gap-2 h-12 px-5 border-b border-border">
+            <div className="shrink-0 flex items-center gap-2 h-14 px-5 border-b border-border">
               <p className="text-[12px] rv-t3 font-mono uppercase tracking-[0.08em]">
                 {sourceLabel(selected.source) || "Saved deal"}
               </p>

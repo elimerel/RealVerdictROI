@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   extractDom: () => ipcRenderer.invoke("browser:extract-dom"),
   // Extract DOM + call /api/extract — all from main process, no CORS
   analyze: () => ipcRenderer.invoke("browser:analyze"),
+  // Last extraction round-trip trace, surfaced via the ⌘⇧D debug drawer
+  extractDebug: () => ipcRenderer.invoke("extract:debug:last"),
 
   // --- Events from main → renderer ---
   onNavUpdate: (cb) => {

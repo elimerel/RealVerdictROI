@@ -406,18 +406,44 @@ function ElectronBrowsePage() {
     }
   }
 
+  // Debug drawer — surfaces the most recent extraction round-trip so the
+  // user (and I) can see exactly *why* a listing failed instead of guessing.
+  // Toggled with ⌘⇧D. Polls the main process when open so it auto-refreshes
+  // as new analyses run.
+  const [debugOpen, setDebugOpen] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null)
+
   // ⌘L / Ctrl-L — focus the URL bar, like every real browser.
+  // ⌘⇧D — toggle the extraction debug drawer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
         e.preventDefault()
         const el = urlInputRef.current
         if (el) { el.focus(); el.select() }
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "d") {
+        e.preventDefault()
+        setDebugOpen((v) => !v)
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [])
+
+  useEffect(() => {
+    if (!debugOpen || !window.electronAPI?.extractDebug) return
+    let alive = true
+    const tick = () => {
+      window.electronAPI!.extractDebug!().then((info) => {
+        if (alive) setDebugInfo(info)
+      }).catch(() => {})
+    }
+    tick()
+    const id = window.setInterval(tick, 800)
+    return () => { alive = false; window.clearInterval(id) }
+  }, [debugOpen])
 
   // Auth
   useEffect(() => {
@@ -861,6 +887,9 @@ function ElectronBrowsePage() {
           )}
         </div>
       </div>
+      {debugOpen && (
+        <DebugDrawer info={debugInfo} onClose={() => setDebugOpen(false)} />
+      )}
     </SidebarInset>
   )
 }
@@ -898,10 +927,15 @@ function CollapsedPanelStrip({
   hasAnalysis: boolean
   onExpand: () => void
 }) {
+  // Color carries semantic weight: amber while we're actively reading,
+  // emerald when the analysis is fresh and you're on the listing it
+  // describes, dim otherwise. No marketing blue.
   const dotClass = isLoading
-    ? "bg-[var(--rv-accent)] animate-pulse"
-    : hasAnalysis || isListingPage
-    ? "bg-[var(--rv-accent)]"
+    ? "bg-[var(--rv-live)] animate-pulse"
+    : hasAnalysis && isListingPage
+    ? "bg-emerald-500/70"
+    : hasAnalysis
+    ? "bg-white/35"
     : "bg-white/15"
 
   const tooltip = isLoading
@@ -955,7 +989,7 @@ function PanelStatusPip({
   hasAnalysis: boolean
 }) {
   const dotClass = isLoading
-    ? "bg-[var(--rv-accent)] animate-pulse"
+    ? "bg-[var(--rv-live)] animate-pulse"
     : hasAnalysis && isListingPage
     ? "bg-emerald-500/70"
     : hasAnalysis
@@ -975,6 +1009,48 @@ function PanelStatusPip({
       <span className={cn("h-1.5 w-1.5 rounded-full", dotClass)} />
       {label}
     </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DebugDrawer — pulls the last extraction round-trip from the main process
+// every 800ms while open. Toggled with ⌘⇧D. This is the surface I use to
+// see exactly why a listing failed (signal score, model name, raw response,
+// stop reason, parse errors) instead of staring at "couldn't read this
+// listing." Hidden by default — never shown to end users.
+// ---------------------------------------------------------------------------
+
+function DebugDrawer({
+  info,
+  onClose,
+}: {
+  info: Record<string, unknown> | null
+  onClose: () => void
+}) {
+  return (
+    <div
+      className="absolute right-3 top-3 bottom-3 w-[420px] rv-surface-2 border border-white/10 rounded-lg shadow-2xl z-50 flex flex-col overflow-hidden"
+      style={{ fontSize: "11px" }}
+    >
+      <div className="flex items-center justify-between px-3 h-9 border-b border-white/[0.06] shrink-0">
+        <span className="font-mono uppercase tracking-[0.08em] rv-t2 text-[10px]">
+          Extract debug · ⌘⇧D
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[10px] rv-t3 hover:rv-t1 transition-colors"
+        >
+          Close
+        </button>
+      </div>
+      <pre
+        className="flex-1 overflow-auto m-0 p-3 font-mono leading-[1.45] rv-t1 whitespace-pre-wrap break-words"
+        style={{ fontSize: "10.5px" }}
+      >
+        {info ? JSON.stringify(info, null, 2) : "Waiting for extraction…"}
+      </pre>
+    </div>
   )
 }
 

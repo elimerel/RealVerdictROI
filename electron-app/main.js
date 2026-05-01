@@ -4,6 +4,27 @@ const { app, BrowserWindow, WebContentsView, ipcMain, screen } = require("electr
 const path = require("path")
 const fs = require("fs")
 
+// Load .env.local from the repo root in dev so the Anthropic / OpenAI keys
+// reach the main process. Without this, only the Next.js renderer sees env
+// vars and the Electron-side extractor falls back to "no_key".
+//
+// In packaged production builds, the user supplies their key via Settings
+// (config.json under userData) — this dotenv import is a no-op when there's
+// no .env file to read, so it's safe to keep enabled in both environments.
+try {
+  const dotenvCandidates = [
+    path.join(__dirname, "..", ".env.local"),
+    path.join(__dirname, "..", ".env"),
+  ]
+  for (const f of dotenvCandidates) {
+    if (fs.existsSync(f)) {
+      require("dotenv").config({ path: f, override: false })
+    }
+  }
+} catch (err) {
+  console.warn("[main] dotenv load skipped:", err?.message ?? err)
+}
+
 // ---------------------------------------------------------------------------
 // Single-instance lock
 // ---------------------------------------------------------------------------
@@ -58,7 +79,18 @@ const LOGIN_H = 560
 // ---------------------------------------------------------------------------
 
 function readConfig() {
-  try { return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) } catch { return {} }
+  let cfg = {}
+  try { cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) } catch { /* no config yet */ }
+  // Fall through to env vars when settings are blank — matters for dev
+  // where keys live in .env.local, and for users who set the key in their
+  // shell rather than the Settings UI.
+  if (!cfg.anthropicApiKey && process.env.ANTHROPIC_API_KEY) {
+    cfg.anthropicApiKey = process.env.ANTHROPIC_API_KEY
+  }
+  if (!cfg.openaiApiKey && process.env.OPENAI_API_KEY) {
+    cfg.openaiApiKey = process.env.OPENAI_API_KEY
+  }
+  return cfg
 }
 
 function writeConfig(data) {
@@ -565,10 +597,23 @@ TAKE
  * @param {{ url: string, title: string, text: string }} dom  Page content
  * @returns {Promise<object|null>}  Parsed extraction JSON or null
  */
+// Anthropic requires dated model IDs for stable accuracy (the bare
+// "claude-haiku-4-5" 404s on the public API). The dated form below is
+// the version pinned in REALVERDICT_CONTEXT.md and in lib/extractor.
+// Override at runtime via ANTHROPIC_MODEL env var if Anthropic rolls a
+// newer build.
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001"
+
+// Last raw extraction round-trip — exposed via ipc "extract:debug:last"
+// so the renderer can show a debug drawer instead of the user staring at
+// "couldn't confidently read this listing" with no recourse.
+let lastExtractDebug = null
+
 async function callAnthropicHaiku(apiKey, dom) {
   const userMessage =
     `Page URL: ${dom.url}\nPage title: ${dom.title}\n\nPage text:\n${dom.text.slice(0, 22000)}`
 
+  const reqStartedAt = Date.now()
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -577,8 +622,8 @@ async function callAnthropicHaiku(apiKey, dom) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5",
-      max_tokens: 1500,
+      model: ANTHROPIC_MODEL,
+      max_tokens: 1800,
       system: HAIKU_EXTRACTION_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     }),
@@ -587,20 +632,42 @@ async function callAnthropicHaiku(apiKey, dom) {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "")
+    lastExtractDebug = {
+      stage: "anthropic-error",
+      status: res.status,
+      body: errText.slice(0, 600),
+      model: ANTHROPIC_MODEL,
+      durationMs: Date.now() - reqStartedAt,
+      pageTextLength: dom.text.length,
+    }
     throw new Error(`Anthropic API ${res.status}: ${errText.slice(0, 200)}`)
   }
 
   const response = await res.json()
   const text = response.content?.[0]?.text ?? ""
+  const stopReason = response.stop_reason ?? null
+  const usage = response.usage ?? null
 
   // Strip optional markdown fences before parsing
   const jsonText = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
   const match = jsonText.match(/\{[\s\S]*\}/)
-  if (!match) return null
 
+  lastExtractDebug = {
+    stage: "anthropic-ok",
+    model: ANTHROPIC_MODEL,
+    durationMs: Date.now() - reqStartedAt,
+    pageTextLength: dom.text.length,
+    stopReason,
+    usage,
+    rawText: text.slice(0, 4000),
+    parsedJson: match ? match[0].slice(0, 3000) : null,
+  }
+
+  if (!match) return null
   try {
     return JSON.parse(match[0])
-  } catch {
+  } catch (err) {
+    lastExtractDebug.parseError = err?.message ?? String(err)
     return null
   }
 }
@@ -724,6 +791,7 @@ ipcMain.handle("browser:analyze", async () => {
     return { ok: false, errorCode: "unknown", message: userMessageFor("unknown") }
   }
   pendingPageComps = null
+  lastExtractDebug = { stage: "started", at: new Date().toISOString() }
 
   // Wait for the page to finish loading.
   if (browserView.webContents.isLoading()) {
@@ -747,22 +815,38 @@ ipcMain.handle("browser:analyze", async () => {
         return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,25000) }
       })()
     `)
-  } catch {
+  } catch (err) {
+    lastExtractDebug = { stage: "dom-extract-failed", error: err?.message ?? String(err) }
     return { ok: false, errorCode: "page_too_short", message: userMessageFor("page_too_short") }
   }
 
   if (!dom || !dom.text || dom.text.length < 200) {
+    lastExtractDebug = {
+      stage: "page-too-short",
+      pageTextLength: dom?.text?.length ?? 0,
+      url: dom?.url ?? null,
+      title: dom?.title ?? null,
+    }
     return { ok: false, errorCode: "page_too_short", message: userMessageFor("page_too_short") }
   }
 
   // Pre-flight: captcha / verification screen.
   if (looksLikeCaptcha(dom.title, dom.text)) {
+    lastExtractDebug = { stage: "captcha-detected", title: dom.title, url: dom.url }
     return { ok: false, errorCode: "captcha", message: userMessageFor("captcha") }
   }
 
   // Stage 2: page signal scan. Skip the LLM when the page doesn't
   // actually look like a single listing.
   const sig = scanSignals(dom.text)
+  lastExtractDebug = {
+    stage: "signal-scan",
+    url: dom.url,
+    pageTextLength: dom.text.length,
+    signalScore: sig.score,
+    looksLikeListing: sig.looksLikeListing,
+    looksLikeSearchResults: sig.looksLikeSearchResults,
+  }
   if (sig.looksLikeSearchResults) {
     return { ok: false, errorCode: "search_results_page", message: userMessageFor("search_results_page") }
   }
@@ -1078,6 +1162,13 @@ ipcMain.handle("config:set-anthropic-key", (_e, key) => {
 ipcMain.handle("config:has-anthropic-key", () => {
   const config = readConfig()
   return !!(config.anthropicApiKey || process.env.ANTHROPIC_API_KEY)
+})
+
+// Returns the most recent extraction round-trip trace. The renderer's
+// debug drawer (⌘⇧D in /research) reads this so the user can see exactly
+// why a listing failed instead of staring at a generic error message.
+ipcMain.handle("extract:debug:last", () => {
+  return lastExtractDebug ?? { stage: "idle", note: "No extraction has run yet." }
 })
 
 // ---------------------------------------------------------------------------

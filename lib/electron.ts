@@ -44,6 +44,7 @@ export interface ElectronAPI {
   updateBounds: (bounds: ElectronBrowserBounds) => Promise<void>
   extractDom: () => Promise<ElectronDomPayload | null>
   analyze: () => Promise<Record<string, unknown>>
+  extractDebug: () => Promise<Record<string, unknown>>
   /** Registers a nav-update listener. Returns a cleanup function. */
   onNavUpdate: (cb: (payload: ElectronNavUpdate) => void) => () => void
   /** Auth events */
