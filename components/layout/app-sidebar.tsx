@@ -68,7 +68,7 @@ export function AppSidebar({ userEmail, isPro }: Props) {
             macOS traffic lights overlay the left side of this strip; the
             pl-[78px] expanded-mode padding clears them. The whole strip is
             a drag region. */}
-        <SidebarHeader className="h-14 flex items-center px-3 border-b border-sidebar-border select-none drag-region group-data-[collapsible=icon]:px-2">
+        <SidebarHeader className="rv-toolbar-strip h-14 flex items-center px-3 select-none drag-region group-data-[collapsible=icon]:px-2">
           <Link
             href="/research"
             className="no-drag-region flex items-center gap-2.5 group-data-[collapsible=icon]:justify-center"

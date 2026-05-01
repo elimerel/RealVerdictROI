@@ -63,14 +63,15 @@ body {
    ──────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Light-mode surface tiers — neutral cool grays. Each tier is ~3% darker
-     than the previous so layering reads against most monitors. The
-     previous values here were dark, which left .light mode with white
-     shadcn tokens but black --rv-surface-* tokens, producing the
-     half-and-half UI users saw when picking System on a light Mac. */
-  --rv-surface-bg: oklch(0.985 0.002 250);  /* page background */
-  --rv-surface-1: oklch(0.97 0.002 250);    /* card */
-  --rv-surface-2: oklch(0.945 0.003 250);   /* card lifted */
+  /* Light-mode surface tiers — Mercury layering. Page background is a
+     warm system gray; cards / sidebar / dossier panel sit ON TOP of it
+     in pure white so they visibly lift. surface-2 is a mid tint used by
+     in-card inputs (filter field, assumption inputs).
+     Values are intentionally directional: surface-bg is the darkest,
+     surface-1 is the lightest, surface-2 sits between them. */
+  --rv-surface-bg: oklch(1 0 0);            /* page / content — pure white */
+  --rv-surface-1: oklch(1 0 0);             /* card / dossier — pure white */
+  --rv-surface-2: oklch(0.965 0.003 80);    /* in-card input tint */
   /* Selection accent — slate-blue ink at low chroma. On a light surface
      the dark cream (#e8e0c8) we use in dark mode is invisible, so light
      mode needs its own concrete accent. Mercury and Linear both use a
@@ -100,17 +101,16 @@ body {
   --rv-fill-border: oklch(0 0 0 / 8%);
   --rv-fill-border-strong: oklch(0 0 0 / 14%);
 
-  /* Signal palette — muted threshold colors.
-     Phase 1 polish replaced the fluorescent red/amber/green that turned
-     the pipeline grid into a wall of red. The new tones still read as
-     "this is bad / borderline / fine" but at the saturation Mercury
-     uses, so a single colored metric per card actually carries signal. */
-  --rv-bad:      #d85b5b;
-  --rv-bad-sub:  rgba(216, 91, 91, 0.12);
-  --rv-warn:     #d9a341;
-  --rv-warn-sub: rgba(217, 163, 65, 0.10);
-  --rv-good:     #4fb28f;
-  --rv-good-sub: rgba(79, 178, 143, 0.10);
+  /* Light-mode signal palette — punched up from the dark-mode tones
+     because the soft pastel reds/ambers/greens get washed out against
+     pure white. Sub fills also bumped to 14% so the colored tile reads
+     as deliberately negative, not "subtle hint of negative". */
+  --rv-bad:  oklch(0.50 0.20 25);
+  --rv-bad-sub: oklch(0.50 0.20 25 / 11%);
+  --rv-warn: oklch(0.62 0.18 70);
+  --rv-warn-sub: oklch(0.62 0.18 70 / 11%);
+  --rv-good: oklch(0.48 0.13 165);
+  --rv-good-sub: oklch(0.48 0.13 165 / 11%);
 
   /* Legacy aliases — kept for any verdict component that hasn't been
      touched yet. New code should use --rv-bad/warn/good. */
@@ -185,38 +185,47 @@ input[type="number"] {
    ──────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Mercury / Linear pattern: SIDEBAR + page-header strip are the warm
+     gray "toolbar" chrome and CONTENT (page background, cards, dossier)
+     is pure white. The whole top of the window — 28px traffic-light
+     strip + sidebar header + page header — reads as one continuous
+     gray toolbar, with the white content area below it.
+     We expose a dedicated --rv-toolbar token so any header in the app
+     can opt in via bg-[var(--rv-toolbar)] without coupling to
+     bg-sidebar. */
+  --rv-toolbar: oklch(0.95 0.003 80);            /* warm system gray */
+  --background: oklch(1 0 0);                    /* content area — pure white */
+  --foreground: oklch(0.18 0.005 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.18 0.005 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.18 0.005 250);
+  --primary: oklch(0.18 0.005 250);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
+  --secondary: oklch(0.96 0 0);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-foreground: oklch(0.46 0 0);
+  --accent: oklch(0.96 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --destructive: oklch(0.55 0.20 27.325);
+  --border: oklch(0.88 0.005 250);              /* dividers visible against white */
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.7 0 0);
+  --chart-1: oklch(0.78 0 0);
+  --chart-2: oklch(0.5 0 0);
+  --chart-3: oklch(0.4 0 0);
+  --chart-4: oklch(0.34 0 0);
+  --chart-5: oklch(0.24 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar: var(--rv-toolbar);                  /* sidebar IS the toolbar */
+  --sidebar-foreground: oklch(0.18 0.005 250);
+  --sidebar-primary: oklch(0.18 0.005 250);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent: oklch(0.92 0.003 80);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-border: oklch(0.88 0.005 250);
+  --sidebar-ring: oklch(0.7 0 0);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -229,11 +238,12 @@ input[type="number"] {
    component.
    ──────────────────────────────────────────────────────────────────────────── */
 .paper {
-  /* Three-tier paper surfaces — each ~3% darker than the previous so
-     visual layering reads even on a dim screen. */
-  --rv-surface-bg: oklch(0.96 0.018 80);   /* page background — warm cream */
-  --rv-surface-1: oklch(0.94 0.020 80);    /* card */
-  --rv-surface-2: oklch(0.92 0.022 80);    /* card lifted */
+  /* Paper layering — content area is the brighter cream (index card),
+     toolbar/sidebar is darker cream (board you pin the cards onto).
+     Same Mercury pattern as light mode, just with cream tones. */
+  --rv-surface-bg: oklch(0.97 0.018 80);   /* page / content (cream paper) */
+  --rv-surface-1: oklch(0.97 0.018 80);    /* card surface — flat on page */
+  --rv-surface-2: oklch(0.95 0.020 80);    /* in-card input tint */
 
   /* Brown-black ink text instead of pure black — sits naturally on cream
      and avoids the "stark printout" look. */
@@ -243,7 +253,7 @@ input[type="number"] {
   --rv-t4: oklch(0.70 0.020 60);
 
   /* shadcn token bridge */
-  --background: var(--rv-surface-bg);
+  --background: var(--rv-surface-bg);    /* content area = index card cream */
   --foreground: var(--rv-t1);
   --card: var(--rv-surface-1);
   --card-foreground: var(--rv-t1);
@@ -257,9 +267,11 @@ input[type="number"] {
   --muted-foreground: var(--rv-t2);
   --accent: var(--rv-surface-2);
   --accent-foreground: var(--rv-t1);
-  --destructive: oklch(0.55 0.155 22);
-  --border: oklch(0 0 0 / 8%);
-  --input: oklch(0 0 0 / 6%);
+  /* Punch the red harder in paper mode — the previous tone got lost
+     against cream and made negative cash-flow numbers feel optional. */
+  --destructive: oklch(0.50 0.20 25);
+  --border: oklch(0.20 0.030 60 / 12%);
+  --input: oklch(0.20 0.030 60 / 8%);
   --ring: oklch(0.55 0.10 60 / 35%);
 
   --chart-1: #4fb28f;
@@ -268,7 +280,10 @@ input[type="number"] {
   --chart-4: oklch(0.55 0.10 60);
   --chart-5: oklch(0.40 0.030 60);
 
-  --sidebar: oklch(0.93 0.022 80);
+  /* Paper toolbar — slightly darker cream than the cards so the
+     chrome strip + sidebar read as the same surface. */
+  --rv-toolbar: oklch(0.92 0.025 80);
+  --sidebar: var(--rv-toolbar);
   --sidebar-foreground: var(--rv-t1);
   --sidebar-primary: oklch(0.30 0.030 60);
   --sidebar-primary-foreground: var(--rv-surface-bg);
@@ -291,6 +306,16 @@ input[type="number"] {
   --rv-fill-3: oklch(0.20 0.030 60 / 12%);
   --rv-fill-border: oklch(0.20 0.030 60 / 9%);
   --rv-fill-border-strong: oklch(0.20 0.030 60 / 16%);
+
+  /* Punchier signal palette for cream — the dark-mode tones get washed
+     out against paper. Saturation +0.05, lightness -0.05 across the
+     board so the worst-offending number on a card carries real weight. */
+  --rv-bad:  oklch(0.50 0.20 25);
+  --rv-bad-sub: oklch(0.50 0.20 25 / 12%);
+  --rv-warn: oklch(0.62 0.18 70);
+  --rv-warn-sub: oklch(0.62 0.18 70 / 12%);
+  --rv-good: oklch(0.50 0.13 165);
+  --rv-good-sub: oklch(0.50 0.13 165 / 12%);
 }
 
 /* Faint paper grain — repeating fibers at ~1° catch the light without
@@ -323,6 +348,21 @@ input[type="number"] {
   --rv-fill-3: oklch(1 0 0 / 14%);
   --rv-fill-border: oklch(1 0 0 / 7%);
   --rv-fill-border-strong: oklch(1 0 0 / 14%);
+
+  /* Dark-mode signal palette — restored from the original phase-1 polish
+     pass. These muted tones are calibrated for dark backgrounds; the
+     punchier tones we use in light/paper would be too neon here. */
+  --rv-bad:      #d85b5b;
+  --rv-bad-sub:  rgba(216, 91, 91, 0.12);
+  --rv-warn:     #d9a341;
+  --rv-warn-sub: rgba(217, 163, 65, 0.10);
+  --rv-good:     #4fb28f;
+  --rv-good-sub: rgba(79, 178, 143, 0.10);
+
+  /* Dark-mode toolbar — slightly LIFTED off the page so the chrome
+     reads as a tone-on-tone toolbar (Mercury / Linear dark-mode). The
+     content area below is the deep page background. */
+  --rv-toolbar: oklch(0.13 0.012 252);
   /* Deep cool near-black — hue 250° (blue-slate), chroma just enough to read as intentional */
   --background: oklch(0.088 0.014 252);
   --foreground: oklch(0.96 0.005 250);
@@ -350,7 +390,7 @@ input[type="number"] {
   --chart-3: #d85b5b;
   --chart-4: oklch(0.94 0.012 80);
   --chart-5: oklch(0.55 0.012 252);
-  --sidebar: oklch(0.102 0.014 252);
+  --sidebar: var(--rv-toolbar);
   --sidebar-foreground: oklch(0.96 0.005 250);
   --sidebar-primary: oklch(0.94 0.012 80);
   --sidebar-primary-foreground: oklch(0.10 0.014 252);
@@ -493,9 +533,25 @@ html, body { scrollbar-gutter: stable; }
    -------------------------------------------------------------------
    The 28px top strip is the native drag + traffic-light area.
    Shifting body down by 28px keeps all content below it.
-   The strip itself is transparent — macOS renders traffic lights on top. */
+   The strip itself shows the body background, which in every theme is
+   --background. We tinted that to a noticeable warm gray (light mode)
+   / cream (paper) / near-black (dark) so the strip + the page header
+   below it read as one continuous toolbar — Mercury / Linear style. */
 html.electron body {
   padding-top: 28px;
+  /* The 28px strip shows the body background — paint it with the
+     toolbar tone so it merges seamlessly with the sidebar header and
+     page header below it. Together they read as one continuous
+     toolbar across the top of the window (Mercury / Linear). */
+  background: var(--rv-toolbar);
+}
+
+/* Page header chrome — opt-in via .rv-toolbar-strip. Use this on every
+   page-level h-14 header so it picks up the toolbar tone and a
+   visible 1px hairline against the white content below. */
+.rv-toolbar-strip {
+  background: var(--rv-toolbar);
+  box-shadow: 0 1px 0 0 var(--border);
 }
 
 /* Named so any element can opt into being a drag handle */

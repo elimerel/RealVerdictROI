@@ -43,7 +43,7 @@ export default async function DealsPage() {
       {/* Page header doubles as the macOS drag area — extends the sidebar's
           drag-region across the full window top so the user can grab the
           window from anywhere along the title bar, not just the sidebar. */}
-      <header className="drag-region h-14 flex items-center gap-3 border-b border-border px-4 shrink-0 select-none">
+      <header className="rv-toolbar-strip drag-region h-14 flex items-center gap-3 px-4 shrink-0 select-none">
         <SidebarTrigger className="-ml-1 no-drag-region" />
         <h1 className="text-[13px] font-semibold tracking-tight text-foreground"
             style={{ letterSpacing: "-0.012em" }}>

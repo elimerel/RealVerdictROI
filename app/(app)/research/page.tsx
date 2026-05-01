@@ -673,7 +673,7 @@ function ElectronBrowsePage() {
           drag-region extends the macOS title bar across the full window
           width; no-drag-region inside each interactive control restores
           their normal click/focus behavior. */}
-      <header className="drag-region h-14 flex items-center gap-2 border-b border-border px-4 shrink-0 select-none">
+      <header className="rv-toolbar-strip drag-region h-14 flex items-center gap-2 px-4 shrink-0 select-none">
         <SidebarTrigger className="-ml-1 no-drag-region" />
 
         <div className="no-drag-region flex items-center gap-1 shrink-0">
@@ -1188,7 +1188,7 @@ function IdleSidePanel({
 function WebBrowsePage() {
   return (
     <SidebarInset className="overflow-hidden">
-      <header className="drag-region h-14 flex items-center gap-2 border-b border-border px-4 shrink-0 select-none">
+      <header className="rv-toolbar-strip drag-region h-14 flex items-center gap-2 px-4 shrink-0 select-none">
         <SidebarTrigger className="-ml-1 no-drag-region" />
         <span className="text-[13px] font-medium rv-t1">Browse</span>
         <span className="ml-3 text-[10px] uppercase tracking-[0.08em] rv-t3">Desktop only</span>

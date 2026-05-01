@@ -333,10 +333,14 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
   // ---------------------------------------------------------------------
   // Main two-pane layout
   // ---------------------------------------------------------------------
+  // Both panes sit on rv-surface-1 (lifted card surface). The page bg
+  // (rv-surface-bg) only shows in the chrome strip at the very top of
+  // the window — that's the Mercury / Linear pattern: subtle gray
+  // chrome up top, pure white content area below.
   return (
-    <div className="flex-1 flex min-h-0 rv-surface-bg">
+    <div className="flex-1 flex min-h-0 rv-surface-1">
       {/* ── Left pane: filter + table of saved deals ─────────────────── */}
-      <div className="w-[420px] shrink-0 flex flex-col rv-surface-1 border-r border-border min-w-0">
+      <div className="w-[420px] shrink-0 flex flex-col border-r border-border min-w-0">
         {/* Filter */}
         <div className="px-4 pt-4 pb-3 shrink-0">
           <div className="relative">
@@ -346,7 +350,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter by address"
-              className="w-full pl-8 pr-3 h-8 rounded-md bg-[var(--rv-surface-2)] border border-white/5 text-[12px] placeholder:text-muted-foreground/40 focus:outline-none focus:border-white/15 transition-colors"
+              className="w-full pl-8 pr-3 h-8 rounded-md bg-[var(--rv-surface-2)] border border-[var(--rv-fill-border)] text-[12px] placeholder:text-muted-foreground/40 focus:outline-none focus:border-[var(--rv-fill-border-strong)] transition-colors"
             />
             {filter && (
               <button
@@ -404,7 +408,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
                       onClick={(e) => { e.stopPropagation(); toggleCompare(deal.id) }}
                       className={cn(
                         "h-4 w-4 rounded-[3px] flex items-center justify-center transition-all",
-                        "border border-white/15 hover:border-white/40",
+                        "border border-[var(--rv-fill-border-strong)] hover:border-[var(--rv-t3)]",
                         isCompared
                           ? "bg-[var(--rv-accent)] border-[var(--rv-accent)] opacity-100"
                           : "opacity-50 group-hover:opacity-100",
@@ -479,7 +483,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
             instead of the previous "{n} selected — up to 4 to compare"
             which parsed as two disconnected fragments. */}
         {compareIds.size > 0 && (
-          <div className="absolute bottom-5 left-5 right-5 max-w-[420px] rv-surface-2 border border-white/10 rounded-lg shadow-2xl px-4 py-3 flex items-center gap-3 z-30">
+          <div className="absolute bottom-5 left-5 right-5 max-w-[420px] rv-surface-2 border border-[var(--rv-fill-border-strong)] rounded-lg shadow-2xl px-4 py-3 flex items-center gap-3 z-30">
             <span className="text-[12px] rv-t1 font-medium tabular-nums">
               {compareIds.size} of 4 selected
             </span>
@@ -673,7 +677,7 @@ function CompareOverlay({
         </button>
         <button
           onClick={onClose}
-          className="h-7 w-7 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-white/20 transition-colors"
+          className="h-7 w-7 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-[var(--rv-fill-border-strong)] transition-colors"
           aria-label="Close compare"
         >
           <X className="h-3.5 w-3.5" />

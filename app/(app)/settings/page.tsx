@@ -57,7 +57,7 @@ function defaultsFromInputs(): AssumptionDefaults {
 export default function SettingsPage() {
   return (
     <SidebarInset>
-      <header className="drag-region h-14 flex items-center gap-3 border-b border-border px-4 shrink-0 select-none">
+      <header className="rv-toolbar-strip drag-region h-14 flex items-center gap-3 px-4 shrink-0 select-none">
         <SidebarTrigger className="-ml-1 no-drag-region" />
         <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground"
              style={{ letterSpacing: "-0.012em" }}>
