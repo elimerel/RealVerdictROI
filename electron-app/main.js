@@ -855,7 +855,13 @@ ipcMain.handle("browser:analyze", async () => {
   pendingPageComps = null
   lastExtractDebug = { stage: "started", at: new Date().toISOString() }
 
-  // Wait for the page to finish loading.
+  // Wait for the page to finish loading. Zillow / Redfin etc. fire
+  // did-stop-loading on the SPA shell long before the React listing
+  // body has hydrated, so we then poll the DOM until either:
+  //   - innerText length > 1200 chars (a real listing has 2-15k), OR
+  //   - 18 seconds have elapsed.
+  // 18s feels long but we only burn it on slow connections; on a real
+  // listing the body is usually present within 1-3 polls.
   if (browserView.webContents.isLoading()) {
     await new Promise((resolve) => {
       const h = () => resolve()
@@ -866,19 +872,40 @@ ipcMain.handle("browser:analyze", async () => {
     await new Promise((r) => setTimeout(r, 600))
   }
 
-  // Pull the rendered DOM text. We strip nav/header/footer/script/style so
-  // the model gets the listing content, not the site chrome.
-  let dom
-  try {
-    dom = await browserView.webContents.executeJavaScript(`
-      (() => {
-        const clone = document.body.cloneNode(true)
-        clone.querySelectorAll('nav,header,footer,script,style,[aria-hidden="true"]').forEach(el => el.remove())
-        return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,25000) }
-      })()
-    `)
-  } catch (err) {
-    lastExtractDebug = { stage: "dom-extract-failed", error: err?.message ?? String(err) }
+  // Pull the rendered DOM text, polling up to 18s for it to be substantial.
+  // We strip nav/header/footer/script/style so the model gets the listing
+  // content, not the site chrome.
+  const POLL_TARGET_LEN = 1200
+  const POLL_DEADLINE_MS = 18_000
+  const pollStart = Date.now()
+  let dom = null
+  let domErr = null
+  // Poll loop — first attempt happens immediately, then every 750ms.
+  // Logs the high-water-mark length so the debug drawer can show
+  // "we waited and the page never grew past N chars".
+  let highWater = 0
+  while (Date.now() - pollStart < POLL_DEADLINE_MS) {
+    try {
+      dom = await browserView.webContents.executeJavaScript(`
+        (() => {
+          const clone = document.body.cloneNode(true)
+          clone.querySelectorAll('nav,header,footer,script,style,[aria-hidden="true"]').forEach(el => el.remove())
+          return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,25000) }
+        })()
+      `)
+      domErr = null
+    } catch (err) {
+      domErr = err?.message ?? String(err)
+      dom = null
+    }
+    const len = dom?.text?.length ?? 0
+    if (len > highWater) highWater = len
+    if (len >= POLL_TARGET_LEN) break
+    await new Promise((r) => setTimeout(r, 750))
+  }
+
+  if (domErr) {
+    lastExtractDebug = { stage: "dom-extract-failed", error: domErr, highWater }
     return { ok: false, errorCode: "page_too_short", message: userMessageFor("page_too_short") }
   }
 
@@ -886,6 +913,8 @@ ipcMain.handle("browser:analyze", async () => {
     lastExtractDebug = {
       stage: "page-too-short",
       pageTextLength: dom?.text?.length ?? 0,
+      highWater,
+      waitedMs: Date.now() - pollStart,
       url: dom?.url ?? null,
       title: dom?.title ?? null,
     }

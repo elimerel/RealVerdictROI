@@ -96,30 +96,25 @@ export type DossierPanelProps = {
 // ---------------------------------------------------------------------------
 
 export function DossierPanelSkeleton() {
+  // Skeleton uses --rv-fill-1 so the placeholders read in both
+  // dark mode (translucent white) and light mode (translucent ink).
+  const bar = "bg-[var(--rv-fill-1)] rounded"
   return (
     <div className="p-6 space-y-6 animate-pulse">
       <div className="space-y-2">
-        <div className="h-3 bg-white/5 rounded w-2/3" />
-        <div className="h-2 bg-white/5 rounded w-1/3" />
+        <div className={`h-3 ${bar} w-2/3`} />
+        <div className={`h-2 ${bar} w-1/3`} />
       </div>
       <div className="grid grid-cols-3 gap-3 pt-2">
-        <div className="space-y-1.5">
-          <div className="h-2 bg-white/5 rounded w-12" />
-          <div className="h-7 bg-white/5 rounded" />
-          <div className="h-2 bg-white/5 rounded w-16" />
-        </div>
-        <div className="space-y-1.5">
-          <div className="h-2 bg-white/5 rounded w-12" />
-          <div className="h-7 bg-white/5 rounded" />
-          <div className="h-2 bg-white/5 rounded w-16" />
-        </div>
-        <div className="space-y-1.5">
-          <div className="h-2 bg-white/5 rounded w-12" />
-          <div className="h-7 bg-white/5 rounded" />
-          <div className="h-2 bg-white/5 rounded w-16" />
-        </div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="space-y-1.5">
+            <div className={`h-2 ${bar} w-12`} />
+            <div className={`h-7 ${bar}`} />
+            <div className={`h-2 ${bar} w-16`} />
+          </div>
+        ))}
       </div>
-      <div className="h-3 bg-white/5 rounded w-4/5" />
+      <div className={`h-3 ${bar} w-4/5`} />
     </div>
   )
 }
@@ -413,22 +408,21 @@ function SourceBadge({
       {canOpen ? <ExternalLink className="h-2.5 w-2.5" /> : null}
     </>
   )
+  const baseChrome =
+    "text-[9px] font-medium uppercase tracking-[0.12em] rv-t3 px-1.5 py-0.5 rounded " +
+    "bg-[var(--rv-fill-1)] border border-[var(--rv-fill-border)] inline-flex items-center gap-1"
   if (canOpen && sourceUrl) {
     return (
       <button
         type="button"
         onClick={() => onOpen(sourceUrl)}
-        className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/40 px-1.5 py-0.5 rounded bg-white/4 border border-white/6 inline-flex items-center gap-1 hover:text-foreground/80 transition-colors"
+        className={`${baseChrome} hover:rv-t1 transition-colors`}
       >
         {content}
       </button>
     )
   }
-  return (
-    <span className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/40 px-1.5 py-0.5 rounded bg-white/4 border border-white/6 inline-flex items-center gap-1">
-      {content}
-    </span>
-  )
+  return <span className={baseChrome}>{content}</span>
 }
 
 // ---------------------------------------------------------------------------
@@ -461,7 +455,7 @@ const SOURCE_COPY: Record<FieldProvenance["source"], string> = {
 const CONF_DOT_COLOR: Record<FieldProvenance["confidence"], string> = {
   high:   "bg-emerald-500/70",
   medium: "bg-amber-400/80",
-  low:    "bg-white/15",
+  low:    "bg-[var(--rv-t4)]",
 }
 
 function SourceDot({ provenance }: { provenance?: FieldProvenance | null }) {
@@ -482,7 +476,7 @@ function SourceDot({ provenance }: { provenance?: FieldProvenance | null }) {
       {open && (
         <span
           role="tooltip"
-          className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 rv-surface-2 border border-white/10 rounded-md px-2 py-1.5 text-[10px] rv-t1 z-50 pointer-events-none shadow-lg"
+          className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 rv-surface-2 border border-[var(--rv-fill-border-strong)] rounded-md px-2 py-1.5 text-[10px] rv-t1 z-50 pointer-events-none shadow-lg"
           style={{ minWidth: "9rem", maxWidth: "20rem", whiteSpace: "normal" }}
         >
           <span className="block font-mono font-semibold uppercase tracking-[0.06em] text-[9px] rv-t2">
@@ -808,7 +802,7 @@ export default function DossierPanel({
 
       {/* ── Save bar — Mercury-style white pill ── */}
       {onSave && supabaseConfigured && (
-        <div className="shrink-0 border-t border-white/6 px-7 py-4 bg-background">
+        <div className="shrink-0 border-t border-[var(--rv-fill-border)] px-7 py-4 bg-background">
           {savedDealId ? (
             <div className="rv-pill-saved">
               <CheckCircle2 className="h-4 w-4" />
@@ -1014,7 +1008,7 @@ function ListingDetailsRow({
 
       {/* ── Listing remarks — quoted from the page. ────────────────── */}
       {details.listingRemarks && (
-        <div className="rounded-md border border-white/[0.06] px-3 py-2.5">
+        <div className="rounded-md border border-[var(--rv-fill-border)] px-3 py-2.5">
           <p className="text-[10px] uppercase tracking-[0.08em] rv-t3 mb-1 inline-flex items-center gap-1.5">
             <ScrollText className="h-3 w-3" />
             From the listing

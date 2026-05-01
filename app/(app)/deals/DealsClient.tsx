@@ -419,7 +419,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
                         full carnival with brand colors. */}
                     {initial ? (
                       <span
-                        className="inline-flex items-center justify-center h-[18px] min-w-[20px] px-1 rounded-[4px] bg-white/[0.06] text-[10px] font-mono rv-t2 leading-none"
+                        className="inline-flex items-center justify-center h-[18px] min-w-[20px] px-1 rounded-[4px] bg-[var(--rv-fill-2)] text-[10px] font-mono rv-t2 leading-none"
                         title={sourceText}
                       >
                         {initial}
@@ -757,7 +757,7 @@ function CompareColumn({
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 pt-3 border-t border-white/[0.06]">
+      <div className="grid grid-cols-1 gap-3 pt-3 border-t border-[var(--rv-fill-border)]">
         <CompareMetric
           label="DSCR"
           value={Number.isFinite(dscr) ? dscr.toFixed(2) : "\u221E"}

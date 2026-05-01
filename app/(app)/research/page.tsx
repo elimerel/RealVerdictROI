@@ -505,47 +505,62 @@ function ElectronBrowsePage() {
     setAnalysisLoading(true)
 
     const epoch = ++analysisEpochRef.current
-    window.electronAPI!.analyze()
-      .then((result) => {
-        if (epoch !== analysisEpochRef.current) return
-        const r = result as ExtractResult
-        if (!r.ok) {
-          setAnalysis(null)
-          // Map the error code to the calm in-panel idle hint.
-          const code = r.errorCode
-          if (code === "captcha")              setIdleHint("captcha")
-          else if (code === "search_results_page") setIdleHint("search_results_page")
-          else if (code === "no_signals")       setIdleHint("no_signals")
-          else if (code === "low_confidence" || code === "schema_too_complex") setIdleHint("low_confidence")
-          else if (code === "page_too_short")   setIdleHint("page_too_short")
-          else if (code === "network")          setIdleHint("network")
-          else if (code === "no_key")           setIdleHint("no_key")
-          else                                  setIdleHint("low_confidence")
+
+    // Inner runner so we can transparently retry once on page_too_short.
+    // SPA listing pages (Zillow / Redfin) sometimes haven't hydrated even
+    // after our 18s polling window. A single 1.5s wait + retry catches
+    // the slow-network case without being annoying. Caps at one retry so
+    // we never burn 60s on a genuinely empty page.
+    const run = async (attemptsLeft: number): Promise<void> => {
+      const result = await window.electronAPI!.analyze()
+      if (epoch !== analysisEpochRef.current) return
+      const r = result as ExtractResult
+      if (!r.ok) {
+        if (r.errorCode === "page_too_short" && attemptsLeft > 0) {
+          await new Promise((res) => setTimeout(res, 1500))
+          if (epoch !== analysisEpochRef.current) return
+          await run(attemptsLeft - 1)
           return
         }
-        const next = buildAnalysisFromExtract(r, currentUrl)
-        setAnalysis(next)
-        setIdleHint("default")
-        if (currentUrl) {
-          const source = detectSource(currentUrl)
-          window.localStorage.setItem("rv:last-listing-url", currentUrl)
-          if (source) window.localStorage.setItem("rv:last-listing-site", source)
-          // Use functional state update so the effect doesn't depend on the
-          // recent-listings array (otherwise we'd re-analyze every viewedAt
-          // change).
-          setRecentListings((prev) => {
-            const row: RecentListing = {
-              url: currentUrl,
-              address: next.address,
-              source,
-              viewedAt: Date.now(),
-            }
-            const merged = [row, ...prev.filter((item) => item.url !== row.url)].slice(0, 5)
-            window.localStorage.setItem("rv:recent-listings", JSON.stringify(merged))
-            return merged
-          })
+        setAnalysis(null)
+        const code = r.errorCode
+        if (code === "captcha")              setIdleHint("captcha")
+        else if (code === "search_results_page") setIdleHint("search_results_page")
+        else if (code === "no_signals")       setIdleHint("no_signals")
+        else if (code === "low_confidence" || code === "schema_too_complex") setIdleHint("low_confidence")
+        else if (code === "page_too_short")   setIdleHint("page_too_short")
+        else if (code === "network")          setIdleHint("network")
+        else if (code === "no_key")           setIdleHint("no_key")
+        else                                  setIdleHint("low_confidence")
+        return
+      }
+      // Inline the success branch — we want to keep the existing
+      // local-storage / recent-listings update unchanged.
+      handleSuccess(r)
+    }
+
+    const handleSuccess = (r: Extract<ExtractResult, { ok: true }>) => {
+      const next = buildAnalysisFromExtract(r, currentUrl)
+      setAnalysis(next)
+      setIdleHint("default")
+      if (!currentUrl) return
+      const source = detectSource(currentUrl)
+      window.localStorage.setItem("rv:last-listing-url", currentUrl)
+      if (source) window.localStorage.setItem("rv:last-listing-site", source)
+      setRecentListings((prev) => {
+        const row: RecentListing = {
+          url: currentUrl,
+          address: next.address,
+          source,
+          viewedAt: Date.now(),
         }
+        const merged = [row, ...prev.filter((item) => item.url !== row.url)].slice(0, 5)
+        window.localStorage.setItem("rv:recent-listings", JSON.stringify(merged))
+        return merged
       })
+    }
+
+    run(1)
       .catch(() => {
         if (epoch !== analysisEpochRef.current) return
         setAnalysis(null)
@@ -665,7 +680,7 @@ function ElectronBrowsePage() {
           <button
             onClick={() => window.electronAPI?.back()}
             disabled={!browserActive || browserLoading || !canGoBack}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] disabled:opacity-30 text-muted-foreground/70 transition-colors duration-100"
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-[var(--rv-fill-2)] disabled:opacity-30 rv-t3 hover:rv-t1 transition-colors duration-100"
             aria-label="Back"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -673,7 +688,7 @@ function ElectronBrowsePage() {
           <button
             onClick={() => window.electronAPI?.forward()}
             disabled={!browserActive || browserLoading || !canGoForward}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] disabled:opacity-30 text-muted-foreground/70 transition-colors duration-100"
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-[var(--rv-fill-2)] disabled:opacity-30 rv-t3 hover:rv-t1 transition-colors duration-100"
             aria-label="Forward"
           >
             <ArrowRight className="h-4 w-4" />
@@ -681,7 +696,7 @@ function ElectronBrowsePage() {
           <button
             onClick={() => window.electronAPI?.reload()}
             disabled={!browserActive}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] disabled:opacity-30 text-muted-foreground/70 transition-colors duration-100"
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-[var(--rv-fill-2)] disabled:opacity-30 rv-t3 hover:rv-t1 transition-colors duration-100"
             aria-label="Refresh"
           >
             <RotateCw className={cn("h-3.5 w-3.5", browserLoading && "animate-spin")} />
@@ -717,7 +732,7 @@ function ElectronBrowsePage() {
                 type="button"
                 tabIndex={-1}
                 onMouseDown={(e) => { e.preventDefault(); setUrlInput(""); urlInputRef.current?.focus() }}
-                className="shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-white/[0.08] transition-colors"
+                className="shrink-0 h-4 w-4 rounded-full flex items-center justify-center rv-t3 hover:rv-t1 hover:bg-[var(--rv-fill-3)] transition-colors"
                 aria-label="Clear URL"
               >
                 <X className="h-3 w-3" strokeWidth={2.5} />
@@ -731,7 +746,7 @@ function ElectronBrowsePage() {
           <button
             type="button"
             onClick={() => setPasteOpen((v) => !v)}
-            className="h-7 w-7 rounded flex items-center justify-center hover:bg-white/[0.06] text-muted-foreground/70 transition-colors duration-100"
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-[var(--rv-fill-2)] rv-t3 hover:rv-t1 transition-colors duration-100"
             aria-label="Paste listing URL"
             title="Paste listing URL"
           >
@@ -783,7 +798,7 @@ function ElectronBrowsePage() {
                     e.preventDefault()
                     void navigateTo(urlInput)
                   }}
-                  className="rv-surface-2 rounded-xl p-4 border border-white/6"
+                  className="rv-surface-2 rounded-xl p-4 border border-[var(--rv-fill-border)]"
                 >
                   <div className="rv-input flex items-center gap-2 px-3 py-3">
                     <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />
@@ -804,7 +819,7 @@ function ElectronBrowsePage() {
                       key={site.id}
                       type="button"
                       onClick={() => void navigateTo(site.url)}
-                      className="rv-surface-2 border border-white/6 rounded-lg p-3 text-left hover:border-white/15 transition-colors"
+                      className="rv-surface-2 border border-[var(--rv-fill-border)] rounded-lg p-3 text-left hover:border-[var(--rv-fill-border-strong)] transition-colors"
                     >
                       <Building2 className="h-4 w-4 rv-t3 mb-2" />
                       <p className="text-sm">{site.label}</p>
@@ -818,7 +833,7 @@ function ElectronBrowsePage() {
                   </p>
                   <div className="grid grid-cols-5 gap-3">
                     {recentListings.length === 0 ? (
-                      <div className="col-span-5 rv-surface-2 border border-white/6 rounded-lg p-4 text-sm rv-t3">
+                      <div className="col-span-5 rv-surface-2 border border-[var(--rv-fill-border)] rounded-lg p-4 text-sm rv-t3">
                         Analyze a listing to populate recent history.
                       </div>
                     ) : recentListings.map((item) => (
@@ -826,7 +841,7 @@ function ElectronBrowsePage() {
                         key={item.url}
                         type="button"
                         onClick={() => void navigateTo(item.url)}
-                        className="rv-surface-2 border border-white/6 rounded-lg p-3 text-left hover:border-white/15 transition-colors"
+                        className="rv-surface-2 border border-[var(--rv-fill-border)] rounded-lg p-3 text-left hover:border-[var(--rv-fill-border-strong)] transition-colors"
                       >
                         <Home className="h-4 w-4 rv-t3 mb-2" />
                         <p className="text-xs truncate">{item.address ?? hostnameOf(item.url)}</p>
@@ -865,11 +880,11 @@ function ElectronBrowsePage() {
           ) : (
             <>
               {/* Expanded header — collapse toggle + status pip */}
-              <div className="shrink-0 flex items-center h-9 px-2 border-b border-white/[0.04]">
+              <div className="shrink-0 flex items-center h-9 px-2 border-b border-[var(--rv-fill-border)]">
                 <button
                   type="button"
                   onClick={() => setPanelCollapsed(true)}
-                  className="h-7 w-7 rounded-md flex items-center justify-center rv-t3 hover:rv-t1 hover:bg-white/[0.04] transition-colors"
+                  className="h-7 w-7 rounded-md flex items-center justify-center rv-t3 hover:rv-t1 hover:bg-[var(--rv-fill-1)] transition-colors"
                   aria-label="Collapse panel"
                   title="Collapse panel"
                 >
@@ -909,7 +924,16 @@ function ElectronBrowsePage() {
                     />
                   ) : null
                 ) : (
-                  <IdleSidePanel hint={idleHint} onReload={() => window.electronAPI?.reload()} />
+                  <IdleSidePanel
+                    hint={idleHint}
+                    onReload={() => {
+                      // Clear the per-URL guard so the auto-analyze effect
+                      // retriggers after reload (otherwise reloading the
+                      // same URL would be a no-op for analysis).
+                      lastAutoAnalyzedUrl.current = ""
+                      window.electronAPI?.reload()
+                    }}
+                  />
                 )}
               </div>
             </>
@@ -964,8 +988,8 @@ function CollapsedPanelStrip({
     : hasAnalysis && isListingPage
     ? "bg-emerald-500/70"
     : hasAnalysis
-    ? "bg-white/35"
-    : "bg-white/15"
+    ? "bg-[var(--rv-t2)]"
+    : "bg-[var(--rv-t4)]"
 
   const tooltip = isLoading
     ? "Analyzing listing"
@@ -1022,8 +1046,8 @@ function PanelStatusPip({
     : hasAnalysis && isListingPage
     ? "bg-emerald-500/70"
     : hasAnalysis
-    ? "bg-white/30"
-    : "bg-white/15"
+    ? "bg-[var(--rv-t2)]"
+    : "bg-[var(--rv-t4)]"
 
   const label = isLoading
     ? "Analyzing"
@@ -1058,10 +1082,10 @@ function DebugDrawer({
 }) {
   return (
     <div
-      className="absolute right-3 top-3 bottom-3 w-[420px] rv-surface-2 border border-white/10 rounded-lg shadow-2xl z-50 flex flex-col overflow-hidden"
+      className="absolute right-3 top-3 bottom-3 w-[420px] rv-surface-2 border border-[var(--rv-fill-border-strong)] rounded-lg shadow-2xl z-50 flex flex-col overflow-hidden"
       style={{ fontSize: "11px" }}
     >
-      <div className="flex items-center justify-between px-3 h-9 border-b border-white/[0.06] shrink-0">
+      <div className="flex items-center justify-between px-3 h-9 border-b border-[var(--rv-fill-border)] shrink-0">
         <span className="font-mono uppercase tracking-[0.08em] rv-t2 text-[10px]">
           Extract debug · ⌘⇧D
         </span>
@@ -1172,7 +1196,7 @@ function WebBrowsePage() {
 
       <div className="flex-1 flex items-center justify-center px-8 rv-surface-bg">
         <div className="max-w-[36rem] text-center space-y-6">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded-full rv-surface-2 border border-white/[0.06]">
+          <div className="inline-flex items-center justify-center h-12 w-12 rounded-full rv-surface-2 border border-[var(--rv-fill-border)]">
             <Globe className="h-5 w-5 rv-t2" strokeWidth={1.5} />
           </div>
           <div className="space-y-3">

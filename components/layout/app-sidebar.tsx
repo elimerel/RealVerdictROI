@@ -141,7 +141,7 @@ export function AppSidebar({ userEmail, isPro }: Props) {
                   and dual-line "Pro/Free" subtitle were visual noise; the
                   same info is in the dropdown a click away. */}
               <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-100 hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center">
-                <div className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0 bg-white/[0.08] text-foreground/80">
+                <div className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0 bg-[var(--rv-fill-3)] text-foreground/80">
                   {initials}
                 </div>
                 <div className="flex flex-col group-data-[collapsible=icon]:hidden min-w-0 flex-1">

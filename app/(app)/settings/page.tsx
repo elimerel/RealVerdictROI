@@ -110,8 +110,7 @@ function AppearanceCard() {
           icon={<Moon className="h-3.5 w-3.5" />}
           active={theme === "dark"}
           onPick={onPick}
-          // Mini canvas tones — match the actual surfaces.
-          tones={{ bg: "#0a0a0b", surface: "#16161b", text: "#f5f5f5", accent: "#e8e0c8" }}
+          tones={{ bg: "#0a0a0b", surface: "#1a1a1f", text: "#f5f5f5", accent: "#e8e0c8" }}
         />
         <ThemeSwatch
           theme="light"
@@ -119,7 +118,7 @@ function AppearanceCard() {
           icon={<Sun className="h-3.5 w-3.5" />}
           active={theme === "light"}
           onPick={onPick}
-          tones={{ bg: "#ffffff", surface: "#f5f5f5", text: "#101014", accent: "#3f3f46" }}
+          tones={{ bg: "#fafafa", surface: "#ffffff", text: "#101014", accent: "#5b6b88" }}
         />
         <ThemeSwatch
           theme="system"
@@ -127,7 +126,9 @@ function AppearanceCard() {
           icon={<Monitor className="h-3.5 w-3.5" />}
           active={theme === "system"}
           onPick={onPick}
-          tones={{ bg: "linear-gradient(135deg,#0a0a0b 50%,#ffffff 50%)", surface: "#7a7a7a", text: "#ffffff", accent: "#e8e0c8" }}
+          // Half-and-half preview: literal split so the user sees the
+          // theme follows the OS. The "card" reads on both halves.
+          tones={{ bg: "linear-gradient(90deg,#0a0a0b 0 50%,#fafafa 50% 100%)", surface: "transparent", text: "#9ca3af", accent: "#9ca3af" }}
         />
         <ThemeSwatch
           theme="paper"
@@ -152,36 +153,52 @@ function ThemeSwatch({
   onPick: (t: Theme) => void
   tones: { bg: string; surface: string; text: string; accent: string }
 }) {
+  // The preview is a real mini fintech card, not three thin bars. Each
+  // swatch is a horizontal "screenshot" of the theme: header strip, a
+  // chunky number stand-in (DSCR), and a label dot. Sized so all four
+  // sit at exactly the same height in the 4-up grid.
   return (
     <button
       type="button"
       onClick={() => onPick(theme)}
       className={cn(
-        "group relative flex flex-col gap-2 rounded-lg p-2 text-left transition-all",
-        "border",
+        "group relative flex flex-col gap-2 rounded-lg p-2 text-left transition-all w-full",
+        "border bg-transparent",
         active
-          ? "border-[var(--rv-accent-border)] bg-white/[0.03]"
-          : "border-white/[0.06] hover:border-white/[0.14] hover:bg-white/[0.02]",
+          ? "border-[var(--rv-accent-border)]"
+          : "border-[var(--rv-fill-border)] hover:border-[var(--rv-fill-border-strong)]",
       )}
       aria-pressed={active}
     >
-      {/* Mini canvas — preview of the actual surface tones */}
       <div
-        className="relative h-16 rounded-md overflow-hidden"
+        className="relative w-full aspect-[16/9] rounded-md overflow-hidden border border-black/5"
         style={{ background: tones.bg }}
       >
-        {/* Fake card */}
+        {/* Sidebar rail */}
         <div
-          className="absolute left-2 top-2 right-2 bottom-2 rounded-sm flex items-end p-1.5 gap-1"
+          className="absolute left-0 top-0 bottom-0 w-2"
+          style={{ background: tones.surface, opacity: 0.55 }}
+        />
+        {/* Card */}
+        <div
+          className="absolute left-3 right-1.5 top-1.5 bottom-1.5 rounded-[3px] p-1.5 flex flex-col justify-between"
           style={{ background: tones.surface }}
         >
-          <span
-            className="h-1 w-6 rounded-sm"
-            style={{ background: tones.text, opacity: 0.7 }}
-          />
-          <span
-            className="h-1 w-3 rounded-sm"
-            style={{ background: tones.accent }}
+          {/* "label" line */}
+          <div className="flex items-center gap-1">
+            <span
+              className="block h-[3px] w-2 rounded-full"
+              style={{ background: tones.accent }}
+            />
+            <span
+              className="block h-[3px] w-3 rounded-full opacity-60"
+              style={{ background: tones.text }}
+            />
+          </div>
+          {/* "DSCR" hero number — chunky bar */}
+          <div
+            className="block h-1.5 w-1/2 rounded-[1px]"
+            style={{ background: tones.text }}
           />
         </div>
       </div>
