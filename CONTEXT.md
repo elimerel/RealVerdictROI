@@ -1,6 +1,9 @@
 # RealVerdict — Project Context
 
-Use this file to onboard a new chat or agent quickly. **`HANDOFF.md`** stays the repo “spec” for engine, `/results`, and Pack-era history; this file tracks the **desktop app surface** and shared stack.
+Use this file to onboard a new chat or agent quickly. **`HANDOFF.md`**
+holds the **on-disk repo map (§5.1)**, calculation engine, and pointers to
+archive-era Pack/`/results` detail. This file tracks the **desktop app
+surface** and shared stack.
 
 ---
 
@@ -120,6 +123,7 @@ See `HANDOFF.md` §4 for the full table. Typical: Supabase, Stripe, OpenAI, Rent
 
 ## Related docs
 
-- `HANDOFF.md` — engine, `/results`, Pack, resolver, positioning guard rails.
+- `HANDOFF.md` — **§5.1** layout, **§6–§7** engine, **§1b** roadmap;
+  archive references for Pack/resolver history not in this tree.
 - `REALVERDICT_CONTEXT.md` — longer desktop/product narrative (should match this file; if they diverge, update both).
 - `HANDOFF_ARCHIVE.md` — historical snapshot from 2026-04-22 **plus** 2026-05 addendum at top.

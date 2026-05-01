@@ -2,6 +2,10 @@
 
 **Owner:** RealVerdict ops · **Severity if RentCast auth fails:** P1
 **Related code:** `app/api/property-resolve/route.ts`, `app/api/health/rentcast/route.ts`
+**Checkout note:** Some repository revisions **omit** `property-resolve`
+entirely (desktop uses `lib/extractor` instead). Skip resolver-specific
+steps if those files are absent; keep the health-check / Sentry patterns
+that still apply.
 **Related Sentry rules:** `event.area = "api.property-resolve.rentcast"` AND `extra.kind = "auth"`
 
 ---
@@ -80,22 +84,18 @@ if you have to provision one through the dashboard.
 
 4. **Verify recovery (≤ 2 min after deploy).**
    - `curl -i https://<host>/api/health/rentcast` → expect HTTP 200 and
-     `"status":"ok"` in the body.
-   - Run a real address through the homepage. The PDF "How we got these
-     numbers" derivation should show comp-derived numbers, not
-     listing-data-only.
+     `"status":"ok"` in the body (if that health route exists in your checkout).
+   - Run a real listing through **whatever autofill / extract path your
+     deployment uses** (e.g. marketing homepage or `/api/extract` + client).
+     Confirm derived numbers look sane — not listing-data-only degradation.
    - Check Sentry — the `api.property-resolve.rentcast` `kind=auth` rate
-     should drop to zero within a few minutes.
+     should drop to zero within a few minutes **when that route exists**.
 
-5. **Bump the resolver cache version** if any stale cached entries might
-   be carrying the "Couldn't reach the property-records database" sanitized
-   note from the outage. This forces a re-resolve on the next analysis.
-   - Edit `app/api/property-resolve/route.ts`, increment `CACHE_VERSION`
-     (e.g. `v14` → `v15`). Add a one-line comment in the version table
-     pointing at the incident date.
-   - Edit `app/_components/HomeAnalyzeForm.tsx`, increment
-     `AUTOFILL_CACHE_VERSION`.
-   - Push, redeploy.
+5. **Bump cache versions** so stale resolver payloads are invalidated.
+   **Grep the repo** for `CACHE_VERSION`, `AUTOFILL_CACHE_VERSION`, and
+   `property-resolve` — this **slim checkout** may not have
+   `app/api/property-resolve/route.ts` or `HomeAnalyzeForm.tsx`. Only edit
+   files that exist; add a one-line comment with the incident date when bumping.
 
 6. **Post-incident.** Open a one-line incident note in Linear with:
    - Detection signal (uptime / sentry / SQL audit).

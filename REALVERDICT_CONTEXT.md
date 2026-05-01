@@ -137,9 +137,9 @@ Core tables include `deals`, `subscriptions`, `negotiation_packs`, `compare_entr
 
 | File | Role |
 |------|------|
-| `HANDOFF.md` | Active spec: engine, resolver, `/results`, Pack, positioning |
-| `HANDOFF_ARCHIVE.md` | Long history + **2026-05 addendum** at top |
+| `HANDOFF.md` | **§5.1** repo map, **§6–§7** engine, **§1b** roadmap, **§2** positioning; archive pointers for Pack/resolver not in this tree |
+| `HANDOFF_ARCHIVE.md` | Long history + **2026-05 addendum** + ⛔ banner before historical body |
 | `CONTEXT.md` | Shorter agent onboarding (should match this file) |
 | `AGENTS.md` | Next.js version warning for agents |
 
-If **`HANDOFF.md §1`** and this file disagree on **current desktop state**, update **both** — `HANDOFF.md` wins on engine/Pack facts; **this file** and **`CONTEXT.md`** should stay in sync for Electron UX.
+If **`HANDOFF.md §1`** and this file disagree on **current desktop state**, update **both**. **`HANDOFF.md` §5.1** wins on **file layout**; **§6–§7** wins on **engine math**; **this file** and **`CONTEXT.md`** stay aligned for **Electron UX**.

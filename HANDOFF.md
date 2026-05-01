@@ -13,13 +13,13 @@
 > jump to the section that matches the task:
 >
 > - Starting fresh? → **§1 Current state + §1b Roadmap + §15 Next chat prompt**
-> - Touching the engine or `findOfferCeiling`? → **§5, §6**
-> - Touching data pipeline / resolver / RentCast? → **§7**
-> - Touching `/results`? → **§8** (component map)
-> - Touching Pack / comp reasoning? → **§9**
-> - Writing copy on home / pricing? → **§10**
-> - Philosophy / positioning disagreement with a past decision? → **§2**
->   then `HANDOFF_ARCHIVE.md §20.5, §20.10, §20.11` (guard rails).
+> - Touching **Browse / Pipeline / `DossierPanel`?** → **§5.1** + `CONTEXT.md`
+> - Touching the engine or `findOfferCeiling`? → **§6, §7**
+> - Touching **extract → analyze** wiring / APIs in *this* tree? → **§8**
+> - Touching **marketing pages**? → **§10**
+> - **Historical** `/results`, Pack, `property-resolve`, RentCast resolver UI?
+>   → **`HANDOFF_ARCHIVE.md` only** (paths may not exist here; grep first).
+> - Philosophy / positioning disagreement? → **§2** then archive §20.5–20.11.
 >
 > Rules that never bend:
 > - No I/O in `lib/calculations.ts` — same input, same output, always.
@@ -64,13 +64,18 @@
     architecture work.
 - **Engine**: `findOfferCeiling` disciplined by comp-derived market value
   (5% premium allowed). The $3.4M-walk-away-on-$540k-listing bug is gone.
-- **Architecture (§20.8)**: `/results` is a fast estimate by default (no
-  RentCast). Comps + Pack require explicit `?livecomps=1` opt-in.
-- **Negotiation Pack**: one-click PDF export from `/results` with
-  walk-away price, three weakest assumptions, comp evidence, stress
-  scenarios, counteroffer script. Pro-gated; free users get 3 Packs/week.
-- **Comp Reasoning Explainer**: Comps tab renders why each comp was
-  included or excluded, with p25/median/p75 bands.
+- **Architecture (§20.8, archive era)**: full-page `/results` used fast
+  estimate by default (no RentCast) until `?livecomps=1`. **This tree**
+  uses **Browse + `DossierPanel`** instead of that page — the pattern
+  still informs API cost discipline if resolver routes return.
+- **Negotiation Pack** (historical / other branches): one-click PDF export
+  from a full **`/results`** + live-comps flow was shipped in the **archive**
+  era. **This repository revision** does not include `app/pack/` or
+  `/api/pack/generate` — treat Pack as **roadmap / marketing copy** until
+  routes are reintroduced.
+- **Comp Reasoning Explainer** (archive / `/results` Comps tab): rendered
+  why each comp was included or excluded. Not bundled here; see archive
+  if re-porting comp UI.
 - **Pricing**: single $29/mo Pro tier. Free tier: 3 live comp analyses/week
   (same window the rate limiter enforces; aligns with homepage + pricing).
 - **Homepage + pricing copy**: ICP = **buy-and-hold rental investors**.
@@ -185,10 +190,13 @@ human. Every forwarded Pack is a seed of viral distribution.
 - **Don't pivot to house-hackers** as the primary demographic. Free-tier
   unlock later, post-launch, to funnel first-timers. Committed to active
   rental investors.
-- **Don't remove the `HowWeGotThese` transparency panel** at the top of
-  `/results`. It IS the product's trust moat.
+- **Don't remove underwriting transparency** from the active analysis UI.
+  On legacy `/results` that was `HowWeGotThese`; today **`DossierPanel`**
+  carries factual summary + assumption provenance — don't strip it.
 - **Don't reintroduce the mocked analysis universe.** All analysis goes
-  through `analyseDeal()` and `/results`.
+  through `analyseDeal()`. Primary surfaces today: **`DossierPanel`** on
+  `/research` and `/deals`; legacy **full-page `/results`** may exist only
+  in other branches or the archive — **grep this repo** before assuming.
 - **Don't cover bad data with a warning bubble.** Fix the derivation.
 
 **Success criteria to revisit positioning in 90 days:** ≥10 paying
@@ -241,77 +249,65 @@ route.
 
 ## 5. Repo structure
 
+### 5.1 This repository (authoritative — Electron + slim web app)
+
+**Always verify with `glob` / your IDE**; this list can drift.
+
 ```
 app/
-  page.tsx                      # Homepage (Pack-first framing)
-  layout.tsx
-  globals.css
-  results/page.tsx              # Orchestrator — parses URL, auth + quota gates,
-                                #   fetches comps, renders sections. Lean.
-  pack/[shareToken]/            # Pack viewer + PDF export
-    page.tsx                    #   HTML rendering of the Pack
-    pdf/route.ts                #   Node runtime @react-pdf/renderer stream
-  compare/page.tsx              # Side-by-side (Supabase-synced for Pro)
-  dashboard/page.tsx            # Saved deals + plan badge + manage billing
-  pricing/page.tsx              # Pack-first pricing page
-  about/page.tsx                # Anti-hype positioning
-  methodology/page.tsx          # SEO + trust anchor: exact formulas + scoring
-  login/page.tsx                # Magic-link auth
-  sitemap.ts + robots.ts        # Indexes / , /pricing, /methodology, /about
-  _components/
-    HomeAnalyzeForm.tsx         # Homepage form — address + Zillow URL + headlines
-    InitialVerdict.tsx          # Streamed gpt-4o-mini verdict
-    FollowUpChat.tsx            # gpt-4o Ask-AI tab
-    OfferCeilingCard.tsx        # Walk-away price card (marketValueCap aware)
-    CompsSection.tsx            # Sale + rent comp grid + Comp Reasoning panel
-    CompReasoningPanel.tsx      # "Why we kept / why we dropped each comp"
-    HowWeGotThese.tsx           # Top-of-page derivation transparency
-    WhatIfPanel.tsx             # Sliders — client-side recalc
-    StressTestPanel.tsx         # 5 canned shocks (IRR + ROI surfaced)
-    VerdictRubric.tsx           # Itemized rubric items
-    PackGenerateButton.tsx      # Pack generation CTA (Pro + Pack-eligible only)
-    SaveDealButton.tsx          # Pro-gated
-    ShareButton.tsx
-    AddToComparisonButton.tsx
-    ResultsTabs.tsx             # Sticky tab nav
-    ResultsWarningsBanner.tsx   # Dismissible warnings handed off from homepage
-    AnalysisQuotaExceeded.tsx   # Quota-gate fallback
-    ProCompsTeaser.tsx          # Non-Pro fallback for Comps tab
-    results/                    # /results-specific components (the split from §8)
-      ResultsHeader.tsx
-      HeroSection.tsx           # HeroSection + HeroActions + RunLiveCompsCTA
-      EvidenceSection.tsx
-      BreakdownSection.tsx
-      tier-style.ts             # TIER_LABEL + TIER_ACCENT + tone helpers
+  layout.tsx                 # Root: fonts (Inter + JetBrains Mono), theme, analytics
+  globals.css                # Tailwind 4 + .rv-* design tokens
+  sitemap.ts, robots.ts
+  auth/callback/route.ts     # Supabase OAuth
+  (app)/                     # Authenticated product shell
+    layout.tsx               # SidebarProvider (default collapsed), KeyboardShortcuts
+    research/page.tsx        # Browse — browser + DossierPanel
+    research/_components/
+    deals/page.tsx, deals/DealsClient.tsx, deals/SavedDealCard.tsx
+    settings/page.tsx
+    insights/page.tsx        # Stub / non-core unless product revives it
+    components/              # electron-expand, sidebar-data-loader
+    _components/
+      DossierPanel.tsx       # Canonical analysis panel
+      KeyboardShortcuts.tsx
+      VerdictRubric.tsx, SaveDealButton.tsx, …
+  (marketing)/               # Public marketing site (route group)
+    page.tsx                 # Homepage at /
+    pricing/, about/, methodology/, download/, privacy/, terms/, report/
+    _components/
+  (auth)/login/              # Login UI
   api/
-    property-resolve/route.ts   # Fast estimate (§20.8 mode:"fast") → enriched inputs
-    zillow-parse/route.ts       # JSON-first scrape of Zillow HTML
-    comps/route.ts              # Wraps lib/comps.ts for the frontend
-    pack/generate/route.ts      # Builds Pack, persists negotiation_packs row
-    pack/share/[shareToken]/    # Public Pack fetch (share + PDF)
-    stripe/checkout/route.ts    # Signed-in → subscription checkout
-    stripe/webhook/route.ts     # checkout.session.completed + sub.updated/deleted
-    stripe/portal/route.ts      # Billing portal
-    og/route.tsx                # Open Graph image generator
-    chat/route.ts               # gpt-4o Ask-AI
-    deals/ + compare/ + auth/   # CRUD + sync + Supabase callback
+    extract/route.ts         # Listing extraction → lib/extractor
+    deals/save/route.ts, deals/[id]/route.ts
+    compare/route.ts
+    stripe/{checkout,portal,webhook}/route.ts
+    auth/signout/route.ts
+    report-concern/route.ts
+    og/route.tsx
+electron-app/
+  main.js                    # Window, WebContentsView bounds, state persistence
+  preload.js                 # contextBridge → electronAPI
 lib/
-  calculations.ts               # Pure. DealInputs → DealAnalysis. See §5.
-  comps.ts                      # RentCast fetcher + percentile stats
-  comparables.ts                # analyzeComparables — "how we got these" derivation
-  estimators.ts                 # State-level insurance + tax fallbacks (homestead-aware)
-  negotiation-pack.ts           # buildPack(inputs, analysis, comps, comparables, subject)
-  pack-pdf.tsx                  # @react-pdf/renderer document
-  kv-cache.ts                   # Upstash Redis + in-memory fallback
-  client-session-cache.ts       # sessionStorage wrapper (autofill handoff)
-  ratelimit.ts                  # Per-route budgets (pack-generate, analysis-free-*)
-  observability.ts              # logEvent, captureError, withErrorReporting
-  pro.ts                        # isPro(user) — subscriptions-table source of truth
-  stripe.ts, supabase/{server,browser,service,config}.ts
-public/
-supabase/migrations/            # 001_deals, 002_compare_entries, 003_subscriptions, 004_negotiation_packs
-tests/                          # Structural invariants (routes, copy, wiring)
+  calculations.ts            # Pure engine (§6)
+  severity.ts                # Worst-offender coloring for metrics
+  extractor/                 # Page → DealInputs
+  lead-adapter.ts, tier-constants.ts, types.ts
+  supabase/, stripe.ts, pro.ts, ratelimit.ts, kv-cache.ts, …
+components/
+  layout/app-sidebar.tsx     # Browse | Pipeline | Settings
+  ui/                        # shadcn
+supabase/migrations/
+tests/
 ```
+
+### 5.2 Not in this tree (archive / other branches)
+
+These appear in **`HANDOFF_ARCHIVE.md`** and older prompts but **are not
+present in this checkout**: full-page **`app/results/`**, **Pack**
+routes (`/api/pack/*`, `app/pack/`), **`/api/property-resolve`**, **`/api/comps`**,
+**`HomeAnalyzeForm`**, **`lib/comparables.ts`**, **`lib/negotiation-pack.ts`**, etc.
+**Grep before importing** from the archive; treat archive prose as
+**historical** unless you reintroduce the files.
 
 ---
 
@@ -329,27 +325,28 @@ DEFAULT_INPUTS
 analyseDeal(inputs, evidence?) // Pure. No I/O. Second arg adds "Pro forma vs comps rent" rubric row only — KPIs still use the user's monthlyRent.
 sanitiseInputs(raw)          // Clamps every numeric field to a sane range.
 findOfferCeiling(inputs, { marketValueCap?, analyseDealOptions? }) // Walk-away — see §7.
-inputsToSearchParams / inputsFromSearchParams  // Deep linking
+inputsToSearchParams / inputsFromSearchParams  // Deep linking (when used)
 formatCurrency / formatPercent / formatNumber
 ```
 
-The file is ~1000 lines. It's large because it's the product: rubric,
-scoring, projection, DSCR, IRR, cap, cash-on-cash, break-even, GRM,
-`findOfferCeiling`, provenance helpers. Don't split it; the cohesion is
-what makes changes safe.
+The file is large — rubric, scoring, projection, DSCR, IRR, cap,
+cash-on-cash, break-even, GRM, `findOfferCeiling`. Don't split casually;
+cohesion keeps changes safe.
 
-**Comp rent vs pro forma:** `lib/comparables.ts::toAnalyseRentEvidence(comparables)`
-builds `AnalyseDealOptions` after live comps. `/results`, Pack generate, and
-calibration pass it into `analyseDeal` + `findOfferCeiling` so the verdict
-and walk-away ladder react when pro forma rent is far above comp-derived
-market rent — without silently rewriting the user's rent in the spreadsheet.
+**Optional `evidence` / comps:** When a deployment has live comp
+derivation, callers pass `AnalyseDealOptions` so the rubric can react to
+pro-forma vs market rent without rewriting the user's rent. This repo's
+**desktop flow** may not wire that path — check call sites in
+`DossierPanel`, `DealsClient`, `research/page.tsx`, and tests.
 
 ---
 
 ## 7. `findOfferCeiling` — the walk-away solver
 
-Lives at the bottom of `lib/calculations.ts`. Rendered by
-`app/_components/OfferCeilingCard.tsx` in the `/results` hero.
+Lives in `lib/calculations.ts`. **In this repo** it is consumed by
+`DossierPanel`, `DealsClient` / `SavedDealCard`, `research/page.tsx`, and
+`app/api/og/route.tsx`. Older **OfferCeilingCard** / full-page `/results`
+UIs are **not in this tree** — see the archive if you need that UX spec.
 
 ```ts
 export type OfferCeiling = {
@@ -366,213 +363,107 @@ export type OfferCeiling = {
   marketValueCap?: {
     cap: number;
     source: "comps" | "list";
-    binding: boolean;   // true if the cap actively clipped a tier ceiling
+    binding: boolean;
   };
 };
 
 findOfferCeiling(inputs, {
-  marketValueCap?: number,             // comp fair value when available, else list
+  marketValueCap?: number,
   marketValueCapSource?: "comps"|"list",
   marketValueCapPremium?: number,      // default 1.05 — 5% over anchor
+  analyseDealOptions?: AnalyseDealOptions,
 });
 ```
 
-How it works:
+**Algorithm (summary):**
 
 - Verdict score is monotonically non-increasing as price rises.
-- Binary-search 25 iterations on `[1k, min(rubricUpper, marketValueCap * premium)]`.
-- Rounded to $500 (investors don't negotiate to the dollar).
-- **`primaryTarget` never uses PASS (`poor`).** If the best tier inside
-  the realistic negotiation band is still PASS, the card headline is
-  "Walk away" (no phantom max-offer). The ladder still shows each tier's
-  **ceiling** = max purchase at which the rubric is still at least that
-  tier; the bottom PASS row is therefore the list-capped top of the PASS
-  band (not AVOID), **not** a bid target — `OfferCeilingCard` adds a
-  footnote + tooltip when `primaryTarget` is unset. On broken deals,
-  `OfferCeilingCard` **hides** STRONG BUY / GOOD rows from the default view
-  when the first reachable tier is BORDERLINE (or GOOD-only), with a plain
-  English line that those prices are rubric-only — full ladder lives in a
-  `<details>` for methodology.
-- Without `marketValueCap`, income-rubric alone can return absurd
-  ceilings on rent-heavy listings (the $3.4M-on-a-$540k-listing bug).
-  The cap is derived in `/results` from `comparables.marketValue.value`
-  when available (`source: "comps"`), list price otherwise
-  (`source: "list"`). `OfferCeilingCard` renders the cap reason in
-  copy under the tier grid.
+- Binary search on `[1k, min(rubricUpper, marketValueCap * premium)]`.
+- Rounded to $500.
+- **`primaryTarget` never uses PASS (`poor`).** When nothing better than
+  PASS clears the realistic band, treat as a walk-away scenario — **`DossierPanel`**
+  surfaces break-even / metrics rather than a full tier ladder card.
+
+**Market value cap:** Without a cap, income-only rubric can produce absurd
+ceilings. Callers pass `marketValueCap` from comp fair value or list price
+when available. **`DossierPanel`** recomputes `findOfferCeiling` when
+assumption inputs change.
 
 ---
 
-## 8. Data pipeline (resolver + comps)
+## 8. Data pipeline **(this repository)**
 
-### 8.1 `/api/property-resolve` (`app/api/property-resolve/route.ts`)
+### 8.1 Listing → `DealInputs`
 
-Single entry point used by the homepage form's auto-fill. Two methods:
+- **`POST /api/extract`** — `lib/extractor`: AI-assisted extraction from
+  listing HTML / structured signals; returns UI-safe error codes (no raw
+  provider errors).
+- **Electron** `research` flow: main process + IPC feed the same extraction
+  path for the embedded browser URL (see `electron-app/preload.js` and
+  `research/page.tsx`).
 
-- **GET `?address=...`** — RentCast `/properties` (1 call) for facts +
-  lat/lng + latest tax bill, then state-level estimates from
-  `lib/estimators.ts` plus live FRED rate, FHFA metro appreciation, and
-  FEMA flood bump.
-- **POST `{ url, address? }`** — `/api/zillow-parse` for listing data,
-  then RentCast `/properties` for the gaps, then the same enrichment.
+### 8.2 Persistence + compare + billing
 
-**§20.8 fast-estimate mode (SHIPPED):** `property-resolve` returns
-`mode: "fast"` and **does not** call `fetchComps` or `analyzeComparables`.
-Comp analysis is deferred until the user clicks "Run live comp
-analysis" on `/results` (which appends `?livecomps=1`). Browse-and-
-bounce traffic costs zero RentCast. Cache versions: `CACHE_VERSION v11`,
-`AUTOFILL_CACHE_VERSION v4`.
+- **`/api/deals/save`**, **`/api/deals/[id]`** — saved Pipeline deals.
+- **`/api/compare`** — multi-deal comparison for the client.
+- **`/api/stripe/*`**, **`/api/auth/signout`**, **`/api/report-concern`**, **`/api/og`**.
 
-Returns:
+### 8.3 Resolver / RentCast / comps (ops)
 
-```ts
-{
-  source, address, state, facts, inputs, provenance, notes, warnings,
-  mode: "fast",
-  // (comparables NOT included in fast mode)
-}
-```
-
-`provenance` is per-field: `{ source, confidence, note }` with
-`source ∈ "rentcast"|"rent-comps"|"zillow-listing"|"fred"|"fhfa-hpi"|"fema-nfhl"|"state-average"|"national-average"|"default"|"user"`.
-`HomeAnalyzeForm` renders colored badges + tooltips.
-
-### 8.2 `/api/zillow-parse` (`app/api/zillow-parse/route.ts`)
-
-JSON-first scraper. Pulls `__NEXT_DATA__` + Apollo state out of the
-HTML with regex, walks for address/beds/baths/sqft/yearBuilt/lotSize/
-homeType/price/zestimate/rentZestimate/monthlyHoaFee/tax/insurance/DOM.
-Falls back to URL-slug parsing if ScraperAPI is missing.
-
-### 8.3 `/api/comps` + `lib/comps.ts`
-
-`fetchComps({ address, beds?, baths?, sqft?, radiusMiles=3 })`. Both
-the route handler and `/results` import from `lib/comps.ts` directly
-(no server-to-server loop). Radius ladders 3→10mi, only widening the
-side still under 3 comps. Returns `null` if the key is missing.
-`CompStats` includes `count`, `median`, `p25`, `p75`, `min`, `max`,
-`medianPricePerSqft`, `medianRentPerSqft`. Cached 24h cross-lambda.
-
-### 8.4 `lib/comparables.ts`
-
-`analyzeComparables(subject, comps)` is the derivation engine. Dedupes
-by building, filters HOA-lite SFRs vs condos, applies $/sqft outlier
-z-score trim, builds workLog entries so the UI can show "how we got
-this number." Feeds both `HowWeGotThese`, `CompReasoningPanel`, and the
-Pack's "three weakest assumptions."
+Some **ops runbooks** still mention **`/api/property-resolve`** and RentCast.
+That route **does not exist in this checkout**. When debugging data
+quality, **grep `app/api`** and follow **`docs/runbooks/rentcast-key-rotation.md`**
+only for steps that match files actually on disk.
 
 ---
 
-## 9. Results page architecture (`app/results/page.tsx`)
+## 9. Authenticated UI architecture (**`app/(app)/`**)
 
-Orchestrator pattern. The page itself is ~420 lines:
+There is **no** `app/results/page.tsx` **in this tree.** The shipped product
+surface is:
 
-1. Parse URL inputs.
-2. Auth + Pro check.
-3. Quota gate (only when `?livecomps=1` AND non-Pro).
-4. `analyseDeal(inputs)`.
-5. If `?livecomps=1` + address → `fetchComps` + `analyzeComparables`.
-6. Set CSS vars `--accent` + `--accent-soft` from tier.
-7. Render `<ResultsHeader>` → `<ResultsWarningsBanner>` →
-   `<HowWeGotThese>` → `<RunLiveCompsCTA>` (fast-estimate only) →
-   `<HeroSection>` → `<ResultsTabs>` (Numbers / Comps / Stress /
-   What-if / Rubric / Ask AI) → footer.
+- **`DossierPanel`** (`app/(app)/_components/DossierPanel.tsx`) — hero
+  metrics (DSCR, cash/mo, cap), summary, assumptions, collapsible
+  breakdowns; uses `analyseDeal` + `findOfferCeiling`.
+- **Parents:** `research/page.tsx` (Browse), `DealsClient.tsx` (Pipeline
+  selection + right rail).
 
-Component map under `app/_components/results/`:
-
-- **`tier-style.ts`** — `TIER_LABEL`, `TIER_ACCENT`, `WARN_COLOR`,
-  `BAD_COLOR`, `Tone` type, `toneToStyle`, `toneCoC / toneCap / toneDSCR
-  / toneBreakEven / toneGRM`. Shared across hero + evidence + breakdown.
-- **`ResultsHeader.tsx`** — top nav.
-- **`HeroSection.tsx`** — verdict tier + walk-away + AI summary +
-  actions. Also exports `RunLiveCompsCTA` (the fast-estimate-only
-  "Run live comp analysis" banner) and houses `HeroActions` + `EditIcon`
-  as internal components.
-- **`EvidenceSection.tsx`** — Numbers tab top half. Subject-vs-market
-  (only when comps exist), Returns, Risk, Long-term groups.
-- **`BreakdownSection.tsx`** — Numbers tab bottom half. Monthly
-  waterfall + cash to close + projection table + sale proceeds. Panel
-  / Table / TableRow primitives are inlined here because they're only
-  used by these four tables.
-
-Pro-gating: the Comps tab is Pro-only; non-Pro see `<ProCompsTeaser>`.
-The Pack generate button only renders when `liveComps && comparables &&
-address` (`packEligible`).
+Supporting pieces: `KeyboardShortcuts.tsx`, `SavedDealCard.tsx`, tier styling
+from `lib/tier-constants.ts` and local components. **Do not** assume
+`app/_components/results/HeroSection.tsx` exists unless you add it back.
 
 ---
 
-## 10. Homepage + pricing (investor ICP + Pack, locked)
+## 10. Marketing site (`app/(marketing)/`)
 
-**Homepage (`app/page.tsx`)** — buy-and-hold rental investor framing:
+**Homepage:** `app/(marketing)/page.tsx` (serves **`/`** via the route group).
 
-- Eyebrow "Buy-and-hold rental investors."
-- H1 leads with walk-away / underwriting (not generic "any listing").
-- Subhead: verdict + walk-away first; Pack when negotiating.
-- Free-quota callout: "Free for your first 3 live analyses a week" (must
-  match pricing + `pack-routes-invariants` test + rate limiter semantics).
-- Value-prop section titled "What's in the Pack" — three `ValueCard`s:
-  walk-away price, three weakest assumptions, counteroffer script.
-- "How it works": (1) paste Zillow URL, (2) run a live comp analysis,
-  (3) generate the Pack.
-- Bottom CTA: "Underwrite your next rental."
+**Pricing:** `app/(marketing)/pricing/page.tsx` (+ `GetProButton.tsx`).
 
-**Pricing (`app/pricing/page.tsx`)**:
+**Other public routes in this group:** `about`, `methodology`, `download`,
+`privacy`, `terms`, `report`.
 
-- Headline "The Pack is free for your first 3 live analyses a week."
-- `<PackAnatomy />` section above the tier cards — six pillars of the
-  Pack, visualized.
-- Free tier featured bullet: "3 full Negotiation Packs per week."
-  CTA "Try a Pack free."
-- Pro tier featured bullet: "Unlimited Negotiation Packs." Subhead
-  "For investors making multiple offers a month."
-- FAQ explicitly clarifies the free-tier quota + who this is for.
+Copy may still emphasize Pack / walk-away / investor ICP — **`grep` and
+`tests/`** enforce whatever invariants remain. If a test file references
+`/results` or Pack routes that are absent, treat the test as **legacy**
+until updated (see `tests/pack-routes-invariants.test.ts` status on `main`).
 
-Structural invariants enforced in `tests/pack-routes-invariants.test.ts`.
-
-**Supporting marketing pages (already shipped, untouched by 2026-04-22):**
-`/methodology` (SEO + trust anchor — exact formulas), `/about`
-(anti-hype positioning), `/compare`, `/dashboard`.
+**`HowWeGotThese` on `/results`:** not applicable in this tree unless that
+page is reintroduced. Transparency for underwriting is implemented inside
+**`DossierPanel`** sections and tooltips instead.
 
 ---
 
-## 11. Negotiation Pack + Comp Reasoning Explainer
+## 11. Negotiation Pack + Comp Reasoning (**archive / other branches**)
 
-### 11.1 Pack
+The **Negotiation Pack** PDF flow, **`/api/pack/generate`**, **`CompReasoningPanel`**,
+and the **Comps tab** on a dedicated **`/results`** page are **not implemented
+in this repository revision.** The historical spec (data flow, components,
+PDF rendering) lives in **`HANDOFF_ARCHIVE.md`** (search for Pack, `pack/generate`,
+`CompReasoning`).
 
-**Data flow:**
-
-1. User on `/results?livecomps=1` clicks `<PackGenerateButton>`.
-2. POST `/api/pack/generate` — rate-limited (`pack-generate`),
-   Pro-gated via `isPro`, quota-gated for free tier.
-3. Server calls `lib/negotiation-pack.ts::buildPack(inputs, analysis,
-   comps, comparables, subject)` which computes `marketValueAnchor`
-   from `comparables.marketValue?.value ?? inputs.purchasePrice`,
-   passes it to `findOfferCeiling`, derives three weakest assumptions
-   from the `analyzeComparables` workLog, selects 3–5 comps, and emits
-   a `PackPayload`.
-4. Persist to Supabase `negotiation_packs` (user_id, share_token,
-   payload JSONB, pdf_url).
-5. Response includes `shareUrl: /pack/<shareToken>` and `pdfUrl:
-   /pack/<shareToken>/pdf`.
-
-**Rendering:**
-
-- `/pack/[shareToken]/page.tsx` — public HTML view of the Pack. Any
-  visitor with the link can read it (by design — it's a shared artifact).
-- `/pack/[shareToken]/pdf/route.ts` — Node runtime,
-  `@react-pdf/renderer` `renderToStream`, serves
-  `PackDocument(payload)` from `lib/pack-pdf.tsx`.
-
-### 11.2 Comp Reasoning Explainer
-
-`app/_components/CompReasoningPanel.tsx`. Lives inside `<CompsSection>`
-when `comparables` is non-null. Shows:
-
-- The 3–5 comps that actually drove the derivation, each with a short
-  "why this one" line.
-- Any explicitly excluded comps and the reason.
-- p25 / median / p75 band from the scored pool.
-- Sqft normalization rendered explicitly.
-- Confidence band (counts, range, distance).
+If Pack work resumes, **re-add the routes and libs** and update this section —
+do not assume those files exist because older HANDOFF text mentioned them.
 
 ---
 
@@ -614,8 +505,8 @@ If any of these regresses, STOP — don't proceed until fixed.
 - The sandbox blocks `tsx` IPC — don't ad-hoc test with `npx tsx`.
   Expose a temporary route + curl localhost instead.
 - Tailwind 4, `@import "tailwindcss"` in `globals.css`. No config file.
-- `/results` sets `--accent` + `--accent-soft` on the root by tier;
-  all children read `var(--accent)`. Don't hard-code colors.
+- **`app/(app)/`** analysis surfaces may set tier-driven accents; prefer
+  design tokens (`.rv-*`, `TIER_*` helpers) over hard-coded colors.
 - iOS tap targets ≥44px. All interactive controls use
   `h-11 min-h-[44px]` or larger.
 - Mobile-first padding: `px-4 sm:px-6` on outer containers.
@@ -658,12 +549,13 @@ phased roadmap §1b.
 
 Polish v1+v2 shipped (2026-05): severity discipline, typography tiers,
 sidebar default collapsed, panel modules, pipeline table density, scroll
-fixes. Phase 2 = native shell quality (see §1b) — not started as a bundle.
+fixes. Phase 2 = native shell quality (see §1b).
 
-Web /results + Pack stack from HANDOFF §5–§9 still exists for marketing
-and deep links; don't assume every agent task is /results-first.
+**This repo’s on-disk layout** is §**5.1** (`app/(app)/` + extractor APIs).
+Pack / full-page `/results` / property-resolve are **§5.2** / archive unless
+restored — grep before implementing.
 
-Run npm run check before pushing. HANDOFF_ARCHIVE.md = history only.
+Run npm run check before pushing. HANDOFF_ARCHIVE.md = history + deep engine eras.
 ```
 
 ---
@@ -682,5 +574,6 @@ Everything else is in `HANDOFF_ARCHIVE.md`:
 - §20.13, §20.14, §20.16, §20.17, §20.18 — per-subsection ship logs.
 - §20.15 — prior next-chat starting prompt (superseded by §15 above).
 
-If you need a fact that isn't in this file, grep the archive. If the
-current HANDOFF and the archive disagree, HANDOFF wins.
+If you need a fact that isn't in this file, grep the archive. For **what
+files exist on disk today**, **§5.1** and a repo search beat archive prose.
+If the archive and **§5.1** disagree on layout, **§5.1** wins.

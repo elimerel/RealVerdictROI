@@ -40,6 +40,15 @@
 
 ---
 
+> **⛔ Do not treat anything below as the current repo or product map.**
+> The body is a **2026-04-22** snapshot: **`/results`**, **`HomeAnalyzeForm`**,
+> **Pack routes**, **`property-resolve`**, **`lib/comparables`**, etc.
+> **Live layout:** `HANDOFF.md` §**5.1**. **Live UX:** `CONTEXT.md`,
+> `REALVERDICT_CONTEXT.md`. Use this file for **forensics, audits, and
+> strategy history** only.
+
+---
+
 # RealVerdictROI — Project Handoff (historical preamble)
 
 **Status as of this hand-off (v2): the analysis engine has been extensively recalibrated and hardened. Verdict rubric now handles appreciation-driven markets sensibly, walk-away price suppresses absurd lowball recommendations, comp derivation is HOA-aware and cross-checks against market anchors (last-sale + list price). Dev server compiling cleanly, types + lint pass.** Next major phase: **add external data sources so auto-filled defaults are grounded in live market reality** (current mortgage rates, metro appreciation, flood zones). See §17.
