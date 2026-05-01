@@ -138,7 +138,12 @@ function SidebarProvider({
           } as React.CSSProperties
         }
         className={cn(
-          "group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar",
+          // h-full + overflow-hidden so the wrapper exactly fills its
+          // parent (the (app) <main>) and never grows past the viewport.
+          // The previous min-h-svh let the page scroll vertically when
+          // the Pipeline list got tall enough, which the user reported
+          // as "limited scrolling — can't go all the way down".
+          "group/sidebar-wrapper flex h-full w-full overflow-hidden has-data-[variant=inset]:bg-sidebar",
           className
         )}
         {...props}

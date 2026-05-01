@@ -342,7 +342,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
       {/* ── Left pane: filter + table of saved deals ─────────────────── */}
       <div className="w-[420px] shrink-0 flex flex-col border-r border-border min-w-0">
         {/* Filter */}
-        <div className="px-4 pt-4 pb-3 shrink-0">
+        <div className="px-4 pt-4 pb-2 shrink-0">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/45" />
             <input
@@ -365,6 +365,41 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
           </div>
         </div>
 
+        {/* Compare action bar — always visible above the table so the
+            feature is discoverable. Empty state explains what compare
+            does; selected state shows count + Compare button. The
+            previous floating-bottom-overlay required scrolling to the
+            end of a long list to find it. */}
+        <div className="px-4 pb-2 pt-1 flex items-center gap-2 shrink-0">
+          {compareIds.size === 0 ? (
+            <p className="text-[11px] rv-t3">
+              Tick rows to compare — up to 4 side by side
+            </p>
+          ) : (
+            <>
+              <span className="text-[11px] rv-t1 tabular-nums font-medium">
+                {compareIds.size} of 4 selected
+              </span>
+              <button
+                type="button"
+                onClick={() => setCompareIds(new Set())}
+                className="text-[11px] rv-t3 hover:rv-t1 transition-colors px-1.5"
+              >
+                Clear
+              </button>
+            </>
+          )}
+          <div className="flex-1" />
+          <button
+            type="button"
+            disabled={compareIds.size < 2}
+            onClick={() => setCompareOpen(true)}
+            className="rv-pill text-[11px] !h-7 !w-auto px-3 disabled:opacity-30 disabled:pointer-events-none"
+          >
+            Compare
+          </button>
+        </div>
+
         {/* Header row — must mirror the row grid so columns line up. */}
         <div className="px-4 pb-2 grid grid-cols-[20px_22px_1fr_72px_56px] gap-x-2 items-center text-[10px] uppercase tracking-[0.08em] text-muted-foreground/50">
           <span aria-hidden="true" />
@@ -381,7 +416,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
               No deals match “{filter}”.
             </div>
           ) : (
-            <ul className="pb-24">
+            <ul className="pb-3">
               {rows.map(({ deal, analysis, source }) => {
                 const isSelected = deal.id === effectiveSelectedId
                 const isCompared = compareIds.has(deal.id)
@@ -408,10 +443,10 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
                       onClick={(e) => { e.stopPropagation(); toggleCompare(deal.id) }}
                       className={cn(
                         "h-4 w-4 rounded-[3px] flex items-center justify-center transition-all",
-                        "border border-[var(--rv-fill-border-strong)] hover:border-[var(--rv-t3)]",
+                        "border border-[var(--rv-fill-border-strong)] hover:border-[var(--rv-t2)]",
                         isCompared
                           ? "bg-[var(--rv-accent)] border-[var(--rv-accent)] opacity-100"
-                          : "opacity-50 group-hover:opacity-100",
+                          : "opacity-75 group-hover:opacity-100",
                       )}
                       aria-label={isCompared ? "Remove from compare" : "Add to compare"}
                     >
@@ -478,33 +513,6 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
           )}
         </div>
 
-        {/* Floating compare bar — appears as soon as one row is checked.
-            Single readable sentence: "{n} of 4 selected" reads naturally
-            instead of the previous "{n} selected — up to 4 to compare"
-            which parsed as two disconnected fragments. */}
-        {compareIds.size > 0 && (
-          <div className="absolute bottom-5 left-5 right-5 max-w-[420px] rv-surface-2 border border-[var(--rv-fill-border-strong)] rounded-lg shadow-2xl px-4 py-3 flex items-center gap-3 z-30">
-            <span className="text-[12px] rv-t1 font-medium tabular-nums">
-              {compareIds.size} of 4 selected
-            </span>
-            <div className="flex-1" />
-            <button
-              type="button"
-              onClick={() => setCompareIds(new Set())}
-              className="text-[11px] rv-t3 hover:rv-t1 transition-colors px-2 py-1"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              disabled={compareIds.size < 2}
-              onClick={() => setCompareOpen(true)}
-              className="rv-pill text-[12px] px-3 py-1.5 disabled:opacity-40 disabled:pointer-events-none"
-            >
-              Compare
-            </button>
-          </div>
-        )}
       </div>
 
       {/* ── Right pane: dossier for selected deal ───────────────────── */}

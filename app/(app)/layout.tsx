@@ -13,12 +13,15 @@ export default function AppLayout({
       <ElectronExpand />
       <KeyboardShortcuts />
       <SidebarDataLoader />
-      {/* overflow-hidden + flex column: the page itself never scrolls, so
-          children (Pipeline list, dossier, browse webview) own their scroll
-          regions and the sticky header at the top of each page stays fixed.
-          The previous overflow-auto caused the whole window to scroll past
-          the header, hitting the literal top of the screen. */}
-      <main className="flex-1 overflow-hidden flex flex-col min-h-0 min-w-0">
+      {/* h-full + overflow-hidden: <main> exactly fills the body, and
+          the page itself never scrolls. Children (Pipeline list,
+          dossier, browse webview) own their scroll regions and the
+          sticky header / chrome strip at the top of each page stays
+          fixed. Previously this used flex-1 which only worked when the
+          parent was display:flex — since body is a regular block,
+          flex-1 collapsed to 0 and the SidebarProvider's min-h-svh
+          took over, letting the whole page scroll past the chrome. */}
+      <main className="h-full w-full overflow-hidden flex flex-col min-h-0 min-w-0">
         {children}
       </main>
     </SidebarProvider>

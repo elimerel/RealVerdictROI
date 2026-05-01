@@ -193,7 +193,7 @@ input[type="number"] {
      We expose a dedicated --rv-toolbar token so any header in the app
      can opt in via bg-[var(--rv-toolbar)] without coupling to
      bg-sidebar. */
-  --rv-toolbar: oklch(0.95 0.003 80);            /* warm system gray */
+  --rv-toolbar: oklch(0.93 0.004 80);            /* warm system gray (Mercury-style chrome strip) */
   --background: oklch(1 0 0);                    /* content area — pure white */
   --foreground: oklch(0.18 0.005 250);
   --card: oklch(1 0 0);
@@ -318,17 +318,31 @@ input[type="number"] {
   --rv-good-sub: oklch(0.50 0.13 165 / 12%);
 }
 
-/* Faint paper grain — repeating fibers at ~1° catch the light without
-   becoming a noise pattern. Sits behind everything via the body. */
-.paper body {
+/* Paper grain — applied to every paper surface so the texture reads on
+   the actual content (not just the body, which is mostly hidden under
+   the sidebar+inset). Two crossed repeating-linear-gradients at fine
+   spacing imitate paper fibers + subtle weave; opacity is tuned so it
+   reads at arm's length but never becomes noise.
+   Performance: pure CSS, no SVG, no JS. The gradients render once per
+   layer and are GPU-accelerated. */
+.paper body,
+.paper [data-slot="sidebar-inset"],
+.paper [data-slot="sidebar"],
+.paper .rv-toolbar-strip,
+.paper .rv-surface-1,
+.paper .rv-surface-2 {
   background-image:
     repeating-linear-gradient(
-      1deg,
-      transparent 0,
-      transparent 3px,
-      oklch(0 0 0 / 0.014) 3px,
-      oklch(0 0 0 / 0.014) 4px
+      2deg,
+      transparent 0, transparent 3px,
+      oklch(0 0 0 / 0.018) 3px, oklch(0 0 0 / 0.018) 4px
+    ),
+    repeating-linear-gradient(
+      92deg,
+      transparent 0, transparent 5px,
+      oklch(0 0 0 / 0.012) 5px, oklch(0 0 0 / 0.012) 6px
     );
+  background-blend-mode: multiply, multiply;
 }
 
 .dark {
@@ -545,6 +559,19 @@ html.electron body {
      toolbar across the top of the window (Mercury / Linear). */
   background: var(--rv-toolbar);
 }
+
+/* Lock the page to the viewport. Without this the SidebarProvider's
+   min-h-svh lets the layout grow past the viewport, which:
+     - lets the body itself scroll, so the Pipeline list "hits" some
+       upper limit and refuses to scroll further
+     - leaves a visible gap on the right of the window when content is
+       narrower than the wrapper
+     - makes the embedded WebContentsView clip in odd ways during
+       resize because its measured slot reflowed below the fold
+   With h-svh + overflow-hidden, only the explicitly-overflowing
+   children (Pipeline list, dossier, browser slot) own scrolling. */
+html, body { height: 100svh; overflow: hidden; }
+html.electron body { height: calc(100svh - 0px); } /* the 28px is padding inside */
 
 /* Page header chrome — opt-in via .rv-toolbar-strip. Use this on every
    page-level h-14 header so it picks up the toolbar tone and a

@@ -8,7 +8,7 @@ import {
   AlertTriangle, Building2, Home, Clock3, ChevronLeft, ChevronRight,
 } from "lucide-react"
 import { useSearchParams } from "next/navigation"
-import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
+import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
@@ -303,19 +303,20 @@ function rowIsPro(row: { status: string; current_period_end: string | null } | n
 // Layout constants
 // ---------------------------------------------------------------------------
 
-const TITLEBAR_H = 28
-const HEADER_H   = 56
-const SIDEBAR_OPEN_W = 256
-const SIDEBAR_ICON_W = 48
 const RIGHT_PANEL_W  = 440
 const COLLAPSED_PANEL_W = 36
 
-function calcBounds(sidebarOpen: boolean, panelW: number) {
-  const x = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
-  const y = TITLEBAR_H + HEADER_H
-  const width = Math.max(0, window.innerWidth - x - panelW)
-  const height = Math.max(0, window.innerHeight - y)
-  return { x, y, width, height }
+// Measure the actual on-screen rect of a slot div and round to integer
+// pixels — Electron WebContentsView.setBounds takes integers, and any
+// fractional values cause a 1px jitter line at the edges.
+function rectOf(el: HTMLElement) {
+  const r = el.getBoundingClientRect()
+  return {
+    x: Math.round(r.left),
+    y: Math.round(r.top),
+    width: Math.max(0, Math.round(r.width)),
+    height: Math.max(0, Math.round(r.height)),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -323,8 +324,6 @@ function calcBounds(sidebarOpen: boolean, panelW: number) {
 // ---------------------------------------------------------------------------
 
 function ElectronBrowsePage() {
-  const { open: sidebarOpen } = useSidebar()
-
   // Browser state
   const [browserActive, setBrowserActive] = useState(false)
   const [currentUrl, setCurrentUrl]       = useState("")
@@ -373,24 +372,51 @@ function ElectronBrowsePage() {
   // collapses to a strip, the browser expands to fill that space.
   const panelWidth = panelCollapsed ? COLLAPSED_PANEL_W : RIGHT_PANEL_W
 
-  // Sync Electron BrowserView bounds to the container
-  const sendBounds = useCallback(() => {
+  // Browser slot — a real DOM element that takes up the exact rectangle
+  // where the WebContentsView should render. ResizeObserver on this div
+  // sends the measured rect to main on every layout change, so the
+  // browser stays glued to its slot during sidebar open/close, panel
+  // collapse/expand, window resize, and ANY future layout change. This
+  // replaces the previous predictive calcBounds(), which used hardcoded
+  // sidebar widths and lagged the React layout by an IPC roundtrip,
+  // producing the "browser overlaps things during transitions" bug.
+  const browserSlotRef = useRef<HTMLDivElement | null>(null)
+  const lastSentBounds = useRef<string>("")
+
+  const syncBoundsFromSlot = useCallback(() => {
     if (!window.electronAPI) return
-    window.electronAPI.updateBounds(calcBounds(sidebarOpen, panelWidth))
-  }, [sidebarOpen, panelWidth])
+    const el = browserSlotRef.current
+    if (!el) return
+    const bounds = rectOf(el)
+    // Dedupe — main process logs every IPC, no need to spam during
+    // transitions where the rect hasn't actually changed.
+    const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`
+    if (key === lastSentBounds.current) return
+    lastSentBounds.current = key
+    window.electronAPI.updateBounds(bounds)
+  }, [])
 
-  useEffect(() => {
-    sendBounds()
-    window.addEventListener("resize", sendBounds)
-    return () => window.removeEventListener("resize", sendBounds)
-  }, [sendBounds])
-
-  useEffect(() => {
-    // Match the panel width transition (180ms) so the browser view
-    // resizes in lockstep with the visible panel collapse / expand.
-    const t = setTimeout(sendBounds, 200)
-    return () => clearTimeout(t)
-  }, [sidebarOpen, panelCollapsed, sendBounds])
+  useLayoutEffect(() => {
+    const el = browserSlotRef.current
+    if (!el) return
+    // Initial sync on mount AND whenever the slot is re-rendered with
+    // a different ref (e.g. when toggling between home view and browser
+    // view we want the slot's new rect immediately).
+    syncBoundsFromSlot()
+    const ro = new ResizeObserver(() => {
+      // Coalesce into a rAF so we don't run setBounds mid-paint.
+      requestAnimationFrame(syncBoundsFromSlot)
+    })
+    ro.observe(el)
+    // Also catch viewport resize (window dragging the OS resize
+    // handle — ResizeObserver alone misses some macOS resize ticks).
+    const onResize = () => requestAnimationFrame(syncBoundsFromSlot)
+    window.addEventListener("resize", onResize)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener("resize", onResize)
+    }
+  }, [syncBoundsFromSlot, browserActive])
 
   // Auto-expand the panel when the user lands on a listing. We use the
   // "adjusting state on prop change" pattern (React docs §You Might Not
@@ -413,14 +439,24 @@ function ElectronBrowsePage() {
   const [debugOpen, setDebugOpen] = useState(false)
   const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null)
 
-  // ⌘L / Ctrl-L — focus the URL bar, like every real browser.
+  // ⌘L — focus the URL bar like every real browser.
+  // ⌘H — back to home overlay.
   // ⌘⇧D — toggle the extraction debug drawer.
+  // The actual goHome handler is defined below (depends on setters
+  // declared after this useEffect block); we ref it here so the
+  // listener captures the latest closure without stale-state bugs.
+  const goHomeRef = useRef<() => void>(() => {})
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
         e.preventDefault()
         const el = urlInputRef.current
         if (el) { el.focus(); el.select() }
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "h") {
+        e.preventDefault()
+        goHomeRef.current()
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "d") {
@@ -597,12 +633,43 @@ function ElectronBrowsePage() {
     setBrowserLoading(true)
     setIdleHint("default")
     if (!browserActive) {
-      await window.electronAPI?.createBrowser(calcBounds(sidebarOpen, panelWidth))
+      // Read the slot's current rect right before spawning the browser.
+      // The slot has already laid out (we render it conditionally on
+      // !browserActive too — see JSX below) so the rect is real.
+      const el = browserSlotRef.current
+      const initialBounds = el ? rectOf(el) : { x: 0, y: 0, width: 0, height: 0 }
+      await window.electronAPI?.createBrowser(initialBounds)
       setBrowserActive(true)
     }
     await window.electronAPI?.navigate(url)
     setUrlEditing(false)
-  }, [browserActive, sidebarOpen, panelWidth])
+  }, [browserActive])
+
+  // "Home" / new-tab affordance — destroys the browser view and snaps
+  // back to the home overlay (URL bar + quick tiles + recently viewed).
+  // Solves the "no way to get back to the home section" complaint
+  // without a full tabs refactor; tabs are the proper structural answer
+  // and tracked separately.
+  const goHome = useCallback(() => {
+    setBrowserActive(false)
+    setAnalysis(null)
+    setIdleHint("default")
+    setUrlInput("")
+    setCurrentUrl("")
+    setIsListingPage(false)
+    setSavedDealId(undefined)
+    setBrowserLoading(false)
+    setAnalysisLoading(false)
+    setCanGoBack(false)
+    setCanGoForward(false)
+    lastAutoAnalyzedUrl.current = ""
+    analysisEpochRef.current++
+    void window.electronAPI?.destroyBrowser?.()
+  }, [])
+  // Keep the keyboard-shortcut ref pointed at the latest goHome closure.
+  // useEffect (not direct assignment in render) so React's refs lint
+  // stays happy.
+  useEffect(() => { goHomeRef.current = goHome }, [goHome])
 
   // Handle deep-link into Browse with a target URL (from Pipeline)
   useEffect(() => {
@@ -701,16 +768,36 @@ function ElectronBrowsePage() {
           >
             <RotateCw className={cn("h-3.5 w-3.5", browserLoading && "animate-spin")} />
           </button>
+          {/* Home — destroys the embedded browser and snaps back to the
+              quick-tile / recently-viewed home overlay. Disabled when
+              we're already at home so it's a real affordance, not a
+              sometimes-no-op button. Tabs are tracked as the proper
+              long-term navigation answer. */}
+          <button
+            onClick={goHome}
+            disabled={!browserActive}
+            className="h-7 w-7 rounded flex items-center justify-center hover:bg-[var(--rv-fill-2)] disabled:opacity-30 rv-t3 hover:rv-t1 transition-colors duration-100"
+            aria-label="Back to home"
+            title="Back to home (⌘H)"
+          >
+            <Home className="h-3.5 w-3.5" strokeWidth={1.7} />
+          </button>
         </div>
 
         {/* URL bar — wider, taller (h-9), centered with a max-width so on a
             wide window it doesn't stretch into a 1200px cable-modem field.
             Hostname is implicitly highlighted by the rest of the URL
-            collapsing to muted text once the user has navigated. */}
-        <form onSubmit={submitUrlBar} className="no-drag-region flex-1 flex items-center justify-center min-w-0 px-2">
+            collapsing to muted text once the user has navigated.
+            Drag-region: the form WRAPPER stays draggable so the entire
+            header reads as a title bar; only the actual input rectangle
+            opts out of dragging so clicks land normally. Without this,
+            the URL form (flex-1) blocked dragging across the entire
+            middle of the header — the user could only grab the tiny
+            gaps around buttons. */}
+        <form onSubmit={submitUrlBar} className="drag-region flex-1 flex items-center justify-center min-w-0 px-2">
           <div
             className={cn(
-              "rv-input flex-1 max-w-[640px] flex items-center gap-2.5 h-9 px-3.5",
+              "no-drag-region rv-input flex-1 max-w-[640px] flex items-center gap-2.5 h-9 px-3.5",
               urlEditing && "ring-1 ring-[var(--rv-accent-border)]",
             )}
           >
@@ -784,8 +871,13 @@ function ElectronBrowsePage() {
 
       {/* Body */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left: BrowserView placeholder. Electron WebContentsView is layered on top. */}
-        <div className="flex-1 rv-surface-1 relative flex flex-col min-w-0">
+        {/* Left: BrowserView placeholder. Electron WebContentsView is
+            layered on top of this rect — the ref captures the actual
+            on-screen rectangle and ResizeObserver above feeds it back
+            to the main process so the WebContentsView is always glued
+            to its slot during ANY layout change (sidebar collapse,
+            panel resize, window drag-resize). */}
+        <div ref={browserSlotRef} className="flex-1 rv-surface-1 relative flex flex-col min-w-0">
           {!browserActive && (
             <div className="flex-1 flex flex-col items-center justify-center px-8">
               <div className="w-full max-w-3xl space-y-7">
@@ -860,15 +952,19 @@ function ElectronBrowsePage() {
         </div>
 
         {/* Right: side panel — slides between expanded (440px) and a thin
-            collapsed strip (36px). The transition runs at 180ms ease-out
-            and the BrowserView bounds resize in lockstep (see sendBounds
-            useEffect above). */}
+            collapsed strip (36px). When the user is on the home view
+            (no browser, no analysis) we hide the panel entirely so the
+            home gets full width to breathe — the panel is only useful
+            when there's a listing to analyze. The transition runs at
+            180ms ease-out and the BrowserView bounds resize in lockstep
+            via the ResizeObserver on the slot. */}
         <div
           className="shrink-0 flex flex-col border-l border-border rv-surface-1 overflow-hidden"
           style={{
-            width: panelWidth,
+            width: browserActive ? panelWidth : 0,
             transition: "width 180ms cubic-bezier(0.32, 0.72, 0, 1)",
           }}
+          aria-hidden={!browserActive}
         >
           {panelCollapsed ? (
             <CollapsedPanelStrip
