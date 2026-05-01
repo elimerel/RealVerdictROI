@@ -7,6 +7,12 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // Silence the "multiple lockfiles" warning caused by the git worktree setup.
   outputFileTracingRoot: path.resolve(__dirname),
+  // Next.js 16 blocks cross-origin requests to /_next/* dev resources by
+  // default. Our Electron shell loads pages from 127.0.0.1:3000, but the
+  // dev server treats `localhost` as the canonical origin, so HMR and
+  // bundler chunks get blocked and the app fails to load. Allow the
+  // Electron host(s) explicitly so dev mode actually works.
+  allowedDevOrigins: ["127.0.0.1", "localhost", "192.168.1.146"],
 };
 
 export default nextConfig;
