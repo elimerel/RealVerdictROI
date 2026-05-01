@@ -66,11 +66,18 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <div className="p-8 max-w-2xl space-y-10 no-drag-region overflow-auto">
-        <ProfileCard />
-        <AppearanceCard />
-        <DefaultsCard />
-        <SubscriptionCard />
+      {/* flex-1 + min-h-0 so the scroll container gets a finite height
+          to scroll against (SidebarInset is now overflow-hidden). Without
+          this the settings page would only scroll if the WHOLE page
+          window fit the content — which broke in the previous viewport
+          lock. */}
+      <div className="flex-1 min-h-0 overflow-y-auto rv-scroll no-drag-region">
+        <div className="p-8 max-w-2xl space-y-10">
+          <ProfileCard />
+          <AppearanceCard />
+          <DefaultsCard />
+          <SubscriptionCard />
+        </div>
       </div>
     </SidebarInset>
   )

@@ -72,13 +72,14 @@ body {
   --rv-surface-bg: oklch(1 0 0);            /* page / content — pure white */
   --rv-surface-1: oklch(1 0 0);             /* card / dossier — pure white */
   --rv-surface-2: oklch(0.965 0.003 80);    /* in-card input tint */
-  /* Selection accent — slate-blue ink at low chroma. On a light surface
-     the dark cream (#e8e0c8) we use in dark mode is invisible, so light
-     mode needs its own concrete accent. Mercury and Linear both use a
-     subtle blue ink for selection on their light surfaces. */
-  --rv-accent: oklch(0.42 0.05 252);
-  --rv-accent-subtle: oklch(0.42 0.05 252 / 10%);
-  --rv-accent-border: oklch(0.42 0.05 252 / 28%);
+  /* Selection accent — deep warm charcoal (NOT blue). The previous
+     hue 252 read as "stock SaaS blue" and the user explicitly called
+     it out as cheap-looking. Charcoal at a hint of warm chroma
+     (oklch hue 60 = warm) reads as Mercury-ink premium without
+     pulling away from the brand's cream/warm signal palette. */
+  --rv-accent: oklch(0.22 0.012 60);
+  --rv-accent-subtle: oklch(0.22 0.012 60 / 8%);
+  --rv-accent-border: oklch(0.22 0.012 60 / 24%);
   /* Live indicator — same warm amber as dark mode. Reads against both
      light and dark surfaces because the chroma is high enough. */
   --rv-live: oklch(0.62 0.16 60);
@@ -318,31 +319,30 @@ input[type="number"] {
   --rv-good-sub: oklch(0.50 0.13 165 / 12%);
 }
 
-/* Paper grain — applied to every paper surface so the texture reads on
-   the actual content (not just the body, which is mostly hidden under
-   the sidebar+inset). Two crossed repeating-linear-gradients at fine
-   spacing imitate paper fibers + subtle weave; opacity is tuned so it
-   reads at arm's length but never becomes noise.
-   Performance: pure CSS, no SVG, no JS. The gradients render once per
-   layer and are GPU-accelerated. */
+/* Paper grain — diffuse fiber noise, not graph-paper grid.
+   Uses an SVG turbulence filter rendered to a small tile and repeated
+   across every paper surface. The previous version (two crossed
+   repeating-linear-gradients) read as graph paper or weave; the user
+   asked for "regular paper" — like the texture in a notes app or
+   index card. SVG turbulence delivers that organic, irregular grain
+   without per-pixel JS work.
+
+   The data URI:
+     - feTurbulence baseFrequency=0.9 → fine grain (~1px features)
+     - numOctaves=2 → adds a hint of variation without going noisy
+     - feColorMatrix flattens to grayscale at very low opacity
+     - 160x160 tile is large enough to avoid visible repetition at
+       arm's length but small enough to GPU-cache cheaply
+   The whole thing weighs <500 bytes and renders once per surface. */
 .paper body,
 .paper [data-slot="sidebar-inset"],
 .paper [data-slot="sidebar"],
 .paper .rv-toolbar-strip,
 .paper .rv-surface-1,
 .paper .rv-surface-2 {
-  background-image:
-    repeating-linear-gradient(
-      2deg,
-      transparent 0, transparent 3px,
-      oklch(0 0 0 / 0.018) 3px, oklch(0 0 0 / 0.018) 4px
-    ),
-    repeating-linear-gradient(
-      92deg,
-      transparent 0, transparent 5px,
-      oklch(0 0 0 / 0.012) 5px, oklch(0 0 0 / 0.012) 6px
-    );
-  background-blend-mode: multiply, multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-repeat: repeat;
+  background-size: 160px 160px;
 }
 
 .dark {
@@ -505,10 +505,14 @@ input[type="number"] {
    moment the cursor entered it. The pipeline grid in particular kept
    shifting the rows left/right as the user hovered, which the user
    explicitly called out as "rearranging weirdly".
-   The fix: always reserve the gutter (8px), keep the thumb invisible,
-   and only fade the thumb in on hover. No layout shift, no jank. */
-* { scrollbar-gutter: stable; }
-html, body { scrollbar-gutter: stable; }
+
+   IMPORTANT: scrollbar-gutter is NOT applied universally — that
+   reserved a gutter on every box in the document and produced a
+   visible warm-gray strip down the right side of the inset (user
+   reported as "the bar is still stuck on the right side"). Now the
+   gutter is only reserved on the actual scroll containers via the
+   .rv-scroll utility, applied at the call site (Pipeline rows,
+   Dossier scroll area, Settings page). */
 
 ::-webkit-scrollbar {
   width: 8px;
@@ -523,25 +527,21 @@ html, body { scrollbar-gutter: stable; }
 }
 ::-webkit-scrollbar-corner    { background: transparent; }
 
-/* Reveal the thumb on hover/focus — width is unchanged so the layout
-   never reflows. Uses --rv-fill-3 so the thumb visibly inverts between
-   light (translucent black) and dark (translucent white). */
-*:hover::-webkit-scrollbar-thumb,
-*:focus-within::-webkit-scrollbar-thumb {
+/* Opt-in scroll container — fixes both layout shift on hover (gutter
+   reserved) and reveals a subtle thumb only when the area is
+   interacted with. Apply to the SAME element that owns
+   overflow-y/x:auto. */
+.rv-scroll { scrollbar-gutter: stable; }
+.rv-scroll:hover::-webkit-scrollbar-thumb,
+.rv-scroll:focus-within::-webkit-scrollbar-thumb {
   background: var(--rv-fill-3);
 }
-*:hover::-webkit-scrollbar-thumb:hover {
+.rv-scroll:hover::-webkit-scrollbar-thumb:hover {
   background: var(--rv-fill-border-strong);
 }
-
-/* Firefox — same effect, applied broadly. */
-* {
-  scrollbar-color: transparent transparent;
-  scrollbar-width: thin;
-}
-*:hover, *:focus-within {
-  scrollbar-color: var(--rv-fill-3) transparent;
-}
+/* Firefox — same effect, opt-in. */
+.rv-scroll { scrollbar-color: transparent transparent; scrollbar-width: thin; }
+.rv-scroll:hover, .rv-scroll:focus-within { scrollbar-color: var(--rv-fill-3) transparent; }
 
 /* Electron window chrome
    -------------------------------------------------------------------

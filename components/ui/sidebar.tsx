@@ -311,7 +311,13 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        "relative flex w-full flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
+        // min-h-0 + overflow-hidden so SidebarInset itself never grows past
+        // its allocated height — children that want to scroll (Pipeline list,
+        // dossier, settings page) own their own overflow. Without min-h-0,
+        // a tall child pushed SidebarInset down and the inner scroll
+        // containers never got a finite height to scroll against (user
+        // reported as "scrolling broken in pipeline / settings").
+        "relative flex w-full flex-1 flex-col bg-background min-h-0 overflow-hidden md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}
       {...props}

@@ -115,12 +115,16 @@ export function AppSidebar({ userEmail, isPro }: Props) {
                             : "text-sidebar-foreground/55 hover:text-sidebar-foreground/85",
                         )}
                         style={isActive ? {
-                          // Muted active state — surface lift + a 2px indigo
-                          // accent bar on the left edge. The previous
-                          // 12% indigo wash competed with the metric
-                          // colors in the panel beside it.
-                          background: "oklch(1 0 0 / 6%)",
-                          borderLeft: "2px solid oklch(0.62 0.22 265)",
+                          // Active state — soft surface lift + a 2px
+                          // accent bar in the brand cream/warm tone.
+                          // Previously the bar was indigo (oklch hue 265),
+                          // which read as a stock SaaS blue and clashed
+                          // with the financial signal palette in the panel
+                          // beside it. Now uses --rv-accent so it adapts
+                          // across themes (warm cream in dark, slate ink
+                          // in light, warm brown in paper).
+                          background: "var(--rv-fill-2)",
+                          borderLeft: "2px solid var(--rv-accent)",
                         } : { borderLeft: "2px solid transparent" }}
                       >
                         <item.icon className="h-4 w-4" />

@@ -410,7 +410,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
         </div>
 
         {/* Rows */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="flex-1 overflow-y-auto min-h-0 rv-scroll">
           {rows.length === 0 ? (
             <div className="px-6 py-10 text-center text-[12px] rv-t3">
               No deals match “{filter}”.
@@ -693,7 +693,7 @@ function CompareOverlay({
       </header>
       <div
         className={cn(
-          "flex-1 overflow-auto grid gap-4 p-5 auto-rows-min",
+          "flex-1 overflow-auto rv-scroll grid gap-4 p-5 auto-rows-min",
           cards.length === 2 ? "grid-cols-2"
             : cards.length === 3 ? "grid-cols-3"
             : "grid-cols-4",

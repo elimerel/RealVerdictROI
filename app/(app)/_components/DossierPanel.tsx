@@ -558,7 +558,7 @@ export default function DossierPanel({
   if (badInputs) {
     return (
       <div className="h-full flex flex-col bg-background">
-        <div className="flex-1 overflow-y-auto p-7 space-y-4">
+        <div className="flex-1 overflow-y-auto rv-scroll p-7 space-y-4">
           {address && (
             <h2 className="text-sm font-semibold tracking-tight text-foreground">{address}</h2>
           )}
@@ -606,7 +606,7 @@ export default function DossierPanel({
 
   return (
     <div className="h-full flex flex-col rv-surface-1">
-      <div className="flex-1 overflow-y-auto min-h-0" style={{ overscrollBehavior: "contain" }}>
+      <div className="flex-1 overflow-y-auto min-h-0 rv-scroll" style={{ overscrollBehavior: "contain" }}>
         <div className="px-7 min-w-0">
 
           {/* ── Module 1: Property identity ── */}

@@ -944,27 +944,24 @@ function ElectronBrowsePage() {
               </div>
             </div>
           )}
-          {browserActive && currentUrl && (
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-background/80 backdrop-blur-sm border border-border/50 text-[10px] text-muted-foreground/60 font-mono pointer-events-none">
-              {hostnameOf(currentUrl)}
-            </div>
-          )}
+          {/* Removed the floating hostname pill at the bottom of the
+              browser view — the URL bar already shows the host and the
+              floating pill was just visual clutter. */}
         </div>
 
         {/* Right: side panel — slides between expanded (440px) and a thin
             collapsed strip (36px). When the user is on the home view
-            (no browser, no analysis) we hide the panel entirely so the
-            home gets full width to breathe — the panel is only useful
-            when there's a listing to analyze. The transition runs at
-            180ms ease-out and the BrowserView bounds resize in lockstep
-            via the ResizeObserver on the slot. */}
+            (no browser, no analysis) we don't render the panel at all
+            so the home view gets the full inset width with no residual
+            chrome on the right edge. The panel is only useful when
+            there's a listing to analyze. */}
+        {browserActive && (
         <div
           className="shrink-0 flex flex-col border-l border-border rv-surface-1 overflow-hidden"
           style={{
-            width: browserActive ? panelWidth : 0,
+            width: panelWidth,
             transition: "width 180ms cubic-bezier(0.32, 0.72, 0, 1)",
           }}
-          aria-hidden={!browserActive}
         >
           {panelCollapsed ? (
             <CollapsedPanelStrip
@@ -1035,6 +1032,7 @@ function ElectronBrowsePage() {
             </>
           )}
         </div>
+        )}
       </div>
       {debugOpen && (
         <DebugDrawer info={debugInfo} onClose={() => setDebugOpen(false)} />
