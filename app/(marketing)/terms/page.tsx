@@ -141,7 +141,8 @@ export default function TermsPage() {
             §&nbsp;512) to{" "}
             <a href="mailto:dmca@realverdict.app">dmca@realverdict.app</a> or
             via the form at{" "}
-            <a href="/report">realverdict.com/report</a>. We will respond to
+            <a href="https://realverdict.app/report">realverdict.app/report</a>. We will
+            respond to
             valid notices promptly.
           </p>
 

@@ -2,7 +2,7 @@
 // Config
 // ---------------------------------------------------------------------------
 
-const DEFAULT_API = "https://realverdictroi.com"
+const DEFAULT_API = "https://realverdict.app"
 const LISTING_RE = /zillow\.com\/homedetails|redfin\.com\/[A-Z]{2}\/|realtor\.com\/realestateandhomes-detail|homes\.com\/property|trulia\.com\/p\//i
 
 let currentTabId = null

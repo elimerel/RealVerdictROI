@@ -295,7 +295,7 @@ export default function LoginForm({
               <span>
                 I agree to the{" "}
                 <a
-                  href="https://realverdict.com/terms"
+                  href="https://realverdict.app/terms"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium text-zinc-200 underline underline-offset-2 hover:text-white"
@@ -304,7 +304,7 @@ export default function LoginForm({
                 </a>{" "}
                 and{" "}
                 <a
-                  href="https://realverdict.com/privacy"
+                  href="https://realverdict.app/privacy"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium text-zinc-200 underline underline-offset-2 hover:text-white"

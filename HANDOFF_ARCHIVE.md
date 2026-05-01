@@ -523,7 +523,7 @@ The Phase M code shipped paid functionality, but the surface around it still rea
 Code-side Wave 1 is done. These items can't be solved by editing files:
 
 1. **Auth signup friction** — Supabase free-tier email confirmations are slow / spam-bucketed. Pick one: (a) disable email confirmation in Supabase dashboard (`Authentication → Providers → Email → Confirm email OFF`) for now, or (b) wire up Google OAuth (Google Cloud project + Supabase Provider config). Until this is fixed, anonymous traffic that wants to upgrade hits a wall.
-2. **Custom domain** — buy `realverdict.app` or `.io`, point DNS at Vercel, update `NEXT_PUBLIC_SITE_URL` + `NEXT_PUBLIC_APP_URL` in Vercel env, update Supabase auth redirect URLs, update Stripe webhook endpoint URL. The `real-verdict-roi.vercel.app` URL on a checkout page kills conversion.
+2. **Production URL env** — canonical domain is **realverdict.app** (hardcoded as Electron default; Vercel should set `NEXT_PUBLIC_SITE_URL` + `NEXT_PUBLIC_APP_URL` to `https://realverdict.app`). Update Supabase auth redirect URLs and Stripe webhook if still pointed at an old `*.vercel.app` host.
 3. **Annual plan** — create a yearly recurring price in Stripe (suggest $190/yr ≈ "2 months free"), expose as a second `STRIPE_PRICE_ID_PRO_ANNUAL` env var, add a monthly/annual toggle on `/pricing`.
 4. **Legal pages** — Privacy Policy + Terms of Service. Stripe will eventually require them. Skip a generic boilerplate; use Termly or a lawyer.
 5. **Apply migration 003** — `supabase/migrations/003_subscriptions.sql` must be run in the Supabase SQL editor (in addition to 001 and 002 from Q6) before Pro gating works in prod.
@@ -582,7 +582,7 @@ The user offered to send screenshots / URLs of (a) a real Zillow listing they ha
 #### Operator items still open from §16.S (not invalidated)
 
 These remain real and unfinished:
-1. Custom domain (real-verdict-roi.vercel.app is a trust killer on checkout)
+1. Confirm **realverdict.app** is live in DNS/Vercel and dashboards (Supabase redirects, Stripe) match — the codebase assumes this host, not `*.vercel.app`
 2. Annual plan in Stripe ($190/yr ≈ "2 months free")
 3. Privacy + Terms (use Termly, not boilerplate)
 4. Stripe live-mode switch (only after the above)

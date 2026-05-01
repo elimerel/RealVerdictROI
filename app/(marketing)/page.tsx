@@ -224,7 +224,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <p className="font-semibold text-zinc-900 dark:text-zinc-50">Web App</p>
-                    <p className="text-xs text-zinc-500">browser.realverdictroi.com</p>
+                    <p className="text-xs text-zinc-500">realverdict.app</p>
                   </div>
                 </div>
                 <ul className="space-y-2.5">

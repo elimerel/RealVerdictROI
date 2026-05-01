@@ -252,7 +252,9 @@ Migrations applied: 001_deals, 002_compare_entries, 003_subscriptions,
 
 - Insights page is a stub — no real data, shows "coming soon"
 - Stripe is in test mode — no paying customers yet
-- Custom domain not set up — still on real-verdict-roi.vercel.app
+- Canonical public URL is **realverdict.app** (Electron packaged build defaults
+  to `https://realverdict.app`; override with `REALVERDICT_APP_URL` for previews).
+  Set `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` in Vercel to match.
 - Walk-away price in the panel could be more visually dominant
 - No Strong Buy deal in the pipeline to test positive verdict state
 - Research page web fallback is minimal (desktop-only feature)

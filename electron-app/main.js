@@ -59,7 +59,8 @@ app.on("second-instance", () => {
 const DEV = process.argv.includes("--dev")
 
 // In dev mode, point at the local Next.js server so changes are reflected live.
-// In production (packaged app), always talk to the live Vercel deployment.
+// In production (packaged app), load the canonical deployment at realverdict.app
+// unless REALVERDICT_APP_URL overrides (e.g. staging).
 //
 // Use "localhost" (not 127.0.0.1) so that:
 //   1. Supabase OAuth callbacks registered for http://localhost:3000/auth/callback
@@ -71,9 +72,21 @@ const DEV = process.argv.includes("--dev")
 //      requests from this window. Loading from `127.0.0.1` puts cookies in a
 //      separate jar — that's the silent root cause of the "sign in loops back
 //      to login" bug.
-const BASE_URL = DEV
-  ? "http://localhost:3000"
-  : "https://real-verdict-roi.vercel.app"
+//
+// Production points at the canonical custom domain. Override with
+// REALVERDICT_APP_URL when testing against a preview deployment.
+const PRODUCTION_APP_URL = (
+  process.env.REALVERDICT_APP_URL || "https://realverdict.app"
+).replace(/\/$/, "")
+/** Hostnames that identify our own deployment (OAuth finish, nav guards). */
+const PRODUCTION_APP_HOSTS = (() => {
+  const s = new Set(["realverdict.app", "www.realverdict.app"])
+  try {
+    s.add(new URL(PRODUCTION_APP_URL).hostname)
+  } catch { /* ignore */ }
+  return s
+})()
+const BASE_URL = DEV ? "http://localhost:3000" : PRODUCTION_APP_URL
 
 // URL hint for "should we auto-run extraction on this page?". A loose hint
 // — the AI does the actual classification after reading the rendered DOM.
@@ -342,7 +355,7 @@ function createAppWindow() {
       const u = new URL(url)
       const isOurHost = DEV
         ? (u.hostname === "localhost" || u.hostname === "127.0.0.1")
-        : (u.hostname === "real-verdict-roi.vercel.app")
+        : PRODUCTION_APP_HOSTS.has(u.hostname)
       const isAppPage = !u.pathname.startsWith("/login") &&
                         !u.pathname.startsWith("/auth")
       if (isOurHost && isAppPage) {
@@ -1185,7 +1198,7 @@ function installPageCompsInterceptor() {
       // Only intercept /results navigations on our own host
       const isOurHost = DEV
         ? (u.hostname === "127.0.0.1" || u.hostname === "localhost")
-        : (u.hostname === "real-verdict-roi.vercel.app")
+        : PRODUCTION_APP_HOSTS.has(u.hostname)
       if (!isOurHost || !u.pathname.startsWith("/results")) return
 
       const comps = pendingPageComps
@@ -1268,7 +1281,7 @@ ipcMain.handle("auth:open-oauth", (_e, oauthUrl) => {
 
     const appHosts = DEV
       ? new Set(["localhost", "127.0.0.1"])
-      : new Set(["real-verdict-roi.vercel.app"])
+      : PRODUCTION_APP_HOSTS
 
     const checkUrl = (url) => {
       try {
