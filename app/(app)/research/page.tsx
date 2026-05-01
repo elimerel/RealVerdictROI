@@ -4,12 +4,11 @@ import {
   useCallback, useEffect, useLayoutEffect, useRef, useState,
 } from "react"
 import {
-  ArrowLeft, ArrowRight, RotateCw, Globe, Loader2, X, Plus, Search, MapPin,
-  AlertTriangle, Building2, Home, Clock3, ChevronLeft, ChevronRight, PanelRightOpen,
+  ArrowLeft, ArrowRight, RotateCw, Globe, Plus, Search,
+  AlertTriangle, Building2, Home, Clock3, ChevronLeft, ChevronRight,
 } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
-import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
@@ -24,7 +23,6 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import { supabaseEnv } from "@/lib/supabase/config"
 import type { FieldProvenance } from "@/lib/types"
-import { normalizeCacheKey, sessionGet, sessionSet } from "@/lib/client-session-cache"
 import DossierPanel, { DossierPanelSkeleton } from "../_components/DossierPanel"
 import "@/lib/electron"
 
@@ -50,51 +48,92 @@ type AnalysisResult = {
   propertyFacts?: PropertyFacts
   inputProvenance: Partial<Record<keyof DealInputs, FieldProvenance>>
   source: ListingSource
+  /** Model-written one-sentence take on the deal at face value. */
+  take?: string | null
+  /** Risk phrases lifted verbatim from the listing. */
+  riskFlags?: string[]
+  /** Rich detail surface (DOM, price history, remarks, scores, lot). */
+  listingDetails?: {
+    daysOnMarket?: number | null
+    originalListPrice?: number | null
+    priceHistoryNote?: string | null
+    listingDate?: string | null
+    listingRemarks?: string | null
+    mlsNumber?: string | null
+    schoolRating?: number | null
+    walkScore?: number | null
+    lotSqft?: number | null
+  }
 }
 
-type ResolverPayload = {
-  address?: string
-  inputs: Partial<DealInputs>
-  notes: string[]
-  warnings: string[]
-  facts: Record<string, unknown>
-  provenance: Partial<Record<keyof DealInputs, FieldProvenance>>
-}
-
+// Mirrors lib/extractor/types.ts. The Electron main process and
+// /api/extract both return values matching this discriminated union.
 type ExtractErrorCode =
   | "no_key"
   | "page_too_short"
+  | "no_signals"
+  | "search_results_page"
   | "captcha"
   | "low_confidence"
   | "schema_too_complex"
   | "network"
   | "unknown"
 
-type ExtractPayload = {
-  address?: string
-  inputs: Partial<DealInputs>
-  siteName?: string | null
-  confidence?: string
-  error?: string
-  errorCode?: ExtractErrorCode
-  facts?: {
-    bedrooms?: number
-    bathrooms?: number
-    squareFeet?: number
-    yearBuilt?: number
-    propertyType?: string
-  }
-  provenance?: Partial<Record<keyof DealInputs, FieldProvenance>>
+type ListingFacts = {
+  address: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  listPrice: number | null
+  originalListPrice: number | null
+  daysOnMarket: number | null
+  priceHistoryNote: string | null
+  beds: number | null
+  baths: number | null
+  fullBaths: number | null
+  halfBaths: number | null
+  sqft: number | null
+  lotSqft: number | null
+  yearBuilt: number | null
+  garageSpaces: number | null
+  stories: number | null
+  propertyType: string | null
+  monthlyRent: number | null
+  monthlyHOA: number | null
+  annualPropertyTax: number | null
+  annualInsuranceEst: number | null
+  conditionNotes: string | null
+  riskFlags: string[]
+  mlsNumber: string | null
+  listingDate: string | null
+  listingRemarks: string | null
+  schoolRating: number | null
+  walkScore: number | null
+  siteName: string | null
 }
+
+type FieldMeta = { source: "listing" | "inferred" | "user" | "verified"; confidence: "high" | "medium" | "low"; note?: string }
+
+type ExtractResult =
+  | {
+      ok: true
+      kind: string
+      confidence: "high" | "medium" | "low"
+      facts: ListingFacts
+      meta: Partial<Record<keyof ListingFacts, FieldMeta>>
+      take: string | null
+      modelUsed: "anthropic" | "openai"
+    }
+  | {
+      ok: false
+      errorCode: ExtractErrorCode
+      message: string
+      partial?: Partial<ListingFacts>
+    }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const LISTING_URL_RE =
-  /^https?:\/\/(www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i
-const AUTOFILL_CACHE_NS = "research:autofill:v2"
-const AUTOFILL_CACHE_TTL_MS = 30 * 60 * 1000
 
 function detectSource(url: string): ListingSource {
   const m = url.match(/^https?:\/\/(?:www\.)?(zillow|redfin|realtor|homes|trulia|movoto)\.com\//i)
@@ -162,52 +201,92 @@ function isSupportedDomain(url: string): boolean {
   }
 }
 
-function buildAnalysisFromExtract(data: ExtractPayload, currentUrl: string): AnalysisResult {
-  const merged: DealInputs = { ...DEFAULT_INPUTS, ...(data.inputs as Partial<DealInputs>) }
+// Stage 3 → Stage 4 bridge. Map rich ListingFacts from the extractor to
+// the DealInputs shape the underwriting engine consumes, building per-input
+// provenance so the panel can show the user where each number came from.
+function buildAnalysisFromExtract(
+  data: Extract<ExtractResult, { ok: true }>,
+  currentUrl: string,
+): AnalysisResult {
+  const f = data.facts
+  const partial: Partial<DealInputs> = {}
+  const provenance: Partial<Record<keyof DealInputs, FieldProvenance>> = {}
+
+  const carry = (
+    key: keyof DealInputs,
+    value: number | null,
+    metaKey: keyof typeof data.meta,
+    fallback: { source: FieldProvenance["source"]; confidence: FieldProvenance["confidence"]; note?: string },
+  ) => {
+    if (value && value > 0) {
+      partial[key] = Math.round(value) as DealInputs[typeof key]
+      const m = data.meta?.[metaKey]
+      provenance[key] = m
+        ? { source: m.source as FieldProvenance["source"], confidence: m.confidence, note: m.note }
+        : fallback
+    }
+  }
+
+  carry("purchasePrice",     f.listPrice,          "listPrice",          { source: "listing", confidence: "high" })
+  carry("monthlyRent",       f.monthlyRent,        "monthlyRent",        { source: "listing", confidence: "medium", note: "Rental estimate from listing — verify against local comps before offering." })
+  carry("monthlyHOA",        f.monthlyHOA,         "monthlyHOA",         { source: "listing", confidence: "high" })
+  carry("annualPropertyTax", f.annualPropertyTax,  "annualPropertyTax",  { source: "listing", confidence: "high" })
+  carry("annualInsurance",   f.annualInsuranceEst, "annualInsuranceEst", { source: "listing", confidence: "medium", note: "Listing-side insurance estimate — your actual quote may differ." })
+
+  // Mark every assumption that came from defaults so the panel can flag
+  // them as user-editable knobs.
+  const inferred: FieldProvenance = { source: "inferred", confidence: "low" }
+  for (const k of [
+    "downPaymentPercent","loanInterestRate","loanTermYears","closingCostsPercent",
+    "vacancyRatePercent","maintenancePercent","propertyManagementPercent",
+    "capexReservePercent","annualAppreciationPercent","annualRentGrowthPercent",
+    "annualExpenseGrowthPercent","holdPeriodYears","sellingCostsPercent",
+  ] as const) {
+    if (!provenance[k]) provenance[k] = inferred
+  }
+  if (!provenance.monthlyRent) {
+    provenance.monthlyRent = { source: "inferred", confidence: "low", note: "No rental estimate on the listing — enter your own." }
+  }
+  if (!provenance.annualInsurance) {
+    provenance.annualInsurance = { source: "inferred", confidence: "low", note: "Estimated — pull a real quote." }
+  }
+
+  const merged: DealInputs = { ...DEFAULT_INPUTS, ...partial }
   const sanitized = sanitiseInputs(merged)
   const analysis = analyseDeal(sanitized)
   const walkAway = (() => {
     try { return findOfferCeiling(sanitized) } catch { return null }
   })()
+
+  const fullAddress = [f.address, f.city, f.state, f.zip].filter(Boolean).join(", ")
+
   return {
-    address: data.address,
+    address: fullAddress || f.address || undefined,
     inputs: sanitized,
     analysis,
     walkAway,
-    propertyFacts: data.facts ? {
-      beds: data.facts.bedrooms ?? null,
-      baths: data.facts.bathrooms ?? null,
-      sqft: data.facts.squareFeet ?? null,
-      yearBuilt: data.facts.yearBuilt ?? null,
-      propertyType: data.facts.propertyType ?? null,
-    } : undefined,
-    inputProvenance: (data.provenance ?? {}) as Partial<Record<keyof DealInputs, FieldProvenance>>,
-    source: detectSource(currentUrl),
-  }
-}
-
-function buildAnalysisFromResolver(payload: ResolverPayload, currentUrl: string): AnalysisResult {
-  const merged = { ...DEFAULT_INPUTS, ...payload.inputs } as DealInputs
-  const inputs = sanitiseInputs(merged)
-  const analysis = analyseDeal(inputs)
-  const walkAway = (() => {
-    try { return findOfferCeiling(inputs) } catch { return null }
-  })()
-  const facts = payload.facts ?? {}
-  return {
-    address: payload.address,
-    inputs,
-    analysis,
-    walkAway,
     propertyFacts: {
-      beds: typeof facts.bedrooms === "number" ? facts.bedrooms : null,
-      baths: typeof facts.bathrooms === "number" ? facts.bathrooms : null,
-      sqft: typeof facts.squareFeet === "number" ? facts.squareFeet : null,
-      yearBuilt: typeof facts.yearBuilt === "number" ? facts.yearBuilt : null,
-      propertyType: typeof facts.propertyType === "string" ? facts.propertyType : null,
+      beds: f.beds ?? null,
+      baths: f.baths ?? null,
+      sqft: f.sqft ?? null,
+      yearBuilt: f.yearBuilt ?? null,
+      propertyType: f.propertyType ?? null,
     },
-    inputProvenance: payload.provenance ?? {},
+    inputProvenance: provenance,
     source: detectSource(currentUrl),
+    take: data.take ?? null,
+    riskFlags: f.riskFlags ?? [],
+    listingDetails: {
+      daysOnMarket:      f.daysOnMarket,
+      originalListPrice: f.originalListPrice,
+      priceHistoryNote:  f.priceHistoryNote,
+      listingDate:       f.listingDate,
+      listingRemarks:    f.listingRemarks,
+      mlsNumber:         f.mlsNumber,
+      schoolRating:      f.schoolRating,
+      walkScore:         f.walkScore,
+      lotSqft:           f.lotSqft,
+    },
   }
 }
 
@@ -229,11 +308,12 @@ const HEADER_H   = 56
 const SIDEBAR_OPEN_W = 256
 const SIDEBAR_ICON_W = 48
 const RIGHT_PANEL_W  = 440
+const COLLAPSED_PANEL_W = 36
 
-function calcBounds(sidebarOpen: boolean) {
+function calcBounds(sidebarOpen: boolean, panelW: number) {
   const x = sidebarOpen ? SIDEBAR_OPEN_W : SIDEBAR_ICON_W
   const y = TITLEBAR_H + HEADER_H
-  const width = Math.max(0, window.innerWidth - x - RIGHT_PANEL_W)
+  const width = Math.max(0, window.innerWidth - x - panelW)
   const height = Math.max(0, window.innerHeight - y)
   return { x, y, width, height }
 }
@@ -270,6 +350,8 @@ function ElectronBrowsePage() {
     | "captcha"
     | "low_confidence"
     | "page_too_short"
+    | "no_signals"
+    | "search_results_page"
     | "network"
     | "no_key"
   >("default")
@@ -287,11 +369,15 @@ function ElectronBrowsePage() {
   const [isPro, setIsPro] = useState(false)
   const supabaseConfigured = supabaseEnv().configured
 
+  // The visible panel width drives the BrowserView bounds. When the panel
+  // collapses to a strip, the browser expands to fill that space.
+  const panelWidth = panelCollapsed ? COLLAPSED_PANEL_W : RIGHT_PANEL_W
+
   // Sync Electron BrowserView bounds to the container
   const sendBounds = useCallback(() => {
     if (!window.electronAPI) return
-    window.electronAPI.updateBounds(calcBounds(sidebarOpen))
-  }, [sidebarOpen])
+    window.electronAPI.updateBounds(calcBounds(sidebarOpen, panelWidth))
+  }, [sidebarOpen, panelWidth])
 
   useEffect(() => {
     sendBounds()
@@ -300,9 +386,38 @@ function ElectronBrowsePage() {
   }, [sendBounds])
 
   useEffect(() => {
-    const t = setTimeout(sendBounds, 250)
+    // Match the panel width transition (180ms) so the browser view
+    // resizes in lockstep with the visible panel collapse / expand.
+    const t = setTimeout(sendBounds, 200)
     return () => clearTimeout(t)
-  }, [sidebarOpen, sendBounds])
+  }, [sidebarOpen, panelCollapsed, sendBounds])
+
+  // Auto-expand the panel when the user lands on a listing. We use the
+  // "adjusting state on prop change" pattern (React docs §You Might Not
+  // Need an Effect): when isListingPage transitions false → true, set
+  // panelCollapsed to false synchronously during render — never in an
+  // effect. We don't auto-collapse on leaving a listing; the user can
+  // manually collapse if they want the screen real estate back.
+  const [prevIsListingPage, setPrevIsListingPage] = useState(false)
+  if (prevIsListingPage !== isListingPage) {
+    setPrevIsListingPage(isListingPage)
+    if (isListingPage && !prevIsListingPage) {
+      setPanelCollapsed(false)
+    }
+  }
+
+  // ⌘L / Ctrl-L — focus the URL bar, like every real browser.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
+        e.preventDefault()
+        const el = urlInputRef.current
+        if (el) { el.focus(); el.select() }
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
 
   // Auth
   useEffect(() => {
@@ -367,27 +482,22 @@ function ElectronBrowsePage() {
     window.electronAPI!.analyze()
       .then((result) => {
         if (epoch !== analysisEpochRef.current) return
-        const r = result as ExtractPayload
-        // The extractor now returns structured error codes the panel maps
-        // to calm in-panel copy. We never surface the raw error string.
-        if (r.errorCode) {
+        const r = result as ExtractResult
+        if (!r.ok) {
+          setAnalysis(null)
+          // Map the error code to the calm in-panel idle hint.
           const code = r.errorCode
-          setAnalysis(null)
-          if (code === "captcha") setIdleHint("captcha")
+          if (code === "captcha")              setIdleHint("captcha")
+          else if (code === "search_results_page") setIdleHint("search_results_page")
+          else if (code === "no_signals")       setIdleHint("no_signals")
           else if (code === "low_confidence" || code === "schema_too_complex") setIdleHint("low_confidence")
-          else if (code === "page_too_short") setIdleHint("page_too_short")
-          else if (code === "network") setIdleHint("network")
-          else if (code === "no_key") setIdleHint("no_key")
-          else setIdleHint("low_confidence")
+          else if (code === "page_too_short")   setIdleHint("page_too_short")
+          else if (code === "network")          setIdleHint("network")
+          else if (code === "no_key")           setIdleHint("no_key")
+          else                                  setIdleHint("low_confidence")
           return
         }
-        if (r.error) {
-          // Legacy raw error path — collapse to low_confidence empty state.
-          setAnalysis(null)
-          setIdleHint("low_confidence")
-          return
-        }
-        const next = buildAnalysisFromExtract({ ...r, inputs: r.inputs as Partial<DealInputs> }, currentUrl)
+        const next = buildAnalysisFromExtract(r, currentUrl)
         setAnalysis(next)
         setIdleHint("default")
         if (currentUrl) {
@@ -446,12 +556,12 @@ function ElectronBrowsePage() {
     setBrowserLoading(true)
     setIdleHint("default")
     if (!browserActive) {
-      await window.electronAPI?.createBrowser(calcBounds(sidebarOpen))
+      await window.electronAPI?.createBrowser(calcBounds(sidebarOpen, panelWidth))
       setBrowserActive(true)
     }
     await window.electronAPI?.navigate(url)
     setUrlEditing(false)
-  }, [browserActive, sidebarOpen])
+  }, [browserActive, sidebarOpen, panelWidth])
 
   // Handle deep-link into Browse with a target URL (from Pipeline)
   useEffect(() => {
@@ -679,47 +789,75 @@ function ElectronBrowsePage() {
           )}
         </div>
 
-        {/* Right: side panel */}
+        {/* Right: side panel — slides between expanded (440px) and a thin
+            collapsed strip (36px). The transition runs at 180ms ease-out
+            and the BrowserView bounds resize in lockstep (see sendBounds
+            useEffect above). */}
         <div
           className="shrink-0 flex flex-col border-l border-border rv-surface-1 overflow-hidden"
-          style={{ width: panelCollapsed ? 32 : RIGHT_PANEL_W }}
+          style={{
+            width: panelWidth,
+            transition: "width 180ms cubic-bezier(0.32, 0.72, 0, 1)",
+          }}
         >
-          <button
-            type="button"
-            onClick={() => setPanelCollapsed((v) => !v)}
-            className="h-8 w-8 m-1 rounded border border-border/80 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-            aria-label={panelCollapsed ? "Expand panel" : "Collapse panel"}
-          >
-            {panelCollapsed ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          </button>
           {panelCollapsed ? (
-            <div className="flex-1 flex items-center justify-center">
-              <PanelRightOpen className="h-4 w-4 rv-t3" />
-            </div>
-          ) : showPanel ? (
-            analysisLoading && !analysis ? (
-              <DossierPanelSkeleton />
-            ) : analysis ? (
-              <DossierPanel
-                analysis={analysis.analysis}
-                walkAway={analysis.walkAway}
-                inputs={analysis.inputs}
-                address={analysis.address}
-                propertyFacts={analysis.propertyFacts}
-                source={analysis.source}
-                sourceUrl={currentUrl}
-                inputProvenance={analysis.inputProvenance}
-                signedIn={signedIn}
-                isPro={isPro}
-                supabaseConfigured={supabaseConfigured}
-                panelWidth={RIGHT_PANEL_W}
-                onSave={supabaseConfigured ? handleSave : undefined}
-                isSaving={isSaving}
-                savedDealId={savedDealId}
-              />
-            ) : null
+            <CollapsedPanelStrip
+              isListingPage={isListingPage}
+              isLoading={analysisLoading}
+              hasAnalysis={analysis != null}
+              onExpand={() => setPanelCollapsed(false)}
+            />
           ) : (
-            <IdleSidePanel hint={idleHint} onReload={() => window.electronAPI?.reload()} />
+            <>
+              {/* Expanded header — collapse toggle + status pip */}
+              <div className="shrink-0 flex items-center h-9 px-2 border-b border-white/[0.04]">
+                <button
+                  type="button"
+                  onClick={() => setPanelCollapsed(true)}
+                  className="h-7 w-7 rounded-md flex items-center justify-center rv-t3 hover:rv-t1 hover:bg-white/[0.04] transition-colors"
+                  aria-label="Collapse panel"
+                  title="Collapse panel"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+                <div className="flex-1" />
+                <PanelStatusPip
+                  isListingPage={isListingPage}
+                  isLoading={analysisLoading}
+                  hasAnalysis={analysis != null}
+                />
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {showPanel ? (
+                  analysisLoading && !analysis ? (
+                    <DossierPanelSkeleton />
+                  ) : analysis ? (
+                    <DossierPanel
+                      analysis={analysis.analysis}
+                      walkAway={analysis.walkAway}
+                      inputs={analysis.inputs}
+                      address={analysis.address}
+                      propertyFacts={analysis.propertyFacts}
+                      source={analysis.source}
+                      sourceUrl={currentUrl}
+                      inputProvenance={analysis.inputProvenance}
+                      take={analysis.take}
+                      riskFlags={analysis.riskFlags}
+                      listingDetails={analysis.listingDetails}
+                      signedIn={signedIn}
+                      isPro={isPro}
+                      supabaseConfigured={supabaseConfigured}
+                      panelWidth={RIGHT_PANEL_W}
+                      onSave={supabaseConfigured ? handleSave : undefined}
+                      isSaving={isSaving}
+                      savedDealId={savedDealId}
+                    />
+                  ) : null
+                ) : (
+                  <IdleSidePanel hint={idleHint} onReload={() => window.electronAPI?.reload()} />
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -737,8 +875,108 @@ type IdleHint =
   | "captcha"
   | "low_confidence"
   | "page_too_short"
+  | "no_signals"
+  | "search_results_page"
   | "network"
   | "no_key"
+
+// ---------------------------------------------------------------------------
+// CollapsedPanelStrip — the 36px-wide pin that lives on the right edge when
+// the dossier is hidden. Shows a pulsing dot when actively analyzing, a
+// solid dot when there's a stored analysis to expand back to, and a static
+// hairline glyph otherwise. Click anywhere to expand.
+// ---------------------------------------------------------------------------
+
+function CollapsedPanelStrip({
+  isListingPage,
+  isLoading,
+  hasAnalysis,
+  onExpand,
+}: {
+  isListingPage: boolean
+  isLoading: boolean
+  hasAnalysis: boolean
+  onExpand: () => void
+}) {
+  const dotClass = isLoading
+    ? "bg-[var(--rv-accent)] animate-pulse"
+    : hasAnalysis || isListingPage
+    ? "bg-[var(--rv-accent)]"
+    : "bg-white/15"
+
+  const tooltip = isLoading
+    ? "Analyzing listing"
+    : hasAnalysis
+    ? "Expand to view dossier"
+    : isListingPage
+    ? "Listing detected — expand"
+    : "No listing on this page"
+
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      className="flex-1 flex flex-col items-center justify-between py-3 group"
+      title={tooltip}
+      aria-label={tooltip}
+    >
+      <ChevronLeft className="h-3.5 w-3.5 rv-t3 group-hover:rv-t1 transition-colors" />
+      <div className="flex flex-col items-center gap-2">
+        <span className={cn("h-1.5 w-1.5 rounded-full transition-colors", dotClass)} />
+        <span
+          className="font-mono uppercase rv-t3 group-hover:rv-t1 transition-colors"
+          style={{
+            writingMode: "vertical-rl",
+            transform: "rotate(180deg)",
+            fontSize: "9px",
+            letterSpacing: "0.18em",
+          }}
+        >
+          Real&nbsp;Verdict
+        </span>
+      </div>
+      <span className="h-3.5 w-3.5" aria-hidden="true" />
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PanelStatusPip — tiny status indicator in the expanded panel header.
+// Communicates "live"/"loading"/"idle" without text getting in the way.
+// ---------------------------------------------------------------------------
+
+function PanelStatusPip({
+  isListingPage,
+  isLoading,
+  hasAnalysis,
+}: {
+  isListingPage: boolean
+  isLoading: boolean
+  hasAnalysis: boolean
+}) {
+  const dotClass = isLoading
+    ? "bg-[var(--rv-accent)] animate-pulse"
+    : hasAnalysis && isListingPage
+    ? "bg-emerald-500/70"
+    : hasAnalysis
+    ? "bg-white/30"
+    : "bg-white/15"
+
+  const label = isLoading
+    ? "Analyzing"
+    : hasAnalysis && isListingPage
+    ? "Live"
+    : hasAnalysis
+    ? "Saved view"
+    : "Standby"
+
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] uppercase tracking-[0.08em] rv-t3">
+      <span className={cn("h-1.5 w-1.5 rounded-full", dotClass)} />
+      {label}
+    </span>
+  )
+}
 
 function IdleSidePanel({
   hint = "default",
@@ -750,11 +988,19 @@ function IdleSidePanel({
   const config: Record<IdleHint, { icon: React.ReactNode; copy: string; cta?: string }> = {
     "default": {
       icon: <Home className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
-      copy: "Navigate to a property listing on Zillow, Redfin, Realtor, Homes, or Trulia to begin.",
+      copy: "Navigate to a property listing on any real-estate site to begin.",
     },
     "supported-non-listing": {
       icon: <Search className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
       copy: "Navigate to a listing to see underwriting.",
+    },
+    "no_signals": {
+      icon: <Search className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "This page doesn’t look like a single listing. Open a property page to analyze it.",
+    },
+    "search_results_page": {
+      icon: <Search className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
+      copy: "Looks like a search results page. Click into a listing to analyze it.",
     },
     "captcha": {
       icon: <AlertTriangle className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
@@ -762,7 +1008,7 @@ function IdleSidePanel({
     },
     "low_confidence": {
       icon: <Building2 className="h-8 w-8 text-muted-foreground/20" strokeWidth={1.4} />,
-      copy: "Couldn’t fully read this listing — try refreshing or paste the URL.",
+      copy: "Couldn’t confidently read this listing — try refreshing or paste the URL.",
       cta: "Refresh",
     },
     "page_too_short": {
@@ -801,186 +1047,54 @@ function IdleSidePanel({
 }
 
 // ---------------------------------------------------------------------------
-// WEB MODE — degraded fallback for users on the web app
+// WEB MODE — landing page directing users to the desktop app.
+//
+// The product wedge is "the moment you land on a listing, the panel just
+// knows" — that requires an embedded browser, which only the Electron build
+// has. Rather than ship a degraded text-input fallback, we route web users
+// to the download page. This keeps the product narrative honest and matches
+// how Linear / Mercury / Robinhood frame their desktop experiences.
 // ---------------------------------------------------------------------------
 
 function WebBrowsePage() {
-  const [query, setQuery]       = useState("")
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState<string | null>(null)
-  const [result, setResult]     = useState<AnalysisResult | null>(null)
-  const [savedDealId, setSavedDealId] = useState<string | undefined>()
-  const [isSaving, setIsSaving] = useState(false)
-  const [signedIn, setSignedIn] = useState(false)
-  const [isPro, setIsPro]       = useState(false)
-  const supabaseConfigured = supabaseEnv().configured
-
-  const isListingUrl = LISTING_URL_RE.test(query)
-
-  useEffect(() => {
-    if (!supabaseConfigured) return
-    const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return
-      setSignedIn(true)
-      const { data: sub } = await supabase
-        .from("subscriptions")
-        .select("status, current_period_end")
-        .eq("user_id", user.id)
-        .maybeSingle()
-      setIsPro(rowIsPro(sub as { status: string; current_period_end: string | null } | null))
-    })
-  }, [supabaseConfigured])
-
-  const submit = useCallback(async (text: string) => {
-    const t = text.trim()
-    if (!t) return
-    setError(null)
-    setLoading(true)
-    setResult(null)
-    setSavedDealId(undefined)
-    try {
-      const cacheId = normalizeCacheKey(t)
-      const cached  = sessionGet<ResolverPayload>(AUTOFILL_CACHE_NS, cacheId)
-      let payload: ResolverPayload
-      if (cached) {
-        payload = cached
-      } else {
-        const isUrl = LISTING_URL_RE.test(t)
-        const res = isUrl
-          ? await fetch("/api/property-resolve", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ url: t }),
-            })
-          : await fetch("/api/property-resolve?address=" + encodeURIComponent(t))
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({})) as { message?: string; error?: string }
-          throw new Error(body?.message ?? body?.error ?? "Couldn't read this listing.")
-        }
-        payload = (await res.json()) as ResolverPayload
-        sessionSet(AUTOFILL_CACHE_NS, cacheId, payload, AUTOFILL_CACHE_TTL_MS)
-      }
-
-      // Strict gate: refuse to underwrite without a real price
-      const priceSource = payload.provenance?.purchasePrice?.source
-      const hasPrice =
-        payload.inputs.purchasePrice != null &&
-        (payload.inputs.purchasePrice as number) > 0 &&
-        priceSource != null && priceSource !== "default"
-      if (!hasPrice) {
-        throw new Error("Couldn't read this listing. Try refreshing or paste the URL manually.")
-      }
-
-      setResult(buildAnalysisFromResolver(payload, isListingUrl ? t : ""))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.")
-    } finally {
-      setLoading(false)
-    }
-  }, [isListingUrl])
-
-  const handleSave = useCallback(async () => {
-    if (!result || isSaving || savedDealId) return
-    if (!signedIn) { window.location.href = "/login?redirect=/research"; return }
-    if (!isPro)    { window.location.href = "/pricing?redirect=/research"; return }
-    setIsSaving(true)
-    try {
-      const res = await fetch("/api/deals/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          inputs: result.inputs,
-          address: result.address,
-          propertyFacts: result.propertyFacts,
-          sourceUrl: isListingUrl ? normalizeUrl(query) : null,
-          sourceSite: isListingUrl ? detectSource(normalizeUrl(query)) : null,
-        }),
-      })
-      const payload = await res.json()
-      if (res.ok && payload?.id) setSavedDealId(payload.id as string)
-    } finally {
-      setIsSaving(false)
-    }
-  }, [result, isSaving, savedDealId, signedIn, isPro])
-
   return (
     <SidebarInset className="overflow-hidden">
       <header className="drag-region h-14 flex items-center gap-2 border-b border-border px-4 shrink-0 select-none">
         <SidebarTrigger className="-ml-1 no-drag-region" />
-        <form
-          onSubmit={(e) => { e.preventDefault(); submit(query) }}
-          className="no-drag-region flex-1 flex items-center gap-2"
-        >
-          <div className={cn(
-            "rv-input flex-1 flex items-center gap-2 h-8 px-3 text-sm",
-            error && "rv-tone-warn",
-          )}>
-            {isListingUrl
-              ? <Globe className="h-3.5 w-3.5 text-muted-foreground/55 shrink-0" />
-              : <MapPin className="h-3.5 w-3.5 text-muted-foreground/55 shrink-0" />}
-            <Input
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); setError(null) }}
-              placeholder="Paste a listing URL or type an address&hellip;"
-              className="border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => { setQuery(""); setResult(null); setError(null) }}
-                className="text-muted-foreground/40 hover:text-muted-foreground shrink-0 transition-colors duration-100"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-          <Button type="submit" size="sm" disabled={loading || !query.trim()}>
-            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-          </Button>
-        </form>
+        <span className="text-[13px] font-medium rv-t1">Browse</span>
+        <span className="ml-3 text-[10px] uppercase tracking-[0.08em] rv-t3">Desktop only</span>
       </header>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="flex-1 flex items-center justify-center px-6 text-center bg-zinc-950 min-w-0">
-          {error ? (
-            <div className="space-y-2 max-w-sm">
-              <AlertTriangle className="h-6 w-6 text-amber-500/70 mx-auto" />
-              <p className="text-[13px] text-muted-foreground leading-relaxed">{error}</p>
-            </div>
-          ) : (
-            <p className="text-[13px] text-muted-foreground/50 leading-relaxed max-w-[36ch]">
-              Underwrite listings instantly from URL or address. Open the desktop app for full multi-site browse mode with live side-panel underwriting.
+      <div className="flex-1 flex items-center justify-center px-8 rv-surface-bg">
+        <div className="max-w-[36rem] text-center space-y-6">
+          <div className="inline-flex items-center justify-center h-12 w-12 rounded-full rv-surface-2 border border-white/[0.06]">
+            <Globe className="h-5 w-5 rv-t2" strokeWidth={1.5} />
+          </div>
+          <div className="space-y-3">
+            <h1 className="text-[22px] font-semibold rv-t1" style={{ letterSpacing: "-0.02em" }}>
+              Browse mode lives in the desktop app.
+            </h1>
+            <p className="text-[14px] rv-t2 leading-relaxed max-w-[44ch] mx-auto">
+              The browse experience reads listings live from any site &mdash;
+              Zillow, Redfin, Realtor.com, anywhere &mdash; and underwrites
+              them in real time without leaving the page. That requires an
+              embedded browser, which only the desktop app ships with.
             </p>
-          )}
-        </div>
-
-        <div
-          className="shrink-0 flex flex-col border-l border-border bg-background"
-          style={{ width: RIGHT_PANEL_W }}
-        >
-          {loading ? (
-            <DossierPanelSkeleton />
-          ) : result ? (
-            <DossierPanel
-              analysis={result.analysis}
-              walkAway={result.walkAway}
-              inputs={result.inputs}
-              address={result.address}
-              propertyFacts={result.propertyFacts}
-              source={result.source}
-              inputProvenance={result.inputProvenance}
-              signedIn={signedIn}
-              isPro={isPro}
-              supabaseConfigured={supabaseConfigured}
-              panelWidth={RIGHT_PANEL_W}
-              onSave={supabaseConfigured ? handleSave : undefined}
-              isSaving={isSaving}
-              savedDealId={savedDealId}
-            />
-          ) : (
-            <IdleSidePanel />
-          )}
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <a
+              href="/download"
+              className="inline-flex items-center gap-2 px-4 h-9 rounded-md bg-foreground text-background text-[13px] font-medium hover:opacity-90 transition-opacity"
+            >
+              Download desktop app
+            </a>
+            <a
+              href="/deals"
+              className="inline-flex items-center gap-2 px-4 h-9 rounded-md text-[13px] rv-t2 hover:rv-t1 transition-colors"
+            >
+              View saved deals
+            </a>
+          </div>
         </div>
       </div>
     </SidebarInset>

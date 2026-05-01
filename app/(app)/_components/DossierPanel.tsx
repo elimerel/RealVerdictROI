@@ -12,11 +12,6 @@ import {
   formatCurrency,
   formatPercent,
 } from "@/lib/calculations"
-import type { CompsResult } from "@/lib/comps"
-import type { ComparablesAnalysis } from "@/lib/comparables"
-import type { ChatAnalysisContext } from "@/app/api/chat/route"
-import type { AiNarrative } from "@/lib/lead-adapter"
-import type { DistributionResult, ProbabilisticVerdict } from "@/lib/distribution-engine"
 import type { FieldProvenance } from "@/lib/types"
 import {
   Save,
@@ -28,6 +23,11 @@ import {
   DollarSign,
   Percent,
   ExternalLink,
+  TrendingDown,
+  Target,
+  Calendar,
+  TagIcon,
+  ScrollText,
 } from "lucide-react"
 import WaterfallChart from "@/components/charts/waterfall-chart"
 import { tonedSeverity, type Severity } from "@/lib/severity"
@@ -45,26 +45,38 @@ export type PropertyFacts = {
   propertyType?: string | null
 }
 
+/** Rich fields the LLM lifted from the listing — surfaced in the
+ *  Listing Details collapsible. None are required; render only what's
+ *  present. This is where the depth of the AI-read shines: a regex
+ *  scraper can't pull listing remarks or a price-history note. */
+export type ListingDetails = {
+  daysOnMarket?: number | null
+  originalListPrice?: number | null
+  priceHistoryNote?: string | null
+  listingDate?: string | null
+  listingRemarks?: string | null
+  mlsNumber?: string | null
+  schoolRating?: number | null
+  walkScore?: number | null
+  lotSqft?: number | null
+}
+
 export type DossierPanelProps = {
   analysis: DealAnalysis
   walkAway: OfferCeiling | null
   address?: string
   inputs: DealInputs
-  /** AI factual summary — single sentence. Older callers pass full narrative; we read summary only. */
-  ai_narrative?: AiNarrative | null
-  /** Optional rent sanity-check note from AI ("listing mentions full reno…"). */
-  rentNote?: string | null
-  /** Source of the underlying listing — drives the small badge near the address. */
+  /** Single-sentence model take — leads the dossier when present. */
+  take?: string | null
+  /** Risk flags lifted verbatim from the listing (flood zone, septic, etc.). */
+  riskFlags?: string[]
+  /** Rich detail surface — listing remarks, DOM, price history, scores. */
+  listingDetails?: ListingDetails | null
+  /** Source of the listing — drives the badge near the address. */
   source?: "zillow" | "redfin" | "realtor" | "homes" | "trulia" | "movoto" | null
   sourceUrl?: string | null
-  // Legacy props — accepted for compat, unused.
-  distribution?: DistributionResult | null
-  probabilisticVerdict?: ProbabilisticVerdict | null
-  walkAwayConfidenceNote?: string | null
+  /** Per-input confidence + provenance, so the panel can show source dots. */
   inputProvenance?: Partial<Record<keyof DealInputs, FieldProvenance>> | null
-  comps?: CompsResult | null
-  comparables?: ComparablesAnalysis | null
-  analysisContext?: ChatAnalysisContext
   signedIn: boolean
   isPro: boolean
   supabaseConfigured: boolean
@@ -132,17 +144,21 @@ function HeroNumber({
   caption,
   tone,
   pulseKey,
+  size = "lg",
 }: {
   label: string
   icon: React.ComponentType<{ className?: string }>
   value: string
   caption?: string
-  /** Color only when this metric is the worst offender on the deal —
-      otherwise tone="neutral" and the number stays in foreground white. */
   tone: Severity
   pulseKey: string | number
+  /** "lg" — primary row of 3 metrics; "md" — secondary row of 2 metrics. */
+  size?: "lg" | "md"
 }) {
   const Icon = icon
+  const sizeStyle = size === "lg"
+    ? { fontSize: "26px", letterSpacing: "-0.01em" }
+    : { fontSize: "20px", letterSpacing: "-0.005em" }
   return (
     <div className="space-y-1.5 min-w-0">
       <p className="text-[11px] font-medium uppercase tracking-[0.08em] rv-t2 flex items-center gap-1.5">
@@ -155,10 +171,7 @@ function HeroNumber({
           "font-mono font-medium rv-num leading-none rv-number-pulse",
           toneClass(tone),
         )}
-        style={{
-          fontSize: "28px",
-          letterSpacing: "-0.01em",
-        }}
+        style={sizeStyle}
       >
         {value}
       </p>
@@ -184,6 +197,7 @@ function AssumptionInput({
   step = 1,
   min = 0,
   max,
+  provenance,
   onChange,
 }: {
   label: string
@@ -193,6 +207,7 @@ function AssumptionInput({
   step?: number
   min?: number
   max?: number
+  provenance?: FieldProvenance | null
   onChange: (v: number) => void
 }) {
   const [draft, setDraft] = useState<string>(formatNum(value))
@@ -220,7 +235,10 @@ function AssumptionInput({
 
   return (
     <label className="flex items-center justify-between gap-3 py-2.5">
-      <span className="text-[12px] text-muted-foreground/70 truncate">{label}</span>
+      <span className="text-[12px] text-muted-foreground/70 truncate flex items-center gap-1.5">
+        {label}
+        {provenance && <SourceDot provenance={provenance} />}
+      </span>
       <div className="rv-input flex items-center gap-1 px-2.5 py-1 min-w-0">
         {prefix && (
           <span className="text-[11px] text-muted-foreground/45 font-mono">{prefix}</span>
@@ -410,6 +428,70 @@ function SourceBadge({
 }
 
 // ---------------------------------------------------------------------------
+// SourceDot — tiny circle next to a value indicating where it came from.
+// Hover/focus reveals a popover with the source label and a 1-line note.
+//
+// This is the visible payoff for the per-field provenance the extractor
+// produces. A user looking at a $7,450 tax line can see at a glance whether
+// that came from the Zillow listing (high confidence, green dot), an
+// inferred default (low confidence, amber dot), or their own override.
+// ---------------------------------------------------------------------------
+
+const SOURCE_COPY: Record<FieldProvenance["source"], string> = {
+  listing:           "Read from listing",
+  inferred:          "Default",
+  verified:          "Verified by data",
+  user:              "You set this",
+  "zillow-listing":  "Zillow",
+  rentcast:          "RentCast",
+  "rent-comps":      "Comps",
+  fred:              "FRED",
+  "fhfa-hpi":        "FHFA",
+  "fema-nfhl":       "FEMA",
+  "state-average":   "State avg",
+  "state-investor-rate": "State avg",
+  "national-average": "National avg",
+  default:           "Default",
+}
+
+const CONF_DOT_COLOR: Record<FieldProvenance["confidence"], string> = {
+  high:   "bg-emerald-500/70",
+  medium: "bg-amber-400/80",
+  low:    "bg-white/15",
+}
+
+function SourceDot({ provenance }: { provenance?: FieldProvenance | null }) {
+  const [open, setOpen] = useState(false)
+  if (!provenance) return null
+  const sourceText = SOURCE_COPY[provenance.source] ?? provenance.source
+  const note = provenance.note ?? provenance.tooltip ?? null
+  return (
+    <span
+      className="relative inline-flex items-center"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span
+        className={cn("h-1.5 w-1.5 rounded-full transition-opacity", CONF_DOT_COLOR[provenance.confidence])}
+        aria-hidden="true"
+      />
+      {open && (
+        <span
+          role="tooltip"
+          className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 rv-surface-2 border border-white/10 rounded-md px-2 py-1.5 text-[10px] rv-t1 z-50 pointer-events-none shadow-lg"
+          style={{ minWidth: "9rem", maxWidth: "20rem", whiteSpace: "normal" }}
+        >
+          <span className="block font-mono font-semibold uppercase tracking-[0.06em] text-[9px] rv-t2">
+            {sourceText} · {provenance.confidence}
+          </span>
+          {note && <span className="block rv-t2 mt-0.5 leading-snug">{note}</span>}
+        </span>
+      )}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main DossierPanel
 // ---------------------------------------------------------------------------
 
@@ -418,10 +500,12 @@ export default function DossierPanel({
   walkAway: incomingWalkAway,
   address,
   inputs: incomingInputs,
-  ai_narrative,
-  rentNote,
+  take,
+  riskFlags,
+  listingDetails,
   source,
   sourceUrl,
+  inputProvenance,
   supabaseConfigured,
   onSave,
   savedDealId,
@@ -510,10 +594,11 @@ export default function DossierPanel({
   const breakEvenPrice = walkAway?.recommendedCeiling?.price ?? null
   const breakEvenDelta = breakEvenPrice != null ? breakEvenPrice - workingInputs.purchasePrice : null
 
-  // Factual summary — prefer AI's, fall back to formula
-  const aiSummary = ai_narrative?.summary?.trim()
-  const summary = aiSummary && aiSummary.length > 0
-    ? aiSummary
+  // The model's one-sentence take leads. If we don't have one (legacy /
+  // partial extraction) we fall back to the formulaic summary.
+  const modelTake = take?.trim()
+  const summary = modelTake && modelTake.length > 0
+    ? modelTake
     : buildFactualSummary(workingInputs, analysis, walkAway, pf, address)
 
   // Worst-offender wins color; everything else stays neutral white.
@@ -548,63 +633,96 @@ export default function DossierPanel({
             </p>
           </div>
 
-          {/* ── Module 2: Hero metrics — only the worst-offending metric carries color ── */}
-          <div className="grid grid-cols-3 gap-5 py-7 rv-hairline">
-            <HeroNumber
-              label="DSCR"
-              icon={LineChart}
-              value={dscrStr}
-              caption={dscrCaption(dscr)}
-              tone={tonedSeverity("dscr", dscr, cf, cap)}
-              pulseKey={`dscr-${pulseKey}`}
-            />
-            <HeroNumber
-              label="Cash / mo"
-              icon={DollarSign}
-              value={cfStr}
-              caption={cashFlowCaption(cf)}
-              tone={tonedSeverity("cashFlow", dscr, cf, cap)}
-              pulseKey={`cf-${pulseKey}`}
-            />
-            <HeroNumber
-              label="Cap rate"
-              icon={Percent}
-              value={capStr}
-              caption={capRateCaption(cap)}
-              tone={tonedSeverity("capRate", dscr, cf, cap)}
-              pulseKey={`cap-${pulseKey}`}
-            />
-          </div>
-
-          {/* ── Module 3: Summary + break-even ── */}
+          {/* ── Module 2: Take + risk flags — the AI lead. ───────────── */}
           <div className="py-6 rv-hairline">
             <p className="text-[14px] rv-t1 leading-[1.55] max-w-[60ch]">
               {summary}
             </p>
-            {breakEvenPrice != null && (
-              <p className="text-[12px] rv-t3 font-mono rv-num mt-3">
-                Break-even price&nbsp;
-                <span className="rv-t2 font-semibold">
-                  {formatCurrency(breakEvenPrice, 0)}
-                </span>
-                {breakEvenDelta != null && (
-                  <span className="rv-t4">
-                    &nbsp;&middot;&nbsp;
-                    {breakEvenDelta >= 0
+            {riskFlags && riskFlags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {riskFlags.slice(0, 6).map((flag) => (
+                  <span
+                    key={flag}
+                    className="inline-flex items-center gap-1 px-2 h-5 rounded-full text-[10px] font-medium uppercase tracking-[0.06em] rv-tone-warn"
+                    style={{ background: "var(--rv-warn-sub)" }}
+                  >
+                    {flag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Module 3: 5 hero metrics. Row 1 = DSCR / Cash / Cap rate.
+                Row 2 = Break-even price / Cash-on-cash. Only the worst-
+                offending metric carries color tone. ───────────────────── */}
+          <div className="py-7 rv-hairline space-y-7">
+            <div className="grid grid-cols-3 gap-5">
+              <HeroNumber
+                label="DSCR"
+                icon={LineChart}
+                value={dscrStr}
+                caption={dscrCaption(dscr)}
+                tone={tonedSeverity("dscr", dscr, cf, cap)}
+                pulseKey={`dscr-${pulseKey}`}
+              />
+              <HeroNumber
+                label="Cash / mo"
+                icon={DollarSign}
+                value={cfStr}
+                caption={cashFlowCaption(cf)}
+                tone={tonedSeverity("cashFlow", dscr, cf, cap)}
+                pulseKey={`cf-${pulseKey}`}
+              />
+              <HeroNumber
+                label="Cap rate"
+                icon={Percent}
+                value={capStr}
+                caption={capRateCaption(cap)}
+                tone={tonedSeverity("capRate", dscr, cf, cap)}
+                pulseKey={`cap-${pulseKey}`}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-5">
+              <HeroNumber
+                label="Break-even"
+                icon={Target}
+                value={breakEvenPrice != null ? formatCurrency(breakEvenPrice, 0) : "—"}
+                caption={
+                  breakEvenDelta != null
+                    ? breakEvenDelta >= 0
                       ? `${formatCurrency(breakEvenDelta, 0)} above asking`
-                      : `${formatCurrency(Math.abs(breakEvenDelta), 0)} below asking`}
-                  </span>
-                )}
-                {isDirty && (
-                  <span className="ml-2 text-[10px] uppercase tracking-[0.08em] rv-tone-warn opacity-80">
-                    edited
-                  </span>
-                )}
+                      : `${formatCurrency(Math.abs(breakEvenDelta), 0)} below asking`
+                    : undefined
+                }
+                tone="neutral"
+                pulseKey={`be-${pulseKey}`}
+                size="md"
+              />
+              <HeroNumber
+                label="Cash-on-cash"
+                icon={TrendingDown}
+                value={formatPercent(analysis.cashOnCashReturn, 2)}
+                caption={
+                  analysis.cashOnCashReturn >= 0.08
+                    ? "above 8%"
+                    : analysis.cashOnCashReturn >= 0.05
+                    ? "5-8%"
+                    : "below 5%"
+                }
+                tone="neutral"
+                pulseKey={`coc-${pulseKey}`}
+                size="md"
+              />
+            </div>
+            {isDirty && (
+              <p className="text-[10px] uppercase tracking-[0.08em] rv-tone-warn opacity-80">
+                edited · live recomputed
               </p>
             )}
           </div>
 
-          {/* ── Module 4: Assumptions — slight surface lift to frame the module ── */}
+          {/* ── Module 4: Assumptions — every input carries a source dot. ── */}
           <div className="py-6 rv-hairline">
             <p className="rv-section-label mb-4">
               Assumptions
@@ -618,6 +736,7 @@ export default function DossierPanel({
                   step={1}
                   min={0}
                   max={100}
+                  provenance={inputProvenance?.downPaymentPercent}
                   onChange={(v) => setWorkingInputs((s) => ({ ...s, downPaymentPercent: v }))}
                 />
                 <AssumptionInput
@@ -627,6 +746,7 @@ export default function DossierPanel({
                   step={0.125}
                   min={0}
                   max={20}
+                  provenance={inputProvenance?.loanInterestRate}
                   onChange={(v) => setWorkingInputs((s) => ({ ...s, loanInterestRate: v }))}
                 />
                 <AssumptionInput
@@ -636,6 +756,7 @@ export default function DossierPanel({
                   suffix="/mo"
                   step={50}
                   min={0}
+                  provenance={inputProvenance?.monthlyRent}
                   onChange={(v) => setWorkingInputs((s) => ({ ...s, monthlyRent: v }))}
                 />
                 <AssumptionInput
@@ -645,15 +766,11 @@ export default function DossierPanel({
                   step={1}
                   min={0}
                   max={50}
+                  provenance={inputProvenance?.vacancyRatePercent}
                   onChange={(v) => setWorkingInputs((s) => ({ ...s, vacancyRatePercent: v }))}
                 />
               </div>
             </div>
-            {rentNote && (
-              <p className="text-[11px] rv-tone-warn opacity-80 leading-snug mt-3 max-w-[50ch]">
-                {rentNote}
-              </p>
-            )}
           </div>
 
           {/* ── Module 5: Collapsible detail sections ── */}
@@ -672,6 +789,15 @@ export default function DossierPanel({
             <CollapsibleSection title={`${analysis.inputs.holdPeriodYears}-year projection`}>
               <ProjectionRow analysis={analysis} />
             </CollapsibleSection>
+
+            {hasListingDetails(listingDetails) && (
+              <CollapsibleSection title="Listing details">
+                <ListingDetailsRow
+                  details={listingDetails!}
+                  asking={workingInputs.purchasePrice}
+                />
+              </CollapsibleSection>
+            )}
           </div>
         </div>
       </div>
@@ -779,6 +905,142 @@ function ProjectionRow({ analysis }: { analysis: DealAnalysis }) {
         </span>
         .
       </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ListingDetailsRow — surfaces the depth of the LLM-read.
+//
+// This is the section that visibly justifies "AI integration that's not a
+// ChatGPT wrapper" — every field on screen here is something the LLM lifted
+// from the rendered listing text in one pass: days on market, price-history
+// note, listing remarks, MLS#, school rating, walk score, lot size.
+// A traditional scraper, even with site-specific selectors, can't reliably
+// pull these because they're conditional/positional/free-text.
+// ---------------------------------------------------------------------------
+
+function hasListingDetails(d?: ListingDetails | null): boolean {
+  if (!d) return false
+  return (
+    d.daysOnMarket != null ||
+    d.originalListPrice != null ||
+    d.priceHistoryNote != null ||
+    d.listingDate != null ||
+    d.listingRemarks != null ||
+    d.mlsNumber != null ||
+    d.schoolRating != null ||
+    d.walkScore != null ||
+    d.lotSqft != null
+  )
+}
+
+function ListingDetailsRow({
+  details,
+  asking,
+}: {
+  details: ListingDetails
+  asking: number
+}) {
+  const reduction =
+    details.originalListPrice && details.originalListPrice > asking
+      ? details.originalListPrice - asking
+      : null
+
+  return (
+    <div className="space-y-3">
+      {/* ── Price-motion signal — when we have it, lead with it. ─────── */}
+      {(reduction != null || details.daysOnMarket != null || details.priceHistoryNote) && (
+        <div className="rounded-md rv-surface-2 px-3 py-2.5 space-y-1.5">
+          <div className="flex items-center gap-2 flex-wrap text-[12px]">
+            {reduction != null && (
+              <span className="inline-flex items-center gap-1 rv-tone-warn font-mono rv-num">
+                <TrendingDown className="h-3 w-3" />
+                {formatCurrency(reduction, 0)} reduction
+              </span>
+            )}
+            {details.daysOnMarket != null && (
+              <span className="inline-flex items-center gap-1 rv-t2 font-mono rv-num">
+                <Calendar className="h-3 w-3 rv-t3" />
+                {details.daysOnMarket}d on market
+              </span>
+            )}
+          </div>
+          {details.priceHistoryNote && (
+            <p className="text-[11px] rv-t3 leading-snug">
+              {details.priceHistoryNote}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Compact metadata grid ──────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
+        {details.mlsNumber && (
+          <DetailRow icon={TagIcon} label="MLS" value={details.mlsNumber} mono />
+        )}
+        {details.listingDate && (
+          <DetailRow icon={Calendar} label="Listed" value={details.listingDate} />
+        )}
+        {details.lotSqft != null && (
+          <DetailRow
+            icon={Target}
+            label="Lot"
+            value={`${details.lotSqft.toLocaleString()} sqft`}
+            mono
+          />
+        )}
+        {details.schoolRating != null && (
+          <DetailRow
+            icon={Target}
+            label="Schools"
+            value={`${details.schoolRating}/10`}
+            mono
+          />
+        )}
+        {details.walkScore != null && (
+          <DetailRow
+            icon={Target}
+            label="Walk"
+            value={`${details.walkScore}/100`}
+            mono
+          />
+        )}
+      </div>
+
+      {/* ── Listing remarks — quoted from the page. ────────────────── */}
+      {details.listingRemarks && (
+        <div className="rounded-md border border-white/[0.06] px-3 py-2.5">
+          <p className="text-[10px] uppercase tracking-[0.08em] rv-t3 mb-1 inline-flex items-center gap-1.5">
+            <ScrollText className="h-3 w-3" />
+            From the listing
+          </p>
+          <p className="text-[12px] rv-t1 leading-relaxed italic">
+            “{details.listingRemarks}”
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DetailRow({
+  icon: Icon, label, value, mono,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: string
+  mono?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 min-w-0">
+      <span className="text-[11px] rv-t3 inline-flex items-center gap-1.5">
+        <Icon className="h-3 w-3" />
+        {label}
+      </span>
+      <span className={cn("rv-t1 truncate", mono && "font-mono rv-num")}>
+        {value}
+      </span>
     </div>
   )
 }

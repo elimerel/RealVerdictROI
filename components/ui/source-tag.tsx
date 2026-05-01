@@ -9,6 +9,10 @@ import type { FieldProvenance, ProvenanceSource } from "@/lib/types"
 // ---------------------------------------------------------------------------
 
 const SOURCE_ABBREV: Record<ProvenanceSource, string> = {
+  "listing":            "LISTING",
+  "inferred":           "DEFAULT",
+  "verified":           "VERIFIED",
+  "user":               "MANUAL",
   "zillow-listing":     "ZILLOW",
   "rentcast":           "RENTCAST",
   "rent-comps":         "COMPS",
@@ -19,7 +23,6 @@ const SOURCE_ABBREV: Record<ProvenanceSource, string> = {
   "state-investor-rate":"STATE",
   "national-average":   "NATIONAL",
   "default":            "DEFAULT",
-  "user":               "MANUAL",
 }
 
 // ---------------------------------------------------------------------------

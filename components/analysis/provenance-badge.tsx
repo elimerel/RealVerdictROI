@@ -15,6 +15,10 @@ interface ProvenanceBadgeProps {
 }
 
 const sourceLabels: Record<ProvenanceSource, string> = {
+  listing: "Listing",
+  inferred: "Default",
+  verified: "Verified",
+  user: "User",
   "zillow-listing": "Zillow",
   rentcast: "RentCast",
   "rent-comps": "Comps",
@@ -25,7 +29,6 @@ const sourceLabels: Record<ProvenanceSource, string> = {
   "state-investor-rate": "Inv. Rate",
   "national-average": "Nat. Avg",
   default: "Default",
-  user: "User",
 }
 
 const confidenceConfig: Record<
