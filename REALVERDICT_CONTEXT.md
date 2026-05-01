@@ -1,304 +1,145 @@
 # RealVerdict — Current State Context
-## Last updated: April 29, 2026
+
+**Last updated: 2026-05-01**
 
 ---
 
 ## What this product is
 
-RealVerdict is a lightweight desktop CRM for active rental property investors. 
-Target user: someone actively shopping for their next rental property, looking 
-at 20-30 listings a week, needs to know fast whether a deal works and what to offer.
+RealVerdict is a **desktop-first** underwriting tool for active rental investors shopping many listings per week. It is intentionally sharp and dense: browse a listing, see DSCR / cash flow / cap / walk-away logic fast, save to a pipeline, iterate assumptions without leaving the shell.
 
-The product is intentionally lightweight. Fast, focused, sharp. Not a heavy 
-dashboard. Every feature earns its place.
-
-**Core value proposition:** Every competitor (DealCheck, Mashvisor, Stessa) 
-gives you metrics. RealVerdict gives you a decision — should I pursue this 
-and what should I offer. The walk-away price and AI narrative are the 
-differentiated features. Tagline: "DealCheck calculates. RealVerdict closes."
+**Positioning** (unchanged): competitors lead with dashboards; RealVerdict leads with a **decision** and a negotiable ceiling. Tagline stance: *DealCheck calculates. RealVerdict closes.* Full positioning and guard rails live in **`HANDOFF.md` §2**.
 
 ---
 
 ## Stack
 
 | Layer | Tech |
-|---|---|
-| Desktop shell | Electron (electron-app/) |
-| Web app / UI | Next.js App Router + Turbopack |
-| Styling | Tailwind + shadcn/ui |
+|-------|------|
+| Desktop shell | Electron (`electron-app/`) |
+| UI | Next.js App Router (Vercel) |
+| Styling | Tailwind 4, shadcn/ui, design tokens in `app/globals.css` |
 | Auth + DB | Supabase |
-| Payments | Stripe (test mode) |
-| Deployment | Vercel (web) |
-| AI | Anthropic Claude (claude-haiku-4-5-20251001) |
+| Payments | Stripe (test mode in development) |
+| AI | Multiple backends by route — OpenAI and Anthropic both appear (narrative, chat, etc.); inspect `app/api/*` for the source of truth |
 
-The Electron app is a shell that loads the Vercel URL. UI changes → push 
-to GitHub → Vercel auto-deploys → users see it instantly. No reinstall needed 
-unless electron-app/main.js or preload.js change.
+The Electron **renderer loads the deployed Next app URL**. UI changes ship via Git → Vercel; only **main process / preload** changes require a new DMG.
 
 ---
 
-## Current architecture — what was built in the last session
+## Architectural decision you must not “unforget”
 
-### The full rebuild that happened
+Shipping a **fully static, offline Next bundle inside Electron** (classic `next export` pattern) was assessed and **deferred**. The product depends on **server routes, Supabase, Stripe, and AI**. A proper offline shell would mean a large backend/IPC refactor (order-of-days work), not a polish task.  
 
-The app was completely restructured from a website-style multi-page app into 
-a persistent desktop CRM shell. This was a ground-up architectural change.
-
-**What was deleted:**
-- /dashboard — redundant, redirected to /deals
-- /search — redundant, redirected to /deals  
-- /leads — redundant, redirected to /deals
-- /compare — not integrated into CRM shell
-- /results — rebuilt as a minimal share-link view only
-- HomeAnalyzeForm, InitialVerdict, HowWeGotThese, OfferCeilingCard — all deleted
-- SavedDealDetail — replaced by AnalysisPanel
-- DashboardClient — dead code, deleted
-- ResultsShell Electron detection — simplified
-
-**What was built:**
-- /deals — the new primary authenticated landing (card grid + analysis panel)
-- AnalysisPanel — canonical analysis display component used everywhere
-- AI narrative system — Claude generates deal narratives, stored in Supabase
-- Auto-save — new analyses save automatically, no manual save button needed
-- Delete deals — trash icon on hover, confirmation, instant UI update
+**Implication:** treat the app as **Electron chrome + remote Next** until a deliberate Phase B architecture project is approved. See **`HANDOFF.md` §1 + §1b** for the phased roadmap (native shell polish → web dashboard → extension → marketing site).
 
 ---
 
-## App structure — authenticated shell
+## Authenticated shell (what actually ships today)
 
-```
-Sidebar (4 items):
-  Deals     → /deals     (primary — pipeline + analysis)
-  Research  → /research  (Electron browser for browsing listings)
-  Insights  → /insights  (stub, coming later)
-  Settings  → /settings  (account + billing)
-```
+### Sidebar — three destinations only
 
-After login, Electron navigates to /deals. The sidebar is collapsible to 
-icon mode. Width 200px expanded, 52px collapsed.
+From `components/layout/app-sidebar.tsx`:
 
----
+| Label | Path | Purpose |
+|-------|------|---------|
+| **Browse** | `/research` | Embedded listing browser + **DossierPanel** |
+| **Pipeline** | `/deals` | Saved deals — table + cards + same panel |
+| **Settings** | `/settings` | Account, defaults, billing |
 
-## The Deals view — the centerpiece
+There is **no Insights item in the sidebar** (any “Insights” route is non-core / stub unless product changes).
 
-**Layout:** Two zones side by side.
+**Default sidebar state:** **icon-only** (collapsed) on launch — `SidebarProvider defaultOpen={false}` in `app/(app)/layout.tsx`. Expanded mode shows the RealVerdict wordmark next to the logo; collapsed is **logo only**. Tooltips use ~500ms delay (`TooltipProvider`).
 
-**Left zone (card grid):**
-- Search bar at top — accepts Zillow URL or street address
-- Filter pills: All / Strong Buy / Good Deal / Fair / Risky / Walk Away
-- Two-column card grid of saved deals
-- Clicking a card opens the right panel
+### Pipeline (`/deals`)
 
-**Right zone (analysis panel):**
-- Opens when a card is clicked
-- Shows the full deal analysis
-- Closeable with X button
+Implemented in `app/(app)/deals/DealsClient.tsx` (and related components).
 
-**Card design (SavedDealCard.tsx):**
-- 4px left border in tier accent color
-- Address (truncated)
-- Property facts strip (beds · baths · sqft) if available
-- Verdict badge (Strong Buy / Good Deal / Fair / Risky / Walk Away)
-- Walk-away price — dominant number, text-[22px] font-bold
-- Three metrics in a row: cash flow (colored), cap rate, DSCR
-- Timestamp bottom right
-- Delete icon — hidden, appears on hover only
+- **Search:** Zillow URL or address.
+- **Filters:** chips such as “All”, cash-flow-positive, DSCR threshold, cap threshold (tier verdict filters may still exist in code paths — verify UI).
+- **Views:** table (comparison) + card grid; row/card selection opens **`DossierPanel`** in the right rail.
+- **Table UX (polish v2):** tighter horizontal padding, **14px** body + mono numerics for metrics, primary address line bright (`text-foreground` / tier tokens), subtitle line smaller; **active sort column** header reads as primary; row hover/selection feedback is **fast** (short transition); **worst-offender-only** cell coloring via `lib/severity.ts`.
 
-**Auto-save behavior:**
-New analyses save automatically when signedIn && isPro && supabaseConfigured. 
-AI narrative generates immediately after save in background. 
-No manual save button for new analyses.
-Duplicate prevention: checks for same purchasePrice + monthlyRent in last 5 minutes.
+**Card view** (`SavedDealCard.tsx`): uses the same severity discipline so one metric “screams red” per card.
+
+### Browse (`/research`)
+
+`app/(app)/research/page.tsx`: browser chrome + **DossierPanel** when analysis is available. Right panel width constant **`RIGHT_PANEL_W = 440`** (was 420) to fit hero numbers.
+
+**Known gap:** embedded listing sites (e.g. Zillow) are **light-themed** inside the dark chrome. A quick **CSS invert** hack in the webview was considered and **not** merged as product quality; the “right” fix is a first-party summary surface or extension overlay — future work.
 
 ---
 
-## The Analysis Panel (AnalysisPanel.tsx)
+## DossierPanel (replaces “AnalysisPanel” in older notes)
 
-No tabs. Pure vertical scroll. Three zones:
+**File:** `app/(app)/_components/DossierPanel.tsx`
 
-**Zone 1 — AI Narrative (top)**
-- Shows if ai_narrative exists with non-empty content
-- summary: text-sm text-foreground leading-relaxed
-- opportunity: text-sm text-muted-foreground, emerald dot prefix
-- risk: text-sm text-muted-foreground, amber dot prefix
-- No label, no "AI" badge — content earns its own authority
-- max-w-[65ch] for readable line length
+Single vertical scroll (with **`overscroll-behavior: contain`** on the scroll container) so **only the panel** scrolls, not the whole window layout.
 
-**Zone 2 — Decision**
-- Walk-away price: large, font-mono, dominant
-- Asking price and gap below it
-- Tier accent left border on the container
+**Module layout (polish v2):**
 
-**Zone 3 — Metrics**
-- Open grid, NO boxes or tiles
-- Four numbers sitting directly on dark surface
-- Values: text-[15px] font-mono font-semibold on top
-- Labels: text-[10px] uppercase tracking-wider muted below
-- Secondary row: GRM · Break-even · IRR · LTV in one muted line
+1. **Identity** — address (H1-scale), property facts + asking, source badge; bottom hairline.
+2. **Hero metrics** — three columns: DSCR, **Cash / mo**, cap rate. Numbers **28px** mono; labels/captions use the `--rv-t*` hierarchy; **only worst metric** gets strong `.rv-tone-*` color.
+3. **Summary** — factual one-liner at **primary** text tier (`.rv-t1` / foreground), not washed-out muted gray.
+4. **Break-even** — demoted line under summary (tertiary / small).
+5. **Assumptions** — section title + **lifted block** (`bg-white/[0.02]`, rounded) containing rent / vacancy / rate / down inputs (`.rv-input`).
+6. **Collapsibles** — monthly breakdown, stress test, projection; tertiary labels.
 
-**Then inline (no tabs):**
-- Stress test table (StressTestPanel)
-- Monthly breakdown waterfall (BreakdownSection)
-- Year-by-year projection table
-
-**Panel header:**
-- Verdict badge with tier accent color (orange "Risky", red "Walk Away" etc.)
-- Address and property facts
+**Cash display:** values like `−$1.2k` / `+$3.4k` avoid truncation; `/mo` context is in the **Cash / mo** label.
 
 ---
 
-## AI Narrative System
+## Design system snapshot
 
-**Route:** /api/deals/narrative/route.ts
+- **Sans:** Inter. **Mono:** JetBrains Mono (`--rv-font-mono`, Tailwind `font-mono`).
+- **Text tiers:** `--rv-t1`–`--rv-t4` in `globals.css` with utilities `.rv-t1` … `.rv-t4` (primary / secondary / tertiary / disabled).
+- **Semantic metrics:** `--rv-bad`, `--rv-warn`, `--rv-good` (muted, not neon).
+- **Components:** `.rv-input`, `.rv-chip`, `.rv-pill`, `.rv-pill-saved`; severity **`.rv-tone-*`**.
+- **Keyboard:** `app/(app)/_components/KeyboardShortcuts.tsx` dispatches custom events for page-level focus targets.
 
-**Trigger:** Fires after auto-save completes. Also fires retroactively when 
-a saved deal with missing/empty narrative is clicked.
+---
 
-**Model:** claude-haiku-4-5-20251001 via Anthropic SDK direct (not AI SDK)
+## AI narrative
 
-**Storage:** deals.ai_narrative (jsonb) — { summary, opportunity, risk, generatedAt }
-
-**Voice rules (system prompt):**
-- Maximum 15 words per sentence
-- No semicolons, no em dashes, no compound clauses
-- summary: one sentence, verdict + biggest reason, specific number
-- opportunity: two sentences max, real numbers, specific upside
-- risk: two sentences max, specific threat with exact number
-- Never generic — every statement references actual computed data
-
-**Data sent to Claude:**
-purchasePrice, monthlyRent, downPaymentPercent, loanInterestRate,
-monthlyCashFlow, capRate, cashOnCashReturn, dscr, grossRentMultiplier,
-irr, totalCashInvested, breakEvenOccupancy, verdict.tier, verdict.score,
-verdict.summary, walkAway.recommendedCeiling, primaryTarget,
-totalProfit, totalROI, netSaleProceeds, holdPeriodYears,
-firstPositiveCashFlowYear, totalCashFlow, projectedSalePrice, address
-
-**Client-side:** localNarratives Map stores narrative immediately when route 
-responds — no dependency on router.refresh() for display.
+Deal narratives may still be generated and stored on **`deals.ai_narrative`** (jsonb). **DossierPanel** consumes a **short factual summary** when present; full multi-field narrative UX may differ from early “AnalysisPanel” docs. Confirm fields in `DossierPanel` props and `/api/deals/narrative` if changing prompts.
 
 ---
 
 ## Verdict tiers
 
-```
-"excellent" → Strong Buy  (emerald  #00c896)
-"good"      → Good Deal   (green    #4ade80)
-"fair"      → Fair        (amber    #f59e0b)
-"poor"      → Risky       (orange   #f97316)
-"avoid"     → Walk Away   (red      #ef4444)
-```
-
-Defined in lib/tier-constants.ts and app/(app)/_components/results/tier-style.ts
+Still defined in `lib/tier-constants.ts` / `tier-style.ts` (tier strings like `"excellent"` … `"avoid"` map to Strong Buy → Walk Away labels). Pipeline cards and filters may reference these — grep before editing.
 
 ---
 
-## Design system — current state
+## Database (Supabase)
 
-**Font:** Inter (next/font/google), tabular-nums globally on body
-
-**Color palette (dark mode):**
-- Background:  oklch(0.095 0.012 250) — deep cool near-black
-- Card:        oklch(0.135 0.011 250) — slightly elevated
-- Sidebar:     oklch(0.110 0.012 250) — slightly darker than shell
-- Secondary:   oklch(0.185 0.010 250)
-- Border:      oklch(1 0 0 / 8%)
-- Foreground:  near white, cool
-- Muted:       oklch(0.55 0.008 250)
-
-**The only real color in the UI is the verdict tier accent.** Everything else 
-is monochrome.
-
-**Spacing:** Sections use space-y-7 (28px). Hairline dividers between sections.
+Core tables include `deals`, `subscriptions`, `negotiation_packs`, `compare_entries`, etc. Migrations under `supabase/migrations/` — newer migrations (e.g. concern reports) may exist; **do not** assume only 001–006.
 
 ---
 
-## Database — Supabase
+## Quality gates
 
-```
-deals table columns:
-  id            uuid PK
-  user_id       uuid FK → auth.users
-  created_at    timestamptz
-  address       text (nullable)
-  inputs        jsonb (DealInputs)
-  results       jsonb (DealAnalysis)
-  verdict       text
-  property_facts jsonb (nullable)
-  ai_narrative  jsonb (nullable) — { summary, opportunity, risk, generatedAt }
-```
-
-Migrations applied: 001_deals, 002_compare_entries, 003_subscriptions, 
-004_negotiation_packs, 005_property_facts, 006_ai_narrative
+- **`npm run check`** — project gate (tsc, eslint, vitest) before confident merges.
+- **Vitest:** historically **7 failures** in `tests/pack-routes-invariants.test.ts` were **pre-existing** (missing legacy files); verify on clean `main` before treating as regression.
+- **ESLint:** large warning counts can include generated/electron output — scope lint to `app/`, `lib/`, `components/` when triaging.
 
 ---
 
-## What does NOT change — ever
+## What not to do (inherits from HANDOFF)
 
-- lib/calculations.ts — all engine math
-- lib/comps.ts, lib/comparables.ts, lib/negotiation-pack.ts
-- lib/estimators.ts, lib/market-data.ts, lib/market-context.ts
-- All API routes under app/api/ (except narrative prompt text)
-- electron-app/preload.js
-- app/(marketing)/ — the public marketing website
-- lib/supabase/, lib/ratelimit.ts, lib/pro.ts
-- All vitest tests — 185 total, 7 known pre-existing failures
-
-**Run npm run check before and after every change.**
+- No Silent I/O inside `lib/calculations.ts`.
+- Don’t “fix” bad underwriting math with warning bubbles only — fix derivation.
+- Don’t assume every agent task is **`/results`-first** — desktop **`(app)`** routes are the primary product surface.
 
 ---
 
-## Known issues / what's still not done
+## Doc map
 
-- Insights page is a stub — no real data, shows "coming soon"
-- Stripe is in test mode — no paying customers yet
-- Canonical public URL is **realverdict.app** (Electron packaged build defaults
-  to `https://realverdict.app`; override with `REALVERDICT_APP_URL` for previews).
-  Set `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` in Vercel to match.
-- Walk-away price in the panel could be more visually dominant
-- No Strong Buy deal in the pipeline to test positive verdict state
-- Research page web fallback is minimal (desktop-only feature)
-- The Negotiation Pack (PDF export) exists but Pack generate button 
-  only shows when livecomps ran — most analyses are fast estimates
+| File | Role |
+|------|------|
+| `HANDOFF.md` | Active spec: engine, resolver, `/results`, Pack, positioning |
+| `HANDOFF_ARCHIVE.md` | Long history + **2026-05 addendum** at top |
+| `CONTEXT.md` | Shorter agent onboarding (should match this file) |
+| `AGENTS.md` | Next.js version warning for agents |
 
----
-
-## Turbopack constraint — CRITICAL
-
-Never write this in JSX:
-```tsx
-{someNumber}/{otherNumber}          // ❌ Turbopack sees / as regex
-style={{ width: `${x}%` }}         // ❌ can break Turbopack
-```
-
-Always write:
-```tsx
-{someNumber + "/" + otherNumber}    // ✅
-style={{ width: x + "%" }}         // ✅
-```
-
----
-
-## Environment variables required
-
-```
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
-ANTHROPIC_API_KEY              ← required for AI narrative
-STRIPE_SECRET_KEY
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-UPSTASH_REDIS_REST_URL
-UPSTASH_REDIS_REST_TOKEN
-RENTCAST_API_KEY
-```
-
----
-
-## Current quality gates
-
-- TypeScript: clean
-- ESLint: 1,789 pre-existing errors all in compiled artifacts 
-  (electron-app/, .next/, extension/) — zero in source files
-- Vitest: 178 pass, 7 known pre-existing failures
-- next build: clean
+If **`HANDOFF.md §1`** and this file disagree on **current desktop state**, update **both** — `HANDOFF.md` wins on engine/Pack facts; **this file** and **`CONTEXT.md`** should stay in sync for Electron UX.

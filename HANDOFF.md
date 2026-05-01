@@ -1,16 +1,18 @@
 # RealVerdictROI — Project Handoff
 
-> **How to read this doc (agent pointer, 2026-04-22):**
+> **How to read this doc (agent pointer, 2026-05-01):**
 >
-> This file is the active spec. It's intentionally short. If you need a
-> historical detail — what shipped when, why a past decision was made,
-> the unit-economics math that drove the $29 price, the exact list of
-> §20.9 bugs — read `HANDOFF_ARCHIVE.md`. Don't re-read it every turn.
+> This file is the active spec. It's intentionally short. For **desktop
+> shell routes** (`app/(app)/`), UX polish tokens, and the current
+> Pipeline/Browse mental model, also read `CONTEXT.md` and
+> `REALVERDICT_CONTEXT.md` — they track the Electron-first surface.
+> Historical web-`/results` Pack-era detail lives in `HANDOFF_ARCHIVE.md`.
+> Don't re-read the archive every turn.
 >
 > **Read top-to-bottom on the first turn of a new chat.** After that,
 > jump to the section that matches the task:
 >
-> - Starting fresh? → **§1 Current state + §13 Next chat prompt**
+> - Starting fresh? → **§1 Current state + §1b Roadmap + §15 Next chat prompt**
 > - Touching the engine or `findOfferCeiling`? → **§5, §6**
 > - Touching data pipeline / resolver / RentCast? → **§7**
 > - Touching `/results`? → **§8** (component map)
@@ -30,8 +32,36 @@
 
 ## 1. Current state
 
-**Shipped and live** (as of 2026-04-22):
+**Shipped and live** (as of 2026-05-01):
 
+- **Desktop product (primary surface)**: The shipped experience is an
+  **Electron** app whose renderer loads the **Vercel-hosted Next.js**
+  app (`app/(app)/`). **Bundling the renderer as a static export inside
+  the `.app` is explicitly off the table** for now: the app depends on
+  Supabase, Stripe, AI, and server routes, so a `next export`-style
+  move would be a large backend/architecture project, not a polish item.
+  Improvements that don't require that refactor ship as UI + optional
+  main-process tweaks (window state, IPC, etc.).
+- **UX polish (Phase 1–2 boundary)**:
+  - **Polish pass v1** (shipped): Muted severity palette,
+    worst-offender-only metric coloring (`lib/severity.ts`), native-style
+    inputs (`.rv-input`), chips (`.rv-chip`), pill CTA (`.rv-pill`),
+    sidebar tooltips, global ⌘ shortcuts (`KeyboardShortcuts.tsx`),
+    drag regions on headers, JetBrains Mono wired for `font-mono`,
+    window bounds persistence in `electron-app/main.js`.
+  - **Polish pass v2 — readability & craft** (shipped): Explicit text
+    tiers (`--rv-t1` … `--rv-t4` / `.rv-t1` … `.rv-t4` in `globals.css`),
+    `DossierPanel` split into clear modules (identity / hero / summary /
+    assumptions surface / collapsibles), **28px** hero numbers with
+    compact cash-flow display, Pipeline table density + brighter primary
+    copy, active sort column highlighting, **sidebar defaults to
+    icon-collapsed** (`SidebarProvider defaultOpen={false}`), scroll
+    containment fixes on the right panel (`overscroll-behavior: contain`
+    + removed clipping wrappers where needed).
+  - **Deferred for later**: Fake dark mode for embedded Zillow
+    (`invert` in webview) — trialed as quick fix only; full
+    "our own listing summary card" belongs with future extension /
+    architecture work.
 - **Engine**: `findOfferCeiling` disciplined by comp-derived market value
   (5% premium allowed). The $3.4M-walk-away-on-$540k-listing bug is gone.
 - **Architecture (§20.8)**: `/results` is a fast estimate by default (no
@@ -104,6 +134,20 @@
 - Create the $29/mo Stripe Price (Stripe forbids editing live Price
   amounts), update `STRIPE_PRICE_ID_PRO` in Vercel + `.env.local`,
   verify checkout shows $29.
+
+### 1b. Product roadmap (direction locked with user, 2026)
+
+Ordered phases — later phases are **future**, not current sprint work:
+
+| Phase | Focus | Notes |
+|-------|--------|--------|
+| **1** | Visual / native-feel polish **without** renderer bundling | Largely shipped (polish v1 + v2). |
+| **2** | Native shell quality | Splash, skeletons, prefetch, native menus, notifications, window polish, auto-updater, tray — **still open**; no static-export requirement. |
+| **3** | Web dashboard | Lift Pipeline + compare to **app.realverdict.com** (or similar). |
+| **4** | Chrome extension | In-browser underwriting; pairs with "our panel over listing" story. |
+| **5** | Marketing site | Rebuild **realverdict.com** around the new product narrative. |
+
+**Explicitly out of scope (for now):** Rewriting Electron to embed a fully offline/static Next build unless/until backend is re-architected — cost estimate was on the order of **20–40+ hours** and was rejected in favor of phased polish above.
 
 ---
 
@@ -604,32 +648,22 @@ share `.next/` and will corrupt it.
 ## 15. Next chat starting prompt — USE THIS ONE
 
 ```
-Read HANDOFF.md §1 + §2 first. Current state: Pack + Comp Reasoning
-Explainer shipped; $29 reprice live; §20.8 fast-estimate architecture
-live; walk-away market-value cap live; Pack-first homepage + pricing
-live. 169 tests pass. tsc + eslint + next build all clean.
+Read HANDOFF.md §1 + §1b + §2 first. CONTEXT.md + REALVERDICT_CONTEXT.md
+for the Electron app routes and current UI patterns.
 
-Two manual operator tasks remain before launch:
-  1. Run supabase/migrations/004_negotiation_packs.sql.
-  2. Create $29/mo Stripe Price, update STRIPE_PRICE_ID_PRO.
+Current surface: Electron loads Vercel-hosted Next.js — primary UX is
+Browse (/research) + Pipeline (/deals) + Settings; detail/analysis is
+DossierPanel (right rail). Static Next export for Electron deferred;
+phased roadmap §1b.
 
-Next strategic focus (user-approved):
-  - Calibration gauntlet: 10 more listings across diverse markets +
-    property types to validate the engine. User sources these.
-  - Collect investor demo signal. At least one "I'd pay for that
-    specifically" before flipping Stripe to live mode.
-  - One-time Pack purchase path ($19-29 Stripe Checkout, no signup
-    until after payment) — deferred; only build if demand signals.
-  - Dashboard polish: list a user's past Packs.
+Polish v1+v2 shipped (2026-05): severity discipline, typography tiers,
+sidebar default collapsed, panel modules, pipeline table density, scroll
+fixes. Phase 2 = native shell quality (see §1b) — not started as a bundle.
 
-Pending P2 polish (do these only when there's a clear product reason):
-  - Cross-tab numeric reconciliation (HANDOFF_ARCHIVE.md §20.9 #11).
-  - Garbled negative-CF copy templates (§20.9 #12).
+Web /results + Pack stack from HANDOFF §5–§9 still exists for marketing
+and deep links; don't assume every agent task is /results-first.
 
-If a listing audit comes in, only revisit §20 if it produces a BUY
-mislabeled as AVOID for reasons the user rejects. All §20 P1 items
-(§20.9 #1-#9) and architecture (§20.8) have shipped. See
-HANDOFF_ARCHIVE.md for the full ship history if you need it.
+Run npm run check before pushing. HANDOFF_ARCHIVE.md = history only.
 ```
 
 ---

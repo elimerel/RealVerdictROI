@@ -25,6 +25,18 @@
 > all clean; Pack + Comp Reasoning shipped; $29 reprice live; §20.8
 > architecture live; walk-away market-value cap live; Pack-first homepage
 > + pricing live.
+>
+> **Addendum (2026-05-01):** The live product emphasis shifted to an
+> **Electron-first desktop** shell (`electron-app/`) loading the same
+> Next app from Vercel. Primary authenticated UX: **Browse** (`/research`,
+> embedded listing browser + `DossierPanel`), **Pipeline** (`/deals`,
+> saved deals table/cards + same panel), **Settings**. Two UI polish
+> passes landed (tokens in `app/globals.css`, `lib/severity.ts`,
+> `DossierPanel.tsx`, `DealsClient.tsx`, sidebar default collapsed).
+> **Bundling the renderer as static HTML inside Electron** was evaluated
+> and **deferred** (server/auth/AI deps). See **HANDOFF.md §1 + §1b** and
+> **REALVERDICT_CONTEXT.md** for the authoritative current-state summary;
+> the body below remains a **historical** snapshot from 2026-04-22.
 
 ---
 

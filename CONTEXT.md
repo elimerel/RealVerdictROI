@@ -1,188 +1,125 @@
 # RealVerdict — Project Context
 
-Use this file to onboard any Claude/AI session quickly.
+Use this file to onboard a new chat or agent quickly. **`HANDOFF.md`** stays the repo “spec” for engine, `/results`, and Pack-era history; this file tracks the **desktop app surface** and shared stack.
 
 ---
 
-## What is this
+## What this is
 
-**RealVerdict** is a desktop app for real estate investors to analyze deals.
-You browse a Zillow/Redfin/Realtor.com listing inside the app, hit Analyze,
-and instantly get: walk-away ceiling price, cash flow, cap rate, DSCR,
-cash-on-cash return, risk signals, and a scored verdict (Strong Buy → Walk Away).
+**RealVerdict** is a desktop (Electron) app for rental investors: browse a listing URL in an embedded browser, underwrite in a right-hand **Dossier** panel, save to **Pipeline**, compare metrics. The renderer is the same **Next.js** app deployed on Vercel — not a separate UI codebase.
 
 ---
 
 ## Stack
 
 | Layer | Tech |
-|---|---|
-| Desktop shell | Electron (electron-app/) |
-| Web app / UI | Next.js 16 App Router + Turbopack |
-| Styling | Tailwind + shadcn/ui |
+|-------|------|
+| Desktop shell | Electron (`electron-app/main.js`, `preload.js`) |
+| UI / SSR / API | Next.js App Router + Turbopack |
+| Styling | Tailwind CSS 4 (`app/globals.css`), shadcn/ui |
 | Auth + DB | Supabase |
 | Payments | Stripe |
-| Deployment | Vercel (web) + electron-forge (DMG) |
-| AI | Anthropic Claude (claude-haiku-4-5 default, claude-sonnet for analysis) |
+| Deploy | Vercel (web); DMG via `electron-app` / `electron-builder` |
+
+**AI:** Both OpenAI (e.g. Ask AI / some routes per `HANDOFF.md`) and Anthropic (e.g. deal narrative) may appear — check the specific `app/api/*` route before assuming one vendor.
 
 ---
 
-## Key architecture fact
+## Architecture fact (important)
 
-The Electron app is a **shell that loads the Vercel URL**.
-- UI/logic changes → push to GitHub → Vercel auto-deploys → users see it instantly (no reinstall)
-- Electron shell changes (sidebar, IPC, window chrome) → need `npm run deploy` to build new DMG
+The Electron app is a **shell that loads the deployed Next URL** (e.g. production site).  
 
----
+- UI / React / CSS changes → push to `main` → Vercel deploy → users see them after refresh (no DMG reinstall).
+- **Main process / preload** changes → rebuild the desktop artifact.
 
-## Repository layout
-
-```
-realverdictroi/
-├── app/(app)/              # All authenticated pages
-│   ├── research/page.tsx   # ⭐ Main page — browser + analysis panel
-│   ├── results/page.tsx    # Full analysis report page
-│   ├── leads/              # Saved Deals CRM (LeadsClient, SavedDealCard, SavedDealDetail)
-│   ├── dashboard/          # Dashboard
-│   ├── settings/           # User settings
-│   └── _components/        # Shared components (ResultsHeader, etc.)
-├── electron-app/
-│   ├── main.js             # ⭐ Electron main process — window, sidebar, IPC, browser view
-│   └── preload.js          # contextBridge — exposes electronAPI to renderer
-├── lib/
-│   ├── calculations.ts     # ⭐ Core math — analyseDeal(), findOfferCeiling(), sanitiseInputs()
-│   ├── market-data.ts      # Free market context — HUD FMR, ZORI rent index, Walk Score
-│   ├── market-context.ts   # MarketSignals type + AI market context builder
-│   ├── tier-constants.ts   # TIER_ACCENT, TIER_LABEL (Strong Buy / Good Deal / Fair / Risky / Walk Away)
-│   ├── types.ts            # Shared types
-│   └── calculations.ts     # DealInputs, DealAnalysis types + all ROI math
-├── deploy.sh               # One-command deploy: git commit + push + build DMG
-└── CONTEXT.md              # This file
-```
+**Explicit product decision:** A full **static `next export` bundle inside Electron** was scoped and **rejected for now** — the app depends on server routes, Supabase, Stripe, and AI. Revisit only with a deliberate backend/shell architecture project (see `HANDOFF.md` §1b).
 
 ---
 
-## The research page (most important file)
+## Authenticated app routes (`app/(app)/`)
 
-`app/(app)/research/page.tsx` — the core Electron experience:
+| Route | In-app name | Role |
+|-------|-------------|------|
+| `/research` | **Browse** | Webview + URL bar + **DossierPanel** analysis rail (~440px width constant in `research/page.tsx`) |
+| `/deals` | **Pipeline** | Saved deals: search, filter chips, table + card views, same **DossierPanel** when a row/card is selected |
+| `/settings` | **Settings** | Profile, assumptions, subscription |
 
-- **Left pane**: embedded browser (Electron `WebContentsView` layered on top via IPC)
-- **Right panel**: analysis panel, toggled with BarChart3 button, **drag-to-resize** (min 280px, max 600px, default 380px)
-- **Analyze button**: reads the current listing page via structured extractors (Zillow/Redfin/Realtor.com) + AI fallback
-- **WalkAwayBlock**: shows ceiling price, math breakdown, % over/under
-- **RiskSignals**: collapsible (collapsed by default), shows AI-detected red flags
-- **ElectronResultsView**: full analysis inside the panel (metrics, score breakdown, actions)
+**Sidebar** (`components/layout/app-sidebar.tsx`): three items — Browse, Pipeline, Settings. **Default:** icon-only collapsed (`SidebarProvider defaultOpen={false}` in `app/(app)/layout.tsx`). Tooltips (~500ms delay) on nav buttons.
 
-Key components defined in this file:
-- `WalkAwayBlock` — ceiling price card
-- `RiskSignals` — collapsible risk flag list
-- `ElectronResultsView` — full analysis panel content
-- `ResearchPage` — main page component
+Shared chrome: `KeyboardShortcuts.tsx` (⌘1/2/3 navigation, ⌘N search/URL, ⌘F filter, etc.), drag regions on page headers for macOS.
 
 ---
 
-## Electron IPC (how browser ↔ app talk)
+## Core analysis UI: `DossierPanel`
 
-`window.electronAPI` is exposed via `preload.js`:
-- `showBrowser(bounds)` / `hideBrowser()` / `createBrowser(bounds)` — manage WebContentsView
-- `navigate(url)` / `back()` / `forward()` / `reload()`
-- `analyze()` — runs structured extractor on current page, returns deal inputs
-- `onNavUpdate(cb)` — listen for URL/title/isListing changes
-- `saveDeal(deal)` — persist to Supabase via IPC
+`app/(app)/_components/DossierPanel.tsx` — canonical underwriting panel:
 
-Bounds shape: `{ x, y, width, height }` calculated from sidebar state + panel width.
+- Modules: identity → hero metrics (DSCR, cash/mo, cap) → summary + break-even → assumptions (lifted surface) → collapsible breakdown/stress/projection.
+- **Hero numbers:** 28px mono; cash line uses compact **k** notation so values don’t truncate in three columns.
+- **Severity:** only the **worst-offending** metric per deal is strongly tinted (`lib/severity.ts` + `.rv-tone-*` in `globals.css`).
 
----
-
-## Core math (lib/calculations.ts)
-
-- `sanitiseInputs(inputs)` — fills in defaults, validates
-- `analyseDeal(inputs)` → `DealAnalysis` — all metrics
-- `findOfferCeiling(inputs)` → ceiling price targets (primary, aggressive, conservative)
-- `inputsToSearchParams(inputs)` — serialize inputs to URL for results page
-
-Key metrics computed: `monthlyCashFlow`, `capRate`, `cashOnCashReturn`, `dscr`, `grossRentMultiplier`, `totalCashInvested`
+Older docs may say “AnalysisPanel” — that name is obsolete; use **DossierPanel**.
 
 ---
 
-## Verdict tiers
+## Typography / color (polish v2)
 
-```
-"strong"  → Strong Buy  (green)
-"good"    → Good Deal   (emerald)
-"fair"    → Fair Deal   (yellow)
-"risky"   → Risky       (orange)
-"walk"    → Walk Away   (red)
-```
+Hierarchy tokens in `app/globals.css`:
 
-Defined in `lib/tier-constants.ts` as `TIER_LABEL` and `TIER_ACCENT`.
+- `--rv-t1` … `--rv-t4` (+ `.rv-t1` … `.rv-t4`) — primary → secondary → tertiary → disabled/placeholder aligned to a Mercury/Linear-style contrast ladder.
+- **Mono:** JetBrains Mono via `next/font/local` as `--rv-font-mono` (Tailwind `font-mono`).
 
 ---
 
-## Market data (lib/market-data.ts)
+## Electron IPC (sketch)
 
-Free sources, all fail-silently (never block analysis):
-- **HUD FMR** — Fair Market Rents by ZIP, requires `HUD_USER_TOKEN` env var
-- **ZORI** — Zillow rent index CSV, no key needed
-- **HUD AMI** — Area Median Income by county, same `HUD_USER_TOKEN`
-- **Walk Score** — requires `WALK_SCORE_API_KEY` (deferred — need domain for API key)
+`window.electronAPI` (see `electron-app/preload.js`): browser bounds, navigate, analyze current page, etc. Bounds account for sidebar + right panel width.
+
+---
+
+## Core math
+
+`lib/calculations.ts` — `sanitiseInputs`, `analyseDeal`, `findOfferCeiling`, formatting helpers. **No I/O** in this file.
 
 ---
 
 ## Deploy workflow
 
 ```bash
-npm run deploy          # in project root
+npm run deploy    # or: push main (Vercel) + rebuild DMG when electron-app changes
 ```
 
-This runs `deploy.sh`:
-1. `git add -A && git commit` (if there are changes)
-2. `git push origin main` → Vercel auto-deploys the web app
-3. `cd electron-app && npm install && npm run make` → builds new DMG at `electron-app/out/make/`
-
-**Only reinstall the DMG when `electron-app/main.js` or `preload.js` changes.**
-All other changes go live automatically via Vercel.
+Reinstall the DMG only when **`electron-app/`** (or packaging config) changes.
 
 ---
 
-## Known Turbopack quirks (IMPORTANT for Cursor prompts)
+## Turbopack constraint
 
-This project uses **Next.js 16 with Turbopack**. Turbopack has a parser bug where
-it misreads `/` as a regex literal start in certain JSX positions:
+Avoid JSX patterns that confuse the parser (see `AGENTS.md` / prior notes):
 
-**NEVER write this in JSX:**
 ```tsx
-{someNumber}/{otherNumber}          // ❌ Turbopack sees / as regex
-style={{ width: `${x}%` }}          // ❌ % after } in template literal can confuse it
-```
-
-**Always write this instead:**
-```tsx
-{someNumber + "/" + otherNumber}    // ✅ or precompute as const scoreText = ...
-style={{ width: x + "%" }}          // ✅ string concat instead of template literal
+// Bad: {a}/{b}  or  style={{ width: `${a}%` }} in fragile positions
+// Prefer string concat or precomputed variables
 ```
 
 ---
 
 ## Environment variables
 
-```
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
-ANTHROPIC_API_KEY
-OPENAI_API_KEY
-HUD_USER_TOKEN              # HUD FMR + AMI data
-WALK_SCORE_API_KEY          # deferred (needs domain)
-STRIPE_SECRET_KEY
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-```
+See `HANDOFF.md` §4 for the full table. Typical: Supabase, Stripe, OpenAI, RentCast, Redis, etc.
 
 ---
 
-## Current state (as of 2026-04-28)
+## Current state (2026-05-01)
 
-- Vercel deployment: fixing Turbopack build errors (latest commit: d551e93)
-- Electron DMG: built at `electron-app/out/make/RealVerdict-1.0.0-arm64.dmg`
-- All UI changes go live via Vercel — no DMG reinstall needed for most changes
-- Walk Score integration: deferred until real domain available
+- **Polish v1 + v2** shipped: native-feel inputs, chips, sidebar, shortcuts, window state persistence, text hierarchy, pipeline density, panel scroll containment.
+- **Phase 2** (native shell: splash, menus, updater, tray, …) — planned, not fully shipped; see `HANDOFF.md` §1b.
+- **Quality:** run `npm run check` before merge; some **vitest** failures have been **pre-existing** in pack-route invariant tests — confirm against `main` before blaming new work.
+
+---
+
+## Related docs
+
+- `HANDOFF.md` — engine, `/results`, Pack, resolver, positioning guard rails.
+- `REALVERDICT_CONTEXT.md` — longer desktop/product narrative (should match this file; if they diverge, update both).
+- `HANDOFF_ARCHIVE.md` — historical snapshot from 2026-04-22 **plus** 2026-05 addendum at top.
