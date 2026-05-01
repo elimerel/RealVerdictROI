@@ -239,9 +239,13 @@ function AssumptionInput({
         {label}
         {provenance && <SourceDot provenance={provenance} />}
       </span>
-      <div className="rv-input flex items-center gap-1 px-2.5 py-1 min-w-0">
+      {/* Tight input: prefix/suffix sit next to the digits with no gap so
+          "26 %" doesn't read as two disconnected tokens floating in a box.
+          Right-aligning to the suffix keeps the unit column visually
+          locked across rows. */}
+      <div className="rv-input inline-flex items-baseline px-2.5 py-1 min-w-0 leading-none">
         {prefix && (
-          <span className="text-[11px] text-muted-foreground/45 font-mono">{prefix}</span>
+          <span className="text-[11px] rv-t3 font-mono mr-0.5">{prefix}</span>
         )}
         <input
           type="text"
@@ -265,10 +269,10 @@ function AssumptionInput({
               onChange(min != null ? Math.max(min, next) : next)
             }
           }}
-          className="w-16 bg-transparent border-0 outline-none text-[12px] font-mono rv-num text-foreground text-right p-0"
+          className="w-12 bg-transparent border-0 outline-none text-[12px] font-mono rv-num text-foreground text-right p-0"
         />
         {suffix && (
-          <span className="text-[11px] text-muted-foreground/45 font-mono">{suffix}</span>
+          <span className="text-[11px] rv-t3 font-mono ml-0.5">{suffix}</span>
         )}
       </div>
     </label>

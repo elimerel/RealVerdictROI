@@ -4,7 +4,7 @@ import {
   useCallback, useEffect, useLayoutEffect, useRef, useState,
 } from "react"
 import {
-  ArrowLeft, ArrowRight, RotateCw, Globe, Plus, Search,
+  ArrowLeft, ArrowRight, RotateCw, Globe, Plus, Search, X,
   AlertTriangle, Building2, Home, Clock3, ChevronLeft, ChevronRight,
 } from "lucide-react"
 import { useSearchParams } from "next/navigation"
@@ -635,6 +635,12 @@ function ElectronBrowsePage() {
           propertyFacts: analysis.propertyFacts,
           sourceUrl: currentUrl || null,
           sourceSite: analysis.source || null,
+          // Carry the AI-derived context into the saved row so the Pipeline
+          // dossier doesn't lose the take, risk chips, and listing detail
+          // surface the moment the user clicks Save.
+          take: analysis.take ?? null,
+          riskFlags: analysis.riskFlags ?? null,
+          listingDetails: analysis.listingDetails ?? null,
         }),
       })
       const payload = await res.json()
@@ -682,18 +688,41 @@ function ElectronBrowsePage() {
           </button>
         </div>
 
-        <form onSubmit={submitUrlBar} className="no-drag-region flex-1 flex items-center min-w-0">
-          <div className="rv-input flex-1 flex items-center gap-2 h-8 px-3 text-sm">
+        {/* URL bar — wider, taller (h-9), centered with a max-width so on a
+            wide window it doesn't stretch into a 1200px cable-modem field.
+            Hostname is implicitly highlighted by the rest of the URL
+            collapsing to muted text once the user has navigated. */}
+        <form onSubmit={submitUrlBar} className="no-drag-region flex-1 flex items-center justify-center min-w-0 px-2">
+          <div
+            className={cn(
+              "rv-input flex-1 max-w-[640px] flex items-center gap-2.5 h-9 px-3.5",
+              urlEditing && "ring-1 ring-[var(--rv-accent-border)]",
+            )}
+          >
             <Globe className="h-3.5 w-3.5 text-muted-foreground/55 shrink-0" />
             <input
               ref={urlInputRef}
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
-              onFocus={() => setUrlEditing(true)}
+              onFocus={(e) => { setUrlEditing(true); e.currentTarget.select() }}
               onBlur={() => setUrlEditing(false)}
-              placeholder="Search or enter listing URL"
-              className="flex-1 min-w-0 bg-transparent text-[13px] font-mono rv-num text-foreground/85 placeholder:text-muted-foreground/50"
+              placeholder="Search or enter a listing URL"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              className="flex-1 min-w-0 bg-transparent text-[13px] font-mono rv-num text-foreground/90 placeholder:text-muted-foreground/45 tracking-tight"
             />
+            {urlInput && urlEditing && (
+              <button
+                type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => { e.preventDefault(); setUrlInput(""); urlInputRef.current?.focus() }}
+                className="shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-white/[0.08] transition-colors"
+                aria-label="Clear URL"
+              >
+                <X className="h-3 w-3" strokeWidth={2.5} />
+              </button>
+            )}
           </div>
         </form>
 

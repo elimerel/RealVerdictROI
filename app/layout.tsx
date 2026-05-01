@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import localFont from "next/font/local"
 import { Analytics } from "@vercel/analytics/next"
+import { THEME_INIT_SCRIPT } from "@/lib/theme"
 import "./globals.css"
 
 // ---------------------------------------------------------------------------
@@ -61,8 +62,19 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${mono.variable} dark bg-background`}>
-      <body className="font-sans antialiased">
+    // No theme class hardcoded: the inline THEME_INIT_SCRIPT in <head>
+    // applies "dark" / "paper" / nothing-for-light synchronously before
+    // first paint, based on the user's saved preference. SuppressHydrationWarning
+    // because the server has no localStorage and renders a class that the
+    // client may immediately swap for a different one.
+    <html lang="en" className={`${inter.variable} ${mono.variable} bg-background`} suppressHydrationWarning>
+      <head>
+        {/* Avoid FOUC: apply the saved theme synchronously. Must run before
+            React hydrates so the user never sees a flash of the wrong
+            background color. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
+      <body className="font-sans antialiased" suppressHydrationWarning>
         {children}
         {process.env.NODE_ENV === "production" && <Analytics />}
       </body>

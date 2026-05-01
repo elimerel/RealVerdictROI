@@ -1,11 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Settings as SettingsIcon, User, CreditCard, Sliders, CheckCircle2 } from "lucide-react"
+import { useState } from "react"
+import { Settings as SettingsIcon, User, CreditCard, Sliders, CheckCircle2, Palette, Sun, Moon, Monitor, BookOpen } from "lucide-react"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { DEFAULT_INPUTS } from "@/lib/calculations"
+import { cn } from "@/lib/utils"
+import { readTheme, setTheme as applyAndPersistTheme, type Theme } from "@/lib/theme"
 
 const DEFAULTS_KEY = "realverdict:defaults:v1"
 
@@ -64,8 +66,9 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <div className="p-8 max-w-2xl space-y-10 no-drag-region">
+      <div className="p-8 max-w-2xl space-y-10 no-drag-region overflow-auto">
         <ProfileCard />
+        <AppearanceCard />
         <DefaultsCard />
         <SubscriptionCard />
       </div>
@@ -74,19 +77,141 @@ export default function SettingsPage() {
 }
 
 // ---------------------------------------------------------------------------
+// Appearance — theme switcher.
+//
+// Renders 4 mini swatches the user can click to pick: Dark / Light /
+// System / Paper. The active swatch carries a subtle ring + accent label.
+// We persist + apply on click; no separate Save button — the change is
+// the action.
+// ---------------------------------------------------------------------------
+
+function AppearanceCard() {
+  // Lazy initializer: read once during the first render. readTheme()
+  // already guards against SSR (returns "system" when window is
+  // undefined), so we don't need a separate useEffect — that pattern
+  // would also trip the cascading-renders lint.
+  const [theme, setTheme] = useState<Theme>(() => readTheme())
+
+  const onPick = (t: Theme) => {
+    setTheme(t)
+    applyAndPersistTheme(t)
+  }
+
+  return (
+    <SettingsSection
+      icon={<Palette className="h-4 w-4 text-muted-foreground/80" />}
+      title="Appearance"
+      description="Pick the surface that fits how you read numbers. Paper is the warm scrapbook variant — calmer than light mode, easier on the eyes for long sessions."
+    >
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <ThemeSwatch
+          theme="dark"
+          label="Dark"
+          icon={<Moon className="h-3.5 w-3.5" />}
+          active={theme === "dark"}
+          onPick={onPick}
+          // Mini canvas tones — match the actual surfaces.
+          tones={{ bg: "#0a0a0b", surface: "#16161b", text: "#f5f5f5", accent: "#e8e0c8" }}
+        />
+        <ThemeSwatch
+          theme="light"
+          label="Light"
+          icon={<Sun className="h-3.5 w-3.5" />}
+          active={theme === "light"}
+          onPick={onPick}
+          tones={{ bg: "#ffffff", surface: "#f5f5f5", text: "#101014", accent: "#3f3f46" }}
+        />
+        <ThemeSwatch
+          theme="system"
+          label="System"
+          icon={<Monitor className="h-3.5 w-3.5" />}
+          active={theme === "system"}
+          onPick={onPick}
+          tones={{ bg: "linear-gradient(135deg,#0a0a0b 50%,#ffffff 50%)", surface: "#7a7a7a", text: "#ffffff", accent: "#e8e0c8" }}
+        />
+        <ThemeSwatch
+          theme="paper"
+          label="Paper"
+          icon={<BookOpen className="h-3.5 w-3.5" />}
+          active={theme === "paper"}
+          onPick={onPick}
+          tones={{ bg: "#f4ecdc", surface: "#ede1c8", text: "#3a2c1a", accent: "#a98041" }}
+        />
+      </div>
+    </SettingsSection>
+  )
+}
+
+function ThemeSwatch({
+  theme, label, icon, active, onPick, tones,
+}: {
+  theme: Theme
+  label: string
+  icon: React.ReactNode
+  active: boolean
+  onPick: (t: Theme) => void
+  tones: { bg: string; surface: string; text: string; accent: string }
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(theme)}
+      className={cn(
+        "group relative flex flex-col gap-2 rounded-lg p-2 text-left transition-all",
+        "border",
+        active
+          ? "border-[var(--rv-accent-border)] bg-white/[0.03]"
+          : "border-white/[0.06] hover:border-white/[0.14] hover:bg-white/[0.02]",
+      )}
+      aria-pressed={active}
+    >
+      {/* Mini canvas — preview of the actual surface tones */}
+      <div
+        className="relative h-16 rounded-md overflow-hidden"
+        style={{ background: tones.bg }}
+      >
+        {/* Fake card */}
+        <div
+          className="absolute left-2 top-2 right-2 bottom-2 rounded-sm flex items-end p-1.5 gap-1"
+          style={{ background: tones.surface }}
+        >
+          <span
+            className="h-1 w-6 rounded-sm"
+            style={{ background: tones.text, opacity: 0.7 }}
+          />
+          <span
+            className="h-1 w-3 rounded-sm"
+            style={{ background: tones.accent }}
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between px-0.5">
+        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-foreground">
+          {icon}
+          {label}
+        </span>
+        {active && (
+          <CheckCircle2 className="h-3.5 w-3.5 text-[var(--rv-accent)]" />
+        )}
+      </div>
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
 
 function ProfileCard() {
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
+  // Lazy initializers read once during the first render. The previous
+  // useEffect+setState pattern triggers React's cascading-renders lint.
+  const [name, setName] = useState(() =>
+    typeof window === "undefined" ? "" : localStorage.getItem("realverdict:profile:name") ?? ""
+  )
+  const [email, setEmail] = useState(() =>
+    typeof window === "undefined" ? "" : localStorage.getItem("realverdict:profile:email") ?? ""
+  )
   const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    setName(localStorage.getItem("realverdict:profile:name") ?? "")
-    setEmail(localStorage.getItem("realverdict:profile:email") ?? "")
-  }, [])
 
   const handleSave = () => {
     if (typeof window === "undefined") return
@@ -172,12 +297,11 @@ function SettingsSection({
 // ---------------------------------------------------------------------------
 
 function DefaultsCard() {
-  const [defaults, setDefaults] = useState<AssumptionDefaults>(defaultsFromInputs)
+  // Lazy initializer: readDefaults already SSR-guards so it returns
+  // factory defaults on the server, and the persisted values in the
+  // browser. Avoids the cascading-renders effect pattern.
+  const [defaults, setDefaults] = useState<AssumptionDefaults>(() => readDefaults())
   const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    setDefaults(readDefaults())
-  }, [])
 
   const update = (k: keyof AssumptionDefaults, v: string) => {
     const num = parseFloat(v)

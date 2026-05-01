@@ -31,7 +31,7 @@
 // ---------------------------------------------------------------------------
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Search, X, Check, Trash2, ExternalLink, Plus } from "lucide-react"
+import { Search, X, Check, Trash2, ExternalLink, Plus, ArrowDown } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import {
@@ -79,6 +79,57 @@ function detectSourceFromUrl(url: string | null | undefined): SourceTag {
   if (!url) return null
   const m = url.match(/^https?:\/\/(?:www\.)?(zillow|redfin|realtor|homes|trulia|movoto|loopnet|compass)\.com\//i)
   return (m?.[1]?.toLowerCase() as SourceTag) ?? null
+}
+
+/** One-letter abbreviation for the source — used by the row chip. Keeping
+ *  it text-only (not brand-colored) preserves the calm Mercury aesthetic
+ *  while still letting the eye scan "where did this lead come from".
+ */
+function sourceInitial(tag: SourceTag): string | null {
+  switch (tag) {
+    case "zillow":         return "Z"
+    case "redfin":         return "R"
+    case "realtor":        return "Rl"
+    case "homes":          return "H"
+    case "trulia":         return "T"
+    case "movoto":         return "M"
+    case "loopnet":        return "L"
+    case "compass":        return "C"
+    case "coldwellbanker": return "CB"
+    case "kw":             return "KW"
+    case "remax":          return "RX"
+    case "century21":      return "21"
+    case "other":          return "·"
+    case null:             return null
+  }
+}
+
+/** Was the listing reduced from its original ask? Returns the dollar
+ *  delta (positive number) when yes, null when there's no signal.
+ *  Combines two evidence sources captured by the extractor:
+ *    1. listing_details.originalListPrice vs current purchasePrice
+ *    2. listing_details.priceHistoryNote (e.g. "Price cut: $20K") — used
+ *       only as a fallback when the original price isn't present.
+ */
+function priceReductionDelta(deal: SavedDeal): { delta: number; note: string | null } | null {
+  const ld = deal.listing_details
+  const askPrice = deal.inputs.purchasePrice
+  if (ld?.originalListPrice && askPrice && ld.originalListPrice > askPrice) {
+    return { delta: ld.originalListPrice - askPrice, note: ld.priceHistoryNote ?? null }
+  }
+  if (ld?.priceHistoryNote && /reduc|cut|drop|lowered/i.test(ld.priceHistoryNote)) {
+    // Try to parse a dollar amount from the note (e.g. "Price cut: $20K")
+    const m = ld.priceHistoryNote.match(/\$?([\d,]+)\s*(k|K)?/)
+    if (m) {
+      const raw = parseInt(m[1].replace(/,/g, ""), 10)
+      if (Number.isFinite(raw)) {
+        const delta = m[2] ? raw * 1000 : raw
+        return { delta, note: ld.priceHistoryNote }
+      }
+    }
+    return { delta: 0, note: ld.priceHistoryNote }
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -310,8 +361,9 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
           </div>
         </div>
 
-        {/* Header row */}
-        <div className="px-4 pb-2 grid grid-cols-[20px_1fr_72px_56px] items-center text-[10px] uppercase tracking-[0.08em] text-muted-foreground/50">
+        {/* Header row — must mirror the row grid so columns line up. */}
+        <div className="px-4 pb-2 grid grid-cols-[20px_22px_1fr_72px_56px] gap-x-2 items-center text-[10px] uppercase tracking-[0.08em] text-muted-foreground/50">
+          <span aria-hidden="true" />
           <span aria-hidden="true" />
           <SortHeader label="Address"   active={sortKey === "address"}  dir={sortDir} onClick={() => sortToggle("address")} />
           <SortHeader label="Cash / mo" active={sortKey === "cashflow"} dir={sortDir} onClick={() => sortToggle("cashflow")} align="end" />
@@ -329,12 +381,17 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
               {rows.map(({ deal, analysis, source }) => {
                 const isSelected = deal.id === effectiveSelectedId
                 const isCompared = compareIds.has(deal.id)
+                const initial = sourceInitial(source)
                 const sourceText = sourceLabel(source) || ""
+                const reduction = priceReductionDelta(deal)
                 return (
                   <li
                     key={deal.id}
                     className={cn(
-                      "rv-row group grid grid-cols-[20px_1fr_72px_56px] items-center px-4 h-12 cursor-pointer min-w-0 select-none",
+                      // Tightened to a 5-column grid: checkbox · source-chip · address · cash · dscr
+                      // Source-chip column is a fixed 22px so it never causes
+                      // address truncation drift between rows.
+                      "rv-row group grid grid-cols-[20px_22px_1fr_72px_56px] gap-x-2 items-center px-4 h-12 cursor-pointer min-w-0 select-none",
                       isSelected && "rv-row--selected",
                     )}
                     onClick={() => setSelectedId(deal.id)}
@@ -357,13 +414,41 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
                       {isCompared && <Check className="h-3 w-3 text-black" strokeWidth={3} />}
                     </button>
 
-                    {/* Address + source */}
-                    <div className="min-w-0">
-                      <p className="text-[12.5px] rv-t1 truncate" style={{ letterSpacing: "-0.005em" }}>
+                    {/* Source chip — single neutral pill so the eye can scan
+                        "which site is this from" without the row going
+                        full carnival with brand colors. */}
+                    {initial ? (
+                      <span
+                        className="inline-flex items-center justify-center h-[18px] min-w-[20px] px-1 rounded-[4px] bg-white/[0.06] text-[10px] font-mono rv-t2 leading-none"
+                        title={sourceText}
+                      >
+                        {initial}
+                      </span>
+                    ) : <span />}
+
+                    {/* Address — single line + a tiny price-reduction
+                        chevron that surfaces "this listing has come down
+                        in price". Hover for the exact note. */}
+                    <div className="min-w-0 flex items-center gap-1.5">
+                      <p
+                        className="text-[12.5px] rv-t1 truncate"
+                        style={{ letterSpacing: "-0.005em" }}
+                      >
                         {deal.address ?? "Unknown address"}
                       </p>
-                      {sourceText && (
-                        <p className="text-[10px] rv-t3 font-mono uppercase tracking-[0.06em]">{sourceText}</p>
+                      {reduction && (
+                        <span
+                          className="inline-flex items-center gap-0.5 shrink-0 text-[10px] font-mono leading-none px-1 py-0.5 rounded text-[var(--rv-live)] bg-[oklch(0.78_0.14_78_/_0.10)]"
+                          title={
+                            reduction.note ??
+                            `Reduced ${formatCurrency(reduction.delta, 0)} from original ask`
+                          }
+                        >
+                          <ArrowDown className="h-2.5 w-2.5" strokeWidth={2.5} />
+                          {reduction.delta > 0
+                            ? formatCurrency(Math.round(reduction.delta), 0).replace("$", "$")
+                            : ""}
+                        </span>
                       )}
                     </div>
 
@@ -389,11 +474,15 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
           )}
         </div>
 
-        {/* Floating compare bar */}
+        {/* Floating compare bar — appears as soon as one row is checked.
+            Single readable sentence: "{n} of 4 selected" reads naturally
+            instead of the previous "{n} selected — up to 4 to compare"
+            which parsed as two disconnected fragments. */}
         {compareIds.size > 0 && (
-          <div className="absolute bottom-5 left-5 right-5 max-w-[400px] rv-surface-2 border border-white/10 rounded-lg shadow-2xl px-4 py-3 flex items-center gap-3 z-30">
-            <span className="text-[12px] rv-t1 font-medium">{compareIds.size} selected</span>
-            <span className="text-[11px] rv-t3">— up to 4 to compare</span>
+          <div className="absolute bottom-5 left-5 right-5 max-w-[420px] rv-surface-2 border border-white/10 rounded-lg shadow-2xl px-4 py-3 flex items-center gap-3 z-30">
+            <span className="text-[12px] rv-t1 font-medium tabular-nums">
+              {compareIds.size} of 4 selected
+            </span>
             <div className="flex-1" />
             <button
               type="button"
@@ -456,6 +545,13 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
               isPro={isPro}
               supabaseConfigured={supabaseConfigured}
               panelWidth={520}
+              // AI context captured at extraction time and persisted in
+              // 008_deal_ai_context.sql. Without these props the saved-deal
+              // dossier loses the model's verbal take, the risk-flag chips,
+              // and the rich listing-detail surface (DOM, MLS, scores, lot).
+              take={selected.deal.ai_take ?? undefined}
+              riskFlags={selected.deal.risk_flags ?? undefined}
+              listingDetails={selected.deal.listing_details ?? undefined}
             />
           </>
         ) : (
@@ -534,21 +630,37 @@ function CompareOverlay({
     )
   }
 
-  const dscrVals = cards.map((c) => isFinite(c.analysis.dscr) ? c.analysis.dscr : 999)
+  // Per-metric "leaders". Tie-aware: when two cards share the best value
+  // we mark BOTH as leaders (no spurious winner). Worst is intentionally
+  // unmarked — dimming a column made one whole property unreadable in
+  // 2-way compares. Use deltas instead to communicate "how much worse".
+  const dscrVals = cards.map((c) => isFinite(c.analysis.dscr) ? c.analysis.dscr : Number.POSITIVE_INFINITY)
   const cfVals   = cards.map((c) => c.analysis.monthlyCashFlow)
   const capVals  = cards.map((c) => c.analysis.capRate)
   const cocVals  = cards.map((c) => c.analysis.cashOnCashReturn)
-  const beVals   = cards.map((c) => c.walkAway?.recommendedCeiling?.price ?? 0)
-  const bestDscr = Math.max(...dscrVals)
-  const worstDscr = Math.min(...dscrVals)
-  const bestCf = Math.max(...cfVals)
-  const worstCf = Math.min(...cfVals)
-  const bestCap = Math.max(...capVals)
-  const worstCap = Math.min(...capVals)
-  const bestCoc = Math.max(...cocVals)
-  const worstCoc = Math.min(...cocVals)
-  const bestBe = Math.max(...beVals)
-  const worstBe = Math.min(...beVals)
+  const beVals   = cards.map((c) => c.walkAway?.recommendedCeiling?.price ?? Number.NEGATIVE_INFINITY)
+
+  const leaderMask = (vals: number[], higherIsBetter: boolean) => {
+    const best = higherIsBetter ? Math.max(...vals) : Math.min(...vals)
+    // If everyone is tied, nobody "wins" — treat the metric as flat.
+    const allTied = vals.every((v) => v === vals[0])
+    return vals.map((v) => !allTied && v === best)
+  }
+
+  const dscrLead = leaderMask(dscrVals, true)
+  const cfLead   = leaderMask(cfVals,   true)
+  const capLead  = leaderMask(capVals,  true)
+  const cocLead  = leaderMask(cocVals,  true)
+  const beLead   = leaderMask(beVals,   true)  // higher break-even ceiling = more headroom
+
+  // Delta vs leader, in the metric's own units. Used for the small
+  // "−$13/mo vs leader" line under each non-leading number — actionable
+  // signal at a glance instead of dimming the column out of relevance.
+  const deltaVs = (vals: number[], i: number, higherIsBetter: boolean): number | null => {
+    const best = higherIsBetter ? Math.max(...vals) : Math.min(...vals)
+    if (vals[i] === best) return null
+    return vals[i] - best  // negative when worse
+  }
 
   return (
     <div className="fixed inset-0 z-40 bg-background/95 backdrop-blur-sm flex flex-col">
@@ -569,7 +681,7 @@ function CompareOverlay({
       </header>
       <div
         className={cn(
-          "flex-1 overflow-auto grid gap-4 p-5",
+          "flex-1 overflow-auto grid gap-4 p-5 auto-rows-min",
           cards.length === 2 ? "grid-cols-2"
             : cards.length === 3 ? "grid-cols-3"
             : "grid-cols-4",
@@ -580,12 +692,19 @@ function CompareOverlay({
             key={c.deal.id}
             card={c}
             onOpenSource={onOpenSource}
-            highlights={{
-              dscr: dscrVals[i] === bestDscr ? "best" : dscrVals[i] === worstDscr ? "worst" : undefined,
-              cf:   cfVals[i]   === bestCf   ? "best" : cfVals[i]   === worstCf   ? "worst" : undefined,
-              cap:  capVals[i]  === bestCap  ? "best" : capVals[i]  === worstCap  ? "worst" : undefined,
-              coc:  cocVals[i]  === bestCoc  ? "best" : cocVals[i]  === worstCoc  ? "worst" : undefined,
-              be:   beVals[i]   === bestBe   ? "best" : beVals[i]   === worstBe   ? "worst" : undefined,
+            leaders={{
+              dscr: dscrLead[i],
+              cf:   cfLead[i],
+              cap:  capLead[i],
+              coc:  cocLead[i],
+              be:   beLead[i],
+            }}
+            deltas={{
+              dscr: deltaVs(dscrVals, i, true),
+              cf:   deltaVs(cfVals,   i, true),
+              cap:  deltaVs(capVals,  i, true),
+              coc:  deltaVs(cocVals,  i, true),
+              be:   deltaVs(beVals,   i, true),
             }}
           />
         ))}
@@ -595,16 +714,11 @@ function CompareOverlay({
 }
 
 function CompareColumn({
-  card, highlights, onOpenSource,
+  card, leaders, deltas, onOpenSource,
 }: {
   card: ComputedDeal
-  highlights: {
-    dscr?: "best" | "worst"
-    cf?: "best" | "worst"
-    cap?: "best" | "worst"
-    coc?: "best" | "worst"
-    be?: "best" | "worst"
-  }
+  leaders: { dscr: boolean; cf: boolean; cap: boolean; coc: boolean; be: boolean }
+  deltas:  { dscr: number | null; cf: number | null; cap: number | null; coc: number | null; be: number | null }
   onOpenSource: (url: string) => void
 }) {
   const { deal, analysis, walkAway } = card
@@ -644,39 +758,83 @@ function CompareColumn({
       </div>
 
       <div className="grid grid-cols-1 gap-3 pt-3 border-t border-white/[0.06]">
-        <CompareMetric label="DSCR"          value={Number.isFinite(dscr) ? dscr.toFixed(2) : "\u221E"} highlight={highlights.dscr} />
-        <CompareMetric label="Cash / mo"     value={(cf >= 0 ? "+" : "−") + formatCurrency(Math.abs(cf), 0)} highlight={highlights.cf} tone={cf < 0 ? "bad" : undefined} />
-        <CompareMetric label="Cap rate"      value={formatPercent(cap, 2)} highlight={highlights.cap} />
-        <CompareMetric label="Cash-on-cash"  value={formatPercent(coc, 2)} highlight={highlights.coc} />
-        <CompareMetric label="Break-even"    value={breakEven != null ? formatCurrency(breakEven, 0) : "—"} highlight={highlights.be} />
+        <CompareMetric
+          label="DSCR"
+          value={Number.isFinite(dscr) ? dscr.toFixed(2) : "\u221E"}
+          leader={leaders.dscr}
+          delta={deltas.dscr != null ? deltas.dscr.toFixed(2) : null}
+        />
+        <CompareMetric
+          label="Cash / mo"
+          value={(cf >= 0 ? "+" : "−") + formatCurrency(Math.abs(cf), 0)}
+          leader={leaders.cf}
+          delta={deltas.cf != null ? (deltas.cf >= 0 ? "+" : "−") + formatCurrency(Math.abs(deltas.cf), 0) : null}
+          tone={cf < 0 ? "bad" : undefined}
+        />
+        <CompareMetric
+          label="Cap rate"
+          value={formatPercent(cap, 2)}
+          leader={leaders.cap}
+          delta={deltas.cap != null ? formatDeltaPercent(deltas.cap) : null}
+        />
+        <CompareMetric
+          label="Cash-on-cash"
+          value={formatPercent(coc, 2)}
+          leader={leaders.coc}
+          delta={deltas.coc != null ? formatDeltaPercent(deltas.coc) : null}
+        />
+        <CompareMetric
+          label="Break-even"
+          value={breakEven != null ? formatCurrency(breakEven, 0) : "—"}
+          leader={leaders.be}
+          delta={deltas.be != null ? (deltas.be >= 0 ? "+" : "−") + formatCurrency(Math.abs(deltas.be), 0) : null}
+        />
       </div>
     </div>
   )
 }
 
+function formatDeltaPercent(d: number): string {
+  const sign = d >= 0 ? "+" : "−"
+  return `${sign}${Math.abs(d).toFixed(2)}%`
+}
+
 function CompareMetric({
-  label, value, highlight, tone,
+  label, value, leader, delta, tone,
 }: {
   label: string
   value: string
-  highlight?: "best" | "worst"
+  leader: boolean
+  delta: string | null
   tone?: "bad"
 }) {
   return (
     <div className="grid grid-cols-[1fr_auto] items-baseline gap-3">
       <p className="text-[10px] uppercase tracking-[0.08em] rv-t3">{label}</p>
-      <p
-        className={cn(
-          "font-mono rv-num text-right",
-          highlight === "best"  && "rv-t1 font-semibold",
-          highlight === "worst" && "rv-t4",
-          !highlight && "rv-t2",
-          tone === "bad" && "rv-tone-bad",
+      <div className="flex flex-col items-end gap-0.5">
+        <p
+          className={cn(
+            // Equal-weight typography for everyone — never dim a column
+            // into illegibility just because it lost a metric.
+            "font-mono rv-num text-right rv-t1",
+            leader && "font-semibold",
+            tone === "bad" && "rv-tone-bad",
+          )}
+          style={{ fontSize: "15px", letterSpacing: "-0.005em" }}
+        >
+          {value}
+        </p>
+        {leader && (
+          <p className="text-[9px] uppercase tracking-[0.1em] text-emerald-400/80 leading-none">
+            best
+          </p>
         )}
-        style={{ fontSize: "15px", letterSpacing: "-0.005em" }}
-      >
-        {value}
-      </p>
+        {!leader && delta && (
+          <p className="text-[10px] rv-t3 font-mono leading-none tabular-nums">
+            {delta} <span className="rv-t4">vs best</span>
+          </p>
+        )}
+      </div>
     </div>
   )
 }

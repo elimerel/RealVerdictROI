@@ -47,8 +47,19 @@ const DEV = process.argv.includes("--dev")
 
 // In dev mode, point at the local Next.js server so changes are reflected live.
 // In production (packaged app), always talk to the live Vercel deployment.
+//
+// Use "localhost" (not 127.0.0.1) so that:
+//   1. Supabase OAuth callbacks registered for http://localhost:3000/auth/callback
+//      actually match this window's origin — Supabase rejects redirects whose
+//      hostname isn't on its allowlist, and the dashboard convention is
+//      `localhost`.
+//   2. The cookie jar matches: cookies set by the Supabase JS client on
+//      `localhost` (origin of NEXT_PUBLIC_APP_URL) are visible to subsequent
+//      requests from this window. Loading from `127.0.0.1` puts cookies in a
+//      separate jar — that's the silent root cause of the "sign in loops back
+//      to login" bug.
 const BASE_URL = DEV
-  ? "http://127.0.0.1:3000"
+  ? "http://localhost:3000"
   : "https://real-verdict-roi.vercel.app"
 
 // URL hint for "should we auto-run extraction on this page?". A loose hint
@@ -227,6 +238,19 @@ function createAppWindow() {
     },
   })
 
+  // Stamp a recognizable token onto the user-agent string. The login page
+  // checks for it server-side and unconditionally renders the compact form
+  // — so even if the user is bounced from a server-side `redirect("/login")`
+  // (which strips ?source=electron), the small window never shows the
+  // website-styled login card crammed into 420×560.
+  //
+  // The token also lets the OAuth callback know it's serving an Electron
+  // request, but we're not using that yet.
+  try {
+    const baseUA = appWindow.webContents.getUserAgent()
+    appWindow.webContents.setUserAgent(`${baseUA} RealVerdictDesktop/1.0`)
+  } catch { /* best-effort */ }
+
   // Cmd+Option+I (macOS) / Ctrl+Alt+I (Win/Linux) opens DevTools in any build.
   // Useful for diagnosing preload / IPC issues without a dev flag.
   appWindow.webContents.on("before-input-event", (_e, input) => {
@@ -283,7 +307,7 @@ function createAppWindow() {
     try {
       const u = new URL(url)
       const isOurHost = DEV
-        ? (u.hostname === "127.0.0.1")
+        ? (u.hostname === "localhost" || u.hostname === "127.0.0.1")
         : (u.hostname === "real-verdict-roi.vercel.app")
       const isAppPage = !u.pathname.startsWith("/login") &&
                         !u.pathname.startsWith("/auth")
@@ -765,20 +789,58 @@ const SEARCH_RESULTS_PATTERNS = [
 ]
 const SIGNAL_THRESHOLD = 6
 
-function scanSignals(text) {
+// URL paths that ARE a single listing (not a search results page) on the
+// major sites. When the URL matches one of these, we trust it over the
+// page-content heuristics — Zillow / Redfin / Realtor all sprinkle 8+
+// related-property prices on a real listing page (carousels, "similar
+// homes", price-history table) which would otherwise trip the
+// "looks like search results" guard and starve the LLM call.
+const STRONG_LISTING_URL_PATTERNS = [
+  /\/homedetails\//i,                   // zillow.com/homedetails/<addr>/<zpid>
+  /\/home\/[a-z0-9-]+/i,                // redfin.com/<state>/<city>/home/<id>
+  /\/realestateandhomes-detail\//i,     // realtor.com
+  /\/property\/[a-z0-9-]+/i,            // homes.com / generic
+  /\/property-detail\//i,
+  /\/listing\/[a-z0-9-]+/i,
+]
+
+function isStrongListingUrl(url) {
+  try {
+    const u = new URL(url)
+    return STRONG_LISTING_URL_PATTERNS.some((re) => re.test(u.pathname))
+  } catch { return false }
+}
+
+function scanSignals(text, url) {
   const t = text || ""
   let score = 0
   for (const sig of SIGNAL_PATTERNS) {
     if (sig.re.test(t)) score += sig.w
   }
+  const strongUrl = isStrongListingUrl(url || "")
   const priceCount = (t.match(/\$\s*\d{2,3}(?:,\d{3}){1,3}/g) || []).length
-  let looksLikeSearchResults = priceCount > 8
+
+  // Only treat the page as "search results" when an EXPLICIT search-results
+  // phrase shows up. Pure price-count is too noisy: a real Zillow listing
+  // will have 12+ price snippets from "similar homes" + price history.
+  let looksLikeSearchResults = false
   for (const re of SEARCH_RESULTS_PATTERNS) {
     if (re.test(t)) { looksLikeSearchResults = true; break }
   }
+  // For unknown URLs (custom MLS / broker pages) where we can't trust the
+  // path, fall back to the price-count heuristic — but only at a higher
+  // ceiling so it stays a real signal of "many listings on one page".
+  if (!strongUrl && priceCount > 14) looksLikeSearchResults = true
+
+  // Strong listing URLs lower the listing-signal bar — the URL itself is
+  // worth ~3 points of evidence.
+  const effectiveThreshold = strongUrl ? 3 : SIGNAL_THRESHOLD
+
   return {
     score,
-    looksLikeListing: score >= SIGNAL_THRESHOLD,
+    strongUrl,
+    priceCount,
+    looksLikeListing: score >= effectiveThreshold,
     looksLikeSearchResults,
   }
 }
@@ -838,12 +900,14 @@ ipcMain.handle("browser:analyze", async () => {
 
   // Stage 2: page signal scan. Skip the LLM when the page doesn't
   // actually look like a single listing.
-  const sig = scanSignals(dom.text)
+  const sig = scanSignals(dom.text, dom.url)
   lastExtractDebug = {
     stage: "signal-scan",
     url: dom.url,
     pageTextLength: dom.text.length,
     signalScore: sig.score,
+    strongUrl: sig.strongUrl,
+    priceCount: sig.priceCount,
     looksLikeListing: sig.looksLikeListing,
     looksLikeSearchResults: sig.looksLikeSearchResults,
   }
@@ -1110,14 +1174,16 @@ ipcMain.handle("auth:open-oauth", (_e, oauthUrl) => {
       resolve({ ok: true })
     }
 
-    const appHost = DEV ? "127.0.0.1" : "real-verdict-roi.vercel.app"
+    const appHosts = DEV
+      ? new Set(["localhost", "127.0.0.1"])
+      : new Set(["real-verdict-roi.vercel.app"])
 
     const checkUrl = (url) => {
       try {
         const u = new URL(url)
         // Any URL on our app host means OAuth is done (or the callback has
         // been hit).  Hand it to the main window.
-        if (u.hostname === appHost) {
+        if (appHosts.has(u.hostname)) {
           finish(url)
         }
       } catch { /* ignore */ }

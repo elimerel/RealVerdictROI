@@ -67,7 +67,29 @@ const SEARCH_RESULTS_PATTERNS: RegExp[] = [
 
 const SIGNAL_THRESHOLD = 6
 
-export function scanSignals(text: string): SignalReport {
+/** URL paths that ARE a single-listing page on the major sites.
+ *  When the URL matches one of these we trust the URL over the page-text
+ *  heuristics — Zillow / Redfin / Realtor sprinkle 8+ related-property
+ *  prices on every real listing page (carousels, similar homes, price
+ *  history) which would otherwise trip the search-results guard.
+ */
+const STRONG_LISTING_URL_PATTERNS: RegExp[] = [
+  /\/homedetails\//i,
+  /\/home\/[a-z0-9-]+/i,
+  /\/realestateandhomes-detail\//i,
+  /\/property\/[a-z0-9-]+/i,
+  /\/property-detail\//i,
+  /\/listing\/[a-z0-9-]+/i,
+]
+
+export function isStrongListingUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return STRONG_LISTING_URL_PATTERNS.some((re) => re.test(u.pathname))
+  } catch { return false }
+}
+
+export function scanSignals(text: string, url?: string): SignalReport {
   const t = text || ""
   const hits: string[] = []
   let score = 0
@@ -79,21 +101,28 @@ export function scanSignals(text: string): SignalReport {
     }
   }
 
-  // Heuristic: a single listing has roughly ONE prominent price block.
-  // A search results page has many. Count $-shaped numbers — if > 8,
-  // that's almost certainly a search results page.
+  const strongUrl = url ? isStrongListingUrl(url) : false
   const priceMatches = (t.match(/\$\s*\d{2,3}(?:,\d{3}){1,3}/g) || []).length
-  const manyListings = priceMatches > 8
 
-  let looksLikeSearchResults = manyListings
+  // Only treat as search-results when an EXPLICIT search-results phrase
+  // appears in the text. Pure price-count is too noisy on real listings
+  // (carousels of similar homes routinely produce 8-12 price blocks).
+  let looksLikeSearchResults = false
   for (const re of SEARCH_RESULTS_PATTERNS) {
     if (re.test(t)) { looksLikeSearchResults = true; break }
   }
+  // For unknown hosts, fall back to a much higher price-count ceiling so
+  // it's a real "many listings on one page" signal, not chrome noise.
+  if (!strongUrl && priceMatches > 14) looksLikeSearchResults = true
+
+  // A strong listing URL effectively contributes ~3 points of evidence —
+  // lower the listing-signal bar accordingly.
+  const effectiveThreshold = strongUrl ? 3 : SIGNAL_THRESHOLD
 
   return {
     score,
     hits,
-    looksLikeListing: score >= SIGNAL_THRESHOLD,
+    looksLikeListing: score >= effectiveThreshold,
     looksLikeSearchResults,
   }
 }

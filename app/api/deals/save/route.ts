@@ -18,13 +18,68 @@ type PropertyFacts = {
   propertyType?: string | null;
 };
 
+type ListingDetails = {
+  daysOnMarket?: number | null;
+  originalListPrice?: number | null;
+  priceHistoryNote?: string | null;
+  listingDate?: string | null;
+  listingRemarks?: string | null;
+  mlsNumber?: string | null;
+  schoolRating?: number | null;
+  walkScore?: number | null;
+  lotSqft?: number | null;
+};
+
 type SaveBody = {
   inputs: DealInputs;
   address?: string;
   propertyFacts?: PropertyFacts;
   sourceUrl?: string;
   sourceSite?: string;
+  /** AI-written one-sentence take from the extractor. */
+  take?: string | null;
+  /** Risk-flag strings lifted verbatim from the listing. */
+  riskFlags?: string[] | null;
+  /** Rich listing-detail surface (DOM, price history, MLS, scores, lot). */
+  listingDetails?: ListingDetails | null;
 };
+
+/** Light defensive normalization. We don't want stray clients to write
+ *  arbitrarily large or wrong-shape blobs into the JSONB columns. */
+function sanitizeRiskFlags(input: unknown): string[] | null {
+  if (!Array.isArray(input)) return null;
+  const cleaned = input
+    .filter((v): v is string => typeof v === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.length <= 200)
+    .slice(0, 12); // hard cap: a real listing won't credibly have more
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function sanitizeListingDetails(input: ListingDetails | null | undefined): ListingDetails | null {
+  if (!input || typeof input !== "object") return null;
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const str = (v: unknown, max = 600): string | null => {
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    if (!t) return null;
+    return t.slice(0, max);
+  };
+  const out: ListingDetails = {
+    daysOnMarket:      num(input.daysOnMarket),
+    originalListPrice: num(input.originalListPrice),
+    priceHistoryNote:  str(input.priceHistoryNote, 240),
+    listingDate:       str(input.listingDate, 40),
+    listingRemarks:    str(input.listingRemarks, 2000),
+    mlsNumber:         str(input.mlsNumber, 60),
+    schoolRating:      num(input.schoolRating),
+    walkScore:         num(input.walkScore),
+    lotSqft:           num(input.lotSqft),
+  };
+  // Drop the wrapper if every field is null — keeps the row compact.
+  return Object.values(out).some((v) => v != null) ? out : null;
+}
 
 export const POST = withErrorReporting("api.deals-save", async (req: Request) => {
   if (!supabaseEnv().configured) {
@@ -93,6 +148,11 @@ export const POST = withErrorReporting("api.deals-save", async (req: Request) =>
   }
 
   const propertyFacts = body.propertyFacts ?? null;
+  const aiTake = typeof body.take === "string"
+    ? body.take.trim().slice(0, 600) || null
+    : null;
+  const riskFlags = sanitizeRiskFlags(body.riskFlags);
+  const listingDetails = sanitizeListingDetails(body.listingDetails);
 
   const { data, error } = await supabase
     .from("deals")
@@ -105,6 +165,12 @@ export const POST = withErrorReporting("api.deals-save", async (req: Request) =>
       results: analysis,
       verdict: analysis.verdict.tier,
       property_facts: propertyFacts,
+      // Persisted in 008_deal_ai_context.sql. If the migration hasn't been
+      // run, Supabase will reject the column — we deliberately fail loud
+      // there so misconfigured deployments don't silently lose AI context.
+      ai_take: aiTake,
+      risk_flags: riskFlags,
+      listing_details: listingDetails,
     })
     .select("id, created_at")
     .single();

@@ -198,6 +198,85 @@ input[type="number"] {
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Paper theme — warm cream surfaces, brown ink text. Reads as a quiet
+   notebook / index-card aesthetic, not a flashlight-on-paper light theme.
+   Surfaces use a *very* subtle layered tone (no harsh whites) and a
+   barely-visible diagonal grain via repeating-linear-gradient. The
+   palette is tuned so the existing red/amber/green signal colors and the
+   warm cream accent still read correctly without re-tokenizing every
+   component.
+   ──────────────────────────────────────────────────────────────────────────── */
+.paper {
+  /* Three-tier paper surfaces — each ~3% darker than the previous so
+     visual layering reads even on a dim screen. */
+  --rv-surface-bg: oklch(0.96 0.018 80);   /* page background — warm cream */
+  --rv-surface-1: oklch(0.94 0.020 80);    /* card */
+  --rv-surface-2: oklch(0.92 0.022 80);    /* card lifted */
+
+  /* Brown-black ink text instead of pure black — sits naturally on cream
+     and avoids the "stark printout" look. */
+  --rv-t1: oklch(0.20 0.030 60);
+  --rv-t2: oklch(0.40 0.030 60);
+  --rv-t3: oklch(0.55 0.025 60);
+  --rv-t4: oklch(0.70 0.020 60);
+
+  /* shadcn token bridge */
+  --background: var(--rv-surface-bg);
+  --foreground: var(--rv-t1);
+  --card: var(--rv-surface-1);
+  --card-foreground: var(--rv-t1);
+  --popover: var(--rv-surface-1);
+  --popover-foreground: var(--rv-t1);
+  --primary: oklch(0.30 0.030 60);
+  --primary-foreground: var(--rv-surface-bg);
+  --secondary: var(--rv-surface-2);
+  --secondary-foreground: var(--rv-t1);
+  --muted: var(--rv-surface-2);
+  --muted-foreground: var(--rv-t2);
+  --accent: var(--rv-surface-2);
+  --accent-foreground: var(--rv-t1);
+  --destructive: oklch(0.55 0.155 22);
+  --border: oklch(0 0 0 / 8%);
+  --input: oklch(0 0 0 / 6%);
+  --ring: oklch(0.55 0.10 60 / 35%);
+
+  --chart-1: #4fb28f;
+  --chart-2: #d9a341;
+  --chart-3: #d85b5b;
+  --chart-4: oklch(0.55 0.10 60);
+  --chart-5: oklch(0.40 0.030 60);
+
+  --sidebar: oklch(0.93 0.022 80);
+  --sidebar-foreground: var(--rv-t1);
+  --sidebar-primary: oklch(0.30 0.030 60);
+  --sidebar-primary-foreground: var(--rv-surface-bg);
+  --sidebar-accent: var(--rv-surface-2);
+  --sidebar-accent-foreground: var(--rv-t1);
+  --sidebar-border: oklch(0 0 0 / 7%);
+  --sidebar-ring: oklch(0.55 0.10 60 / 35%);
+
+  /* Selection accent stays warm — it's already on-brand for the cream
+     theme. Dimmed slightly so it reads against the lighter surface. */
+  --rv-accent: oklch(0.55 0.10 60);
+  --rv-accent-subtle: oklch(0.55 0.10 60 / 14%);
+  --rv-accent-border: oklch(0.55 0.10 60 / 30%);
+  --rv-live: oklch(0.62 0.16 60);
+}
+
+/* Faint paper grain — repeating fibers at ~1° catch the light without
+   becoming a noise pattern. Sits behind everything via the body. */
+.paper body {
+  background-image:
+    repeating-linear-gradient(
+      1deg,
+      transparent 0,
+      transparent 3px,
+      oklch(0 0 0 / 0.014) 3px,
+      oklch(0 0 0 / 0.014) 4px
+    );
+}
+
 .dark {
   --rv-surface-bg: #0a0a0b;
   --rv-surface-1: #101014;
@@ -545,10 +624,21 @@ html.electron body {
   box-shadow: inset 0 -1px 0 0 rgba(255, 255, 255, 0.04);
   transition: background 100ms ease, box-shadow 100ms ease;
 }
-.rv-row--selected {
-  background: var(--rv-surface-2);
-  box-shadow: inset 2px 0 0 0 var(--rv-accent),
-              inset 0 -1px 0 0 rgba(255, 255, 255, 0.04);
+.rv-row:hover {
+  /* Subtle, noticeable hover that doesn't compete with the selected
+     state — about 1/3 the visual weight of the selection tint so the
+     two are immediately distinguishable. */
+  background: rgba(255, 255, 255, 0.025);
+}
+.rv-row--selected,
+.rv-row--selected:hover {
+  /* Selection: warmer surface tint + a 3px accent stripe on the leading
+     edge. The previous treatment used --rv-surface-2 which differs from
+     surface-1 by only ~6/255 — invisible on most monitors. Bumped to a
+     dedicated translucent fill so the row actually reads as "this one." */
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 3px 0 0 0 var(--rv-accent),
+              inset 0 -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
 /* Hairline divider used between dossier modules. */

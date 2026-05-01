@@ -17,6 +17,24 @@ export type AiNarrative = {
   generatedAt: string;  // ISO timestamp
 };
 
+/** Rich detail surface lifted by the extractor. Every key is optional —
+ *  the extractor doesn't always produce every field, and we never want
+ *  the row read to fail because one number was missing. */
+export type ListingDetails = {
+  daysOnMarket?: number | null;
+  originalListPrice?: number | null;
+  /** Plain-English note: "Reduced 4/12: $545k → $530k". */
+  priceHistoryNote?: string | null;
+  listingDate?: string | null;
+  listingRemarks?: string | null;
+  mlsNumber?: string | null;
+  /** 0-10. */
+  schoolRating?: number | null;
+  /** 0-100. */
+  walkScore?: number | null;
+  lotSqft?: number | null;
+};
+
 export type DealRow = {
   id: string;
   created_at: string;
@@ -34,6 +52,12 @@ export type DealRow = {
     propertyType?: string | null;
   } | null;
   ai_narrative?: AiNarrative | null;
+  /** Model-written one-sentence take captured at extraction time. */
+  ai_take?: string | null;
+  /** Risk phrases lifted verbatim from the listing copy. */
+  risk_flags?: string[] | null;
+  /** Days-on-market, price history, MLS, school + walk scores, lot size. */
+  listing_details?: ListingDetails | null;
 };
 
 // ---------------------------------------------------------------------------

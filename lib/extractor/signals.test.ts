@@ -61,9 +61,28 @@ describe("Stage 2 signal scan", () => {
     expect(r.looksLikeSearchResults).toBe(true)
   })
 
-  it("flags a page with > 8 distinct prices as search results", () => {
-    const prices = Array.from({ length: 12 }, (_, i) => `$${300 + i * 50},000`).join(" · ")
+  it("flags a page with > 14 distinct prices and no listing URL as search results", () => {
+    // Stay under $1M so the thousands separator regex matches every price.
+    const prices = Array.from({ length: 16 }, (_, i) => `$${300 + i * 25},000`).join(" · ")
     const r = scanSignals(`Real estate listings: ${prices}`)
     expect(r.looksLikeSearchResults).toBe(true)
+  })
+
+  it("does NOT flag a real Zillow listing as search results just because the page has many price snippets (carousels, similar homes, price history)", () => {
+    // Real listings on Zillow / Redfin / Realtor routinely have 8-12 price
+    // strings from "similar homes" + price history tables. The URL is the
+    // tiebreaker.
+    const carouselPrices = Array.from({ length: 12 }, (_, i) => `$${400 + i * 25},000`).join(" · ")
+    const text = `
+      7367 Rutherford Dr, Reno, NV 89506
+      Listed for $530,000  ·  Zestimate $545,000
+      3 beds · 2 baths · 1,725 sqft · Year built 2018
+      Days on Zillow: 4 · MLS# RNV-12345
+      Rent Zestimate: $3,022/mo
+      Similar homes: ${carouselPrices}
+    `
+    const r = scanSignals(text, "https://www.zillow.com/homedetails/7367-Rutherford-Dr-Reno-NV-89506/184652637_zpid/")
+    expect(r.looksLikeListing).toBe(true)
+    expect(r.looksLikeSearchResults).toBe(false)
   })
 })

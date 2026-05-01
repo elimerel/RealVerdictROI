@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { TrendingUp } from "lucide-react";
 import LoginForm from "./LoginForm";
 import { supabaseEnv } from "@/lib/supabase/config";
@@ -22,6 +23,18 @@ export default async function LoginPage({
   const initialMode: "signin" | "signup" =
     sp.mode === "signup" ? "signup" : "signin";
 
+  // Electron auto-detection — the desktop shell stamps "RealVerdictDesktop"
+  // onto its user-agent. Detect it here so we never crash a server-side
+  // redirect (e.g. /deals -> /login when no session) into the website-styled
+  // card inside the 420×560 login window.
+  //
+  // Falls back to ?source=electron for older builds without the UA token.
+  const reqHeaders = await headers();
+  const ua = reqHeaders.get("user-agent") ?? "";
+  const isElectron = ua.includes("RealVerdictDesktop") ||
+                     ua.includes("realverdict-desktop") ||
+                     sp.source === "electron";
+
   // Compact layout for the Electron desktop app — dark, no header, no scroll.
   //
   // IMPORTANT: we deliberately skip the server-side getCurrentUser() check here.
@@ -32,7 +45,7 @@ export default async function LoginPage({
   // immediately after subscribe if a session exists, which calls api.signedIn() via
   // IPC so the main process opens the real 1400×900 mainWindow and closes this
   // login window cleanly.
-  if (sp.source === "electron") {
+  if (isElectron) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#09090b] px-5 py-4">
         {/* Logo */}

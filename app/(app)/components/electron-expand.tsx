@@ -11,11 +11,12 @@
  * (email/password, Google OAuth, or auto-session restore).
  */
 import { useEffect } from "react"
+import "@/lib/electron"
 
 export function ElectronExpand() {
   useEffect(() => {
-    const api = typeof window !== "undefined" ? (window as any).electronAPI : null
-    if (api?.signedIn) api.signedIn()
+    const api = typeof window !== "undefined" ? window.electronAPI : null
+    if (api?.signedIn) void api.signedIn()
   }, [])
   return null
 }

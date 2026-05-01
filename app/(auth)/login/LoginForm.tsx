@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import "@/lib/electron";
 
 // Google "G" logo SVG — official brand colour
 function GoogleIcon() {
@@ -28,7 +28,6 @@ export default function LoginForm({
   initialMode: Mode;
   compact?: boolean;
 }) {
-  const router = useRouter();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,29 +39,49 @@ export default function LoginForm({
     | { state: "needs_confirmation" }
   >({ state: "idle" });
 
-  // In Electron, use explicit IPC rather than router navigation.
-  // IMPORTANT: read window.electronAPI fresh inside the callback rather than
-  // capturing it from a render-time closure — the closure could be stale (null)
-  // if window.electronAPI wasn't set during the very first SSR/hydration pass.
+  // In Electron we use BOTH the IPC AND a hard navigation. Why both?
+  //
+  //   - The IPC tells the main process to resize the window (420×560 → 1400×900)
+  //     and load /research. This is the happy path.
+  //   - The hard navigation is a belt-and-suspenders fallback. If IPC fails
+  //     for any reason (preload not loaded, channel mismatch, race condition),
+  //     the page still moves off /login and main's did-navigate listener
+  //     catches it — calling expandToMainApp from there.
+  //
+  // Read window.electronAPI fresh inside the callback rather than capturing
+  // it from a render-time closure — the closure could be stale (null) if
+  // window.electronAPI wasn't set during the very first SSR/hydration pass.
   const calledSignedIn = useRef(false);
 
   const afterSignIn = useCallback(() => {
-    const electronAPI = typeof window !== "undefined" ? (window as any).electronAPI : null;
+    if (calledSignedIn.current) return;
+    calledSignedIn.current = true;
+    const electronAPI = typeof window !== "undefined" ? window.electronAPI : null;
     if (electronAPI?.signedIn) {
-      if (calledSignedIn.current) return;
-      calledSignedIn.current = true;
-      electronAPI.signedIn();
-    } else {
-      router.replace(redirectTo);
-      router.refresh();
+      // Happy path — IPC tells main to resize the window AND loadURL(/research)
+      // in one step. Avoid window.location.href here so we don't race a second
+      // navigation against the one main is about to start.
+      try { void electronAPI.signedIn() } catch { /* fall through to fallback */ }
+      // Belt-and-suspenders: if main never navigates us off /login within
+      // 1.2 s, force the navigation ourselves. Main's did-navigate listener
+      // will then catch /research and call expandToMainApp.
+      window.setTimeout(() => {
+        if (window.location.pathname.startsWith("/login")) {
+          window.location.href = redirectTo;
+        }
+      }, 1200);
+      return;
     }
-  }, [redirectTo, router]);
+    // Web — plain hard navigation so proxy.ts gets a fresh request with the
+    // session cookies the supabase client just set.
+    window.location.href = redirectTo;
+  }, [redirectTo]);
 
   // Listen for Supabase auth state changes — handles:
   // - INITIAL_SESSION: fires on subscribe if a session already exists (app restart flow)
   // - SIGNED_IN: fires after email/password login or Google OAuth callback
   useEffect(() => {
-    const electronAPI = typeof window !== "undefined" ? (window as any).electronAPI : null;
+    const electronAPI = typeof window !== "undefined" ? window.electronAPI : null;
     if (!electronAPI?.signedIn) return;  // only needed in Electron
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -80,18 +99,42 @@ export default function LoginForm({
     // the small login window never navigates away to google.com.
     // We ask Supabase for the OAuth URL without auto-redirecting, then hand
     // the URL to the main process which opens a proper BrowserWindow popup.
-    const electronAPI = typeof window !== "undefined" ? (window as any).electronAPI : null;
+    const electronAPI = typeof window !== "undefined" ? window.electronAPI : null;
     if (electronAPI?.openOAuth) {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: callbackUrl, skipBrowserRedirect: true },
-      });
-      if (error) { setStatus({ state: "error", message: error.message }); return; }
-      if (data?.url) {
-        // IPC opens the popup; when Google redirects back the main process
-        // loads /auth/callback in the login window and the did-navigate
-        // listener expands the window to full app mode.
-        await electronAPI.openOAuth(data.url);
+      try {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo: callbackUrl, skipBrowserRedirect: true },
+        });
+        if (error) {
+          setStatus({ state: "error", message: error.message });
+          return;
+        }
+        if (!data?.url) {
+          // Most likely cause: Google provider isn't enabled in the Supabase
+          // dashboard, or the project's site/redirect URLs don't include this
+          // origin. Surface a useful hint instead of silent failure.
+          setStatus({
+            state: "error",
+            message:
+              "Google sign-in isn't configured for this build. Use email and password, or enable the Google provider in Supabase.",
+          });
+          return;
+        }
+        // IPC opens a popup window. Resolves with `{ ok: true }` once we
+        // detect the callback redirect, or `{ cancelled: true }` if the user
+        // closes the popup without finishing.
+        const result = await electronAPI.openOAuth(data.url);
+        if (result?.cancelled) {
+          setStatus({ state: "idle" });
+        }
+        // On `ok: true` the main process is already navigating the login
+        // window to /auth/callback → /research, so onAuthStateChange will
+        // fire SIGNED_IN and afterSignIn() will take over. No status reset
+        // needed here — the page is about to leave.
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Google sign-in failed.";
+        setStatus({ state: "error", message });
       }
       return;
     }
