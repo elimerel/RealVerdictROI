@@ -880,68 +880,111 @@ function ElectronBrowsePage() {
             panel resize, window drag-resize). */}
         <div ref={browserSlotRef} className="flex-1 rv-surface-1 relative flex flex-col min-w-0">
           {!browserActive && (
-            <div className="flex-1 flex flex-col items-center justify-center px-8">
-              <div className="w-full max-w-3xl space-y-7">
-                <div className="space-y-2 text-center">
-                  <h2 className="text-2xl font-semibold tracking-tight">Browse listings</h2>
-                  <p className="text-sm rv-t2">Paste a listing URL or search the web to find one.</p>
+            <div className="flex-1 flex flex-col items-center justify-center">
+              {/* Home screen — premium new-tab experience.
+                  Vertically centered but with content offset slightly above
+                  center (padding-bottom: 10vh) so it reads as intentional
+                  framing, not dead-center floating. */}
+              <div className="w-full max-w-xl px-8" style={{ paddingBottom: "10vh" }}>
+                {/* Wordmark + tagline */}
+                <div className="mb-8">
+                  <p className="text-[13px] font-semibold rv-t1" style={{ letterSpacing: "-0.01em" }}>
+                    RealVerdict
+                  </p>
+                  <p className="text-[13px] rv-t3 mt-0.5">Where to today?</p>
                 </div>
+
+                {/* Search — the focal point */}
                 <form
                   onSubmit={(e) => {
                     e.preventDefault()
                     void navigateTo(urlInput)
                   }}
-                  className="rv-surface-2 rounded-xl p-4 border border-[var(--rv-fill-border)]"
                 >
-                  <div className="rv-input flex items-center gap-2 px-3 py-3">
-                    <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+                  <div
+                    className="flex items-center gap-3 h-14 px-4 rounded-2xl transition-shadow duration-150"
+                    style={{
+                      background: "var(--rv-surface-2)",
+                      border: "1px solid var(--rv-fill-border)",
+                      boxShadow: "0 2px 12px oklch(0 0 0 / 4%)",
+                    }}
+                    onFocusCapture={(e) => {
+                      (e.currentTarget as HTMLDivElement).style.boxShadow =
+                        "0 0 0 2px var(--rv-accent-border), 0 2px 12px oklch(0 0 0 / 6%)"
+                      ;(e.currentTarget as HTMLDivElement).style.borderColor = "var(--rv-accent-border)"
+                    }}
+                    onBlurCapture={(e) => {
+                      ;(e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 12px oklch(0 0 0 / 4%)"
+                      ;(e.currentTarget as HTMLDivElement).style.borderColor = "var(--rv-fill-border)"
+                    }}
+                  >
+                    <Search className="h-4 w-4 shrink-0 rv-t3" />
                     <input
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
-                      placeholder="Paste listing URL or type an address/search"
-                      className="flex-1 bg-transparent text-[14px]"
+                      placeholder="Paste a listing URL or search"
+                      className="flex-1 bg-transparent text-[15px] outline-none rv-t1 placeholder:rv-t4"
+                      autoFocus
                     />
+                    {urlInput && (
+                      <button
+                        type="submit"
+                        className="shrink-0 h-7 px-3 rounded-lg text-[12px] font-medium text-white transition-opacity hover:opacity-90"
+                        style={{ background: "var(--rv-accent)" }}
+                      >
+                        Go
+                      </button>
+                    )}
                   </div>
-                  <p className="text-[11px] rv-t3 mt-2">
-                    Non-URL input opens a Google search in the browser pane.
+                  <p className="text-[11px] rv-t4 mt-2 pl-1">
+                    Non-URL input opens a Google search
                   </p>
                 </form>
-                <div className="grid grid-cols-5 gap-3">
-                  {SUPPORTED_SITES.map((site) => (
-                    <button
-                      key={site.id}
-                      type="button"
-                      onClick={() => void navigateTo(site.url)}
-                      className="rv-surface-2 border border-[var(--rv-fill-border)] rounded-lg p-3 text-left hover:border-[var(--rv-fill-border-strong)] transition-colors"
-                    >
-                      <Building2 className="h-4 w-4 rv-t3 mb-2" />
-                      <p className="text-sm">{site.label}</p>
-                    </button>
-                  ))}
-                </div>
-                <div className="space-y-2">
-                  <p className="text-[11px] uppercase tracking-[0.08em] rv-t2 inline-flex items-center gap-1.5">
-                    <Clock3 className="h-3.5 w-3.5" />
-                    Recently viewed
-                  </p>
-                  <div className="grid grid-cols-5 gap-3">
-                    {recentListings.length === 0 ? (
-                      <div className="col-span-5 rv-surface-2 border border-[var(--rv-fill-border)] rounded-lg p-4 text-sm rv-t3">
-                        Analyze a listing to populate recent history.
-                      </div>
-                    ) : recentListings.map((item) => (
+
+                {/* Quick-access site chips */}
+                <div className="mt-7">
+                  <p className="rv-section-label mb-3">Jump to</p>
+                  <div className="flex flex-wrap gap-2">
+                    {SUPPORTED_SITES.map((site) => (
                       <button
-                        key={item.url}
+                        key={site.id}
                         type="button"
-                        onClick={() => void navigateTo(item.url)}
-                        className="rv-surface-2 border border-[var(--rv-fill-border)] rounded-lg p-3 text-left hover:border-[var(--rv-fill-border-strong)] transition-colors"
+                        onClick={() => void navigateTo(site.url)}
+                        className="rv-chip hover:rv-t1 transition-colors"
                       >
-                        <Home className="h-4 w-4 rv-t3 mb-2" />
-                        <p className="text-xs truncate">{item.address ?? hostnameOf(item.url)}</p>
+                        {site.label}
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {/* Recent listings */}
+                {recentListings.length > 0 && (
+                  <div className="mt-8">
+                    <p className="rv-section-label mb-3 flex items-center gap-1.5">
+                      <Clock3 className="h-3 w-3" />
+                      Recently viewed
+                    </p>
+                    <div className="space-y-1">
+                      {recentListings.map((item) => (
+                        <button
+                          key={item.url}
+                          type="button"
+                          onClick={() => void navigateTo(item.url)}
+                          className="w-full flex items-center gap-3 h-10 px-3 rounded-lg text-left transition-colors hover:bg-[var(--rv-fill-1)] group"
+                        >
+                          <Home className="h-3.5 w-3.5 rv-t3 shrink-0 group-hover:rv-t2 transition-colors" />
+                          <span className="flex-1 text-[13px] rv-t2 truncate group-hover:rv-t1 transition-colors">
+                            {item.address ?? hostnameOf(item.url)}
+                          </span>
+                          <span className="text-[11px] rv-t4 shrink-0">
+                            {item.source ?? hostnameOf(item.url)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

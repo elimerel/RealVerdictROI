@@ -73,17 +73,17 @@ export function AppSidebar({ userEmail, isPro }: Props) {
             href="/research"
             className="no-drag-region flex items-center gap-2.5 group-data-[collapsible=icon]:justify-center"
           >
-            {/* Logo mark — neutral chrome with subtle inset highlight. The
-                cream stamp inside doubles as a brand mark and as the only
-                non-financial accent that should appear in the chrome. */}
+            {/* Logo mark — brand green with subtle inset highlight.
+                The green accent unifies the logo, active nav state,
+                and "good deal" signal into one visual identity. */}
             <div
               className="flex h-7 w-7 items-center justify-center rounded-[7px] shrink-0"
               style={{
-                background: "linear-gradient(180deg, oklch(0.20 0.008 80) 0%, oklch(0.14 0.008 80) 100%)",
-                boxShadow: "inset 0 0 0 0.5px oklch(0.96 0.012 80 / 18%), 0 1px 0 0 oklch(0 0 0 / 60%)",
+                background: "var(--rv-accent)",
+                boxShadow: "0 1px 3px var(--rv-accent-border), inset 0 0 0 0.5px oklch(1 0 0 / 20%)",
               }}
             >
-              <Zap className="h-3.5 w-3.5" style={{ color: "oklch(0.94 0.012 80)" }} strokeWidth={2.25} />
+              <Zap className="h-3.5 w-3.5 text-white" strokeWidth={2.25} />
             </div>
             <div className="flex flex-col group-data-[collapsible=icon]:hidden">
               <span className="font-semibold text-[13px] tracking-tight text-foreground leading-none"

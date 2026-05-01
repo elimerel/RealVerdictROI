@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import { TrendingUp } from "lucide-react";
+import { Zap } from "lucide-react";
 import LoginForm from "./LoginForm";
+import { MarketingHeader } from "@/app/(marketing)/_components/MarketingHeader";
 import { supabaseEnv } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 
@@ -53,13 +54,24 @@ export default async function LoginPage({
   // login window cleanly.
   if (isElectron) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-[#09090b] px-5 py-4">
-        {/* Logo */}
-        <div className="mb-4 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 border border-white/10">
-            <TrendingUp className="h-4 w-4 text-white" />
+      <div className="dark flex flex-col items-center justify-center min-h-screen px-5 py-4 bg-[#0a0a0b]">
+        {/* Logo — matches sidebar + landing brand mark */}
+        <div className="mb-5 flex items-center gap-2">
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-[7px]"
+            style={{
+              background: "var(--rv-accent)",
+              boxShadow: "0 1px 3px var(--rv-accent-border), inset 0 0 0 0.5px oklch(1 0 0 / 20%)",
+            }}
+          >
+            <Zap className="h-3.5 w-3.5 text-white" strokeWidth={2.25} />
           </div>
-          <span className="text-sm font-semibold tracking-tight text-white">RealVerdict</span>
+          <span
+            className="text-[13px] font-semibold"
+            style={{ color: "var(--rv-t1)", letterSpacing: "-0.012em" }}
+          >
+            RealVerdict
+          </span>
         </div>
 
         {oauthError && (
@@ -82,26 +94,8 @@ export default async function LoginPage({
   if (user) redirect(redirectTo);  // redirectTo defaults to /research
 
   return (
-    <div className="flex flex-1 flex-col bg-gradient-to-b from-zinc-50 via-white to-zinc-50 dark:from-zinc-950 dark:via-black dark:to-zinc-950">
-      <header className="border-b border-zinc-200/70 bg-white/70 backdrop-blur-sm dark:border-zinc-800/70 dark:bg-black/40">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <Link
-            href="/"
-            className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
-          >
-            RealVerdict
-          </Link>
-          <nav className="flex items-center gap-5 text-sm">
-            <Link
-              href="/pricing"
-              className="font-medium text-zinc-600 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-            >
-              Pricing
-            </Link>
-          </nav>
-        </div>
-      </header>
-
+    <div className="flex flex-1 flex-col" style={{ background: "var(--rv-surface-bg)" }}>
+      <MarketingHeader />
       <main className="flex flex-1 items-center justify-center px-6 py-16">
         {supabaseEnv().configured ? (
           <>

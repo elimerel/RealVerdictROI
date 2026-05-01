@@ -157,18 +157,18 @@ function HeroNumber({
 }) {
   const Icon = icon
   const sizeStyle = size === "lg"
-    ? { fontSize: "26px", letterSpacing: "-0.01em" }
-    : { fontSize: "20px", letterSpacing: "-0.005em" }
+    ? { fontSize: "24px", letterSpacing: "-0.01em" }
+    : { fontSize: "19px", letterSpacing: "-0.005em" }
   return (
-    <div className="space-y-1.5 min-w-0">
-      <p className="text-[11px] font-medium uppercase tracking-[0.08em] rv-t2 flex items-center gap-1.5">
-        <Icon className="h-3 w-3 rv-t3" />
+    <div className="rounded-xl rv-surface-2 rv-shadow-sm px-3.5 py-3 space-y-1.5 min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.09em] rv-t3 flex items-center gap-1.5">
+        <Icon className="h-2.5 w-2.5" />
         {label}
       </p>
       <p
         key={pulseKey}
         className={cn(
-          "font-mono font-medium rv-num leading-none rv-number-pulse",
+          "font-mono font-semibold rv-num leading-none rv-number-pulse",
           toneClass(tone),
         )}
         style={sizeStyle}
@@ -176,7 +176,7 @@ function HeroNumber({
         {value}
       </p>
       {caption && (
-        <p className="text-[11px] rv-t3 leading-snug inline-flex items-center gap-1.5">
+        <p className="text-[10px] rv-t3 leading-snug inline-flex items-center gap-1">
           <span className={cn("rv-dot", toneClass(tone))} />
           {caption}
         </p>
@@ -615,17 +615,17 @@ export default function DossierPanel({
         <div className="px-7 min-w-0">
 
           {/* ── Module 1: Property identity ── */}
-          <div className="pt-6 pb-5 rv-hairline space-y-1.5">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="pt-6 pb-5 rv-hairline space-y-2">
+            <div className="flex items-start gap-2 min-w-0">
               {address && (
-                <h2 className="text-[14px] font-semibold text-foreground truncate"
-                    style={{ letterSpacing: "-0.014em" }}>
+                <h2 className="text-[15px] font-semibold text-foreground leading-snug flex-1 min-w-0"
+                    style={{ letterSpacing: "-0.018em" }}>
                   {address}
                 </h2>
               )}
               <SourceBadge source={source} sourceUrl={sourceUrl} onOpen={onOpenSource} />
             </div>
-            <p className="text-[12px] rv-t3 font-mono rv-num">
+            <p className="text-[11.5px] rv-t3 font-mono rv-num tracking-[0.01em]">
               {[
                 pf?.beds      != null && `${pf.beds} bd`,
                 pf?.baths     != null && `${pf.baths} ba`,
@@ -638,11 +638,13 @@ export default function DossierPanel({
 
           {/* ── Module 2: Take + risk flags — the AI lead. ───────────── */}
           <div className="py-6 rv-hairline">
-            <p className="text-[14px] rv-t1 leading-[1.55] max-w-[60ch]">
-              {summary}
-            </p>
+            <div className="border-l-2 pl-3.5" style={{ borderColor: "var(--rv-accent)" }}>
+              <p className="text-[13.5px] rv-t1 leading-[1.6] max-w-[60ch]">
+                {summary}
+              </p>
+            </div>
             {riskFlags && riskFlags.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
+              <div className="mt-3.5 flex flex-wrap gap-1.5">
                 {riskFlags.slice(0, 6).map((flag) => (
                   <span
                     key={flag}
@@ -659,8 +661,8 @@ export default function DossierPanel({
           {/* ── Module 3: 5 hero metrics. Row 1 = DSCR / Cash / Cap rate.
                 Row 2 = Break-even price / Cash-on-cash. Only the worst-
                 offending metric carries color tone. ───────────────────── */}
-          <div className="py-7 rv-hairline space-y-7">
-            <div className="grid grid-cols-3 gap-5">
+          <div className="py-6 rv-hairline space-y-3">
+            <div className="grid grid-cols-3 gap-2.5">
               <HeroNumber
                 label="DSCR"
                 icon={LineChart}
@@ -686,7 +688,7 @@ export default function DossierPanel({
                 pulseKey={`cap-${pulseKey}`}
               />
             </div>
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-2 gap-2.5">
               <HeroNumber
                 label="Break-even"
                 icon={Target}
@@ -730,7 +732,7 @@ export default function DossierPanel({
             <p className="rv-section-label mb-4">
               Assumptions
             </p>
-            <div className="rounded-lg rv-surface-2 px-4 py-1">
+            <div className="rounded-xl rv-surface-2 rv-shadow-sm px-4 py-1">
               <div className="grid grid-cols-2 gap-x-4">
                 <AssumptionInput
                   label="Down payment"

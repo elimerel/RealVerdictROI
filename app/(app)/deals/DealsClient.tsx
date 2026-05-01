@@ -423,7 +423,7 @@ export function DealsClient({ deals, signedIn, isPro, supabaseConfigured }: Deal
   return (
     <div className="flex-1 flex min-h-0 rv-surface-1">
       {/* ── Left pane: filter + table of saved deals ─────────────────── */}
-      <div className="w-[420px] shrink-0 flex flex-col border-r border-border min-w-0">
+      <div className="w-[420px] shrink-0 flex flex-col border-r border-[var(--rv-fill-border)] min-w-0">
         {/* Filter */}
         <div className="px-4 pt-4 pb-2 shrink-0">
           <div className="relative">
@@ -838,7 +838,7 @@ function CompareColumn({
   const breakEven = walkAway?.recommendedCeiling?.price ?? null
 
   return (
-    <div className="rv-surface-2 rounded-lg p-5 space-y-5 min-w-0">
+    <div className="rv-surface-2 rv-shadow-sm rounded-xl p-5 space-y-5 min-w-0">
       <div className="space-y-1.5">
         <p className="text-[13px] font-semibold tracking-tight rv-t1 truncate">
           {deal.address ?? "Unknown address"}
@@ -934,7 +934,7 @@ function CompareMetric({
           {value}
         </p>
         {leader && (
-          <p className="text-[9px] uppercase tracking-[0.1em] text-emerald-400/80 leading-none">
+          <p className="text-[9px] uppercase tracking-[0.1em] rv-tone-good leading-none opacity-80">
             best
           </p>
         )}

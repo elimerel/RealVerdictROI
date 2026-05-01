@@ -72,16 +72,17 @@ body {
   --rv-surface-bg: oklch(1 0 0);            /* page / content — pure white */
   --rv-surface-1: oklch(1 0 0);             /* card / dossier — pure white */
   --rv-surface-2: oklch(0.965 0.003 80);    /* in-card input tint */
-  /* Selection accent — deep warm charcoal (NOT blue). The previous
-     hue 252 read as "stock SaaS blue" and the user explicitly called
-     it out as cheap-looking. Charcoal at a hint of warm chroma
-     (oklch hue 60 = warm) reads as Mercury-ink premium without
-     pulling away from the brand's cream/warm signal palette. */
-  --rv-accent: oklch(0.22 0.012 60);
-  --rv-accent-subtle: oklch(0.22 0.012 60 / 8%);
-  --rv-accent-border: oklch(0.22 0.012 60 / 24%);
-  /* Live indicator — same warm amber as dark mode. Reads against both
-     light and dark surfaces because the chroma is high enough. */
+  /* Brand accent — deep forest green. Unifies the logo mark, landing
+     CTA, active nav states, and the "good deal" signal into one identity.
+     oklch hue 155, chroma 0.18 = rich forest green; dark enough to sit
+     on white as a foreground color without going neon. */
+  --rv-accent: oklch(0.44 0.18 155);
+  --rv-accent-subtle: oklch(0.44 0.18 155 / 8%);
+  --rv-accent-border: oklch(0.44 0.18 155 / 20%);
+  /* Canonical brand alias — use where you need the raw green value
+     outside of the accent semantic (marketing callouts, logo fills). */
+  --rv-brand: oklch(0.44 0.18 155);
+  /* Live indicator — warm amber. High enough chroma to read on both surfaces. */
   --rv-live: oklch(0.62 0.16 60);
 
   /* Ink fills — theme-aware translucent layers used by .rv-input,
@@ -110,8 +111,10 @@ body {
   --rv-bad-sub: oklch(0.50 0.20 25 / 11%);
   --rv-warn: oklch(0.62 0.18 70);
   --rv-warn-sub: oklch(0.62 0.18 70 / 11%);
-  --rv-good: oklch(0.48 0.13 165);
-  --rv-good-sub: oklch(0.48 0.13 165 / 11%);
+  /* Good signal = brand green. A strong deal metric is the same
+     color as the brand — intentional, not incidental. */
+  --rv-good: oklch(0.44 0.18 155);
+  --rv-good-sub: oklch(0.44 0.18 155 / 10%);
 
   /* Legacy aliases — kept for any verdict component that hasn't been
      touched yet. New code should use --rv-bad/warn/good. */
@@ -293,11 +296,12 @@ input[type="number"] {
   --sidebar-border: oklch(0 0 0 / 7%);
   --sidebar-ring: oklch(0.55 0.10 60 / 35%);
 
-  /* Selection accent stays warm — it's already on-brand for the cream
-     theme. Dimmed slightly so it reads against the lighter surface. */
-  --rv-accent: oklch(0.55 0.10 60);
-  --rv-accent-subtle: oklch(0.55 0.10 60 / 14%);
-  --rv-accent-border: oklch(0.55 0.10 60 / 30%);
+  /* Paper accent — same forest green slightly muted for cream surfaces.
+     Chroma pulled back a touch so it reads warm against the paper tone. */
+  --rv-accent: oklch(0.44 0.16 155);
+  --rv-accent-subtle: oklch(0.44 0.16 155 / 10%);
+  --rv-accent-border: oklch(0.44 0.16 155 / 22%);
+  --rv-brand: oklch(0.44 0.16 155);
   --rv-live: oklch(0.62 0.16 60);
 
   /* Paper-mode ink fills — translucent brown/black so chrome reads
@@ -315,8 +319,8 @@ input[type="number"] {
   --rv-bad-sub: oklch(0.50 0.20 25 / 12%);
   --rv-warn: oklch(0.62 0.18 70);
   --rv-warn-sub: oklch(0.62 0.18 70 / 12%);
-  --rv-good: oklch(0.50 0.13 165);
-  --rv-good-sub: oklch(0.50 0.13 165 / 12%);
+  --rv-good: oklch(0.44 0.16 155);
+  --rv-good-sub: oklch(0.44 0.16 155 / 12%);
 }
 
 /* Paper grain — diffuse fiber noise, not graph-paper grid.
@@ -349,10 +353,12 @@ input[type="number"] {
   --rv-surface-bg: #0a0a0b;
   --rv-surface-1: #101014;
   --rv-surface-2: #16161b;
-  /* Dark-mode accent + live (override the light defaults set in :root). */
-  --rv-accent: oklch(0.94 0.012 80);
-  --rv-accent-subtle: oklch(0.94 0.012 80 / 10%);
-  --rv-accent-border: oklch(0.94 0.012 80 / 28%);
+  /* Dark-mode accent — lighter green so it reads as a bright highlight
+     against the near-black surface. Same hue 155, much higher lightness. */
+  --rv-accent: oklch(0.70 0.20 155);
+  --rv-accent-subtle: oklch(0.70 0.20 155 / 12%);
+  --rv-accent-border: oklch(0.70 0.20 155 / 28%);
+  --rv-brand: oklch(0.70 0.20 155);
   --rv-live: oklch(0.78 0.14 78);
   /* Dark-mode ink fills — invert to translucent WHITE so all the
      interactive surfaces (inputs, pills, rows, scrollbars) read as
@@ -370,8 +376,8 @@ input[type="number"] {
   --rv-bad-sub:  rgba(216, 91, 91, 0.12);
   --rv-warn:     #d9a341;
   --rv-warn-sub: rgba(217, 163, 65, 0.10);
-  --rv-good:     #4fb28f;
-  --rv-good-sub: rgba(79, 178, 143, 0.10);
+  --rv-good:     oklch(0.70 0.20 155);
+  --rv-good-sub: oklch(0.70 0.20 155 / 12%);
 
   /* Dark-mode toolbar — slightly LIFTED off the page so the chrome
      reads as a tone-on-tone toolbar (Mercury / Linear dark-mode). The
@@ -398,20 +404,20 @@ input[type="number"] {
   --border: oklch(1 0 0 / 7%);
   --input: oklch(1 0 0 / 9%);
   --ring: oklch(0.94 0.012 80 / 35%);
-  /* Chart colors — muted to match the new threshold palette */
-  --chart-1: #4fb28f;
+  /* Chart colors — green matches brand/good signal for positive bars */
+  --chart-1: oklch(0.70 0.20 155);
   --chart-2: #d9a341;
   --chart-3: #d85b5b;
-  --chart-4: oklch(0.94 0.012 80);
+  --chart-4: oklch(0.70 0.20 155 / 60%);
   --chart-5: oklch(0.55 0.012 252);
   --sidebar: var(--rv-toolbar);
   --sidebar-foreground: oklch(0.96 0.005 250);
-  --sidebar-primary: oklch(0.94 0.012 80);
+  --sidebar-primary: oklch(0.70 0.20 155);
   --sidebar-primary-foreground: oklch(0.10 0.014 252);
   --sidebar-accent: oklch(0.155 0.012 252);
   --sidebar-accent-foreground: oklch(0.96 0.005 250);
   --sidebar-border: oklch(1 0 0 / 6%);
-  --sidebar-ring: oklch(0.94 0.012 80 / 40%);
+  --sidebar-ring: oklch(0.70 0.20 155 / 40%);
 
   /* Text hierarchy — dark-mode values.
      Primary (#F5F5F5) · Secondary (#A0A0A8) · Tertiary (#6A6A72) · Disabled (#48484F) */
@@ -579,6 +585,28 @@ html.electron body { height: calc(100svh - 0px); } /* the 28px is padding inside
 .rv-toolbar-strip {
   background: var(--rv-toolbar);
   box-shadow: 0 1px 0 0 var(--border);
+}
+
+/* Card elevation — subtle shadow system giving surfaces real depth.
+   Mirrors Mercury's approach: hairline border + very soft ambient shadow.
+   sm = panel header / chip rows, md = cards & panels, lg = popovers. */
+.rv-shadow-sm {
+  box-shadow: 0 1px 2px oklch(0 0 0 / 4%), 0 0 0 1px var(--rv-fill-border);
+}
+.rv-shadow-md {
+  box-shadow: 0 2px 8px oklch(0 0 0 / 6%), 0 1px 3px oklch(0 0 0 / 4%), 0 0 0 1px var(--rv-fill-border);
+}
+.rv-shadow-lg {
+  box-shadow: 0 8px 24px oklch(0 0 0 / 8%), 0 2px 8px oklch(0 0 0 / 5%), 0 0 0 1px var(--rv-fill-border);
+}
+.dark .rv-shadow-sm {
+  box-shadow: 0 1px 2px oklch(0 0 0 / 30%), 0 0 0 1px var(--rv-fill-border);
+}
+.dark .rv-shadow-md {
+  box-shadow: 0 2px 8px oklch(0 0 0 / 40%), 0 1px 3px oklch(0 0 0 / 30%), 0 0 0 1px var(--rv-fill-border);
+}
+.dark .rv-shadow-lg {
+  box-shadow: 0 8px 24px oklch(0 0 0 / 50%), 0 2px 8px oklch(0 0 0 / 40%), 0 0 0 1px var(--rv-fill-border);
 }
 
 /* Named so any element can opt into being a drag handle */
