@@ -1,6 +1,6 @@
 "use strict"
 
-const { app, BrowserWindow, WebContentsView, ipcMain, screen, session } = require("electron")
+const { app, BrowserWindow, WebContentsView, ipcMain, screen, session, Menu } = require("electron")
 const path = require("path")
 const fs = require("fs")
 
@@ -36,6 +36,107 @@ try {
   }
 } catch (err) {
   console.warn("[main] dotenv load skipped:", err?.message ?? err)
+}
+
+// ---------------------------------------------------------------------------
+// Native app menu
+//
+// Without a menu, macOS apps lack Edit (Cut/Copy/Paste), Window (Minimize),
+// and the standard Cmd+Q quit handling. This makes the app feel broken to
+// any Mac user who reaches for those shortcuts instinctively.
+// ---------------------------------------------------------------------------
+
+function buildAppMenu() {
+  const isMac = process.platform === "darwin"
+
+  return Menu.buildFromTemplate([
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    }] : []),
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "pasteAndMatchStyle" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        {
+          label: "Back",
+          accelerator: "CmdOrCtrl+[",
+          click: () => {
+            if (browserView?.webContents.canGoBack()) browserView.webContents.goBack()
+          },
+        },
+        {
+          label: "Forward",
+          accelerator: "CmdOrCtrl+]",
+          click: () => {
+            if (browserView?.webContents.canGoForward()) browserView.webContents.goForward()
+          },
+        },
+        {
+          label: "Reload",
+          accelerator: "CmdOrCtrl+R",
+          click: () => {
+            // If the browser panel is active, reload the listing page.
+            // Otherwise reload the app window (useful when the app itself glitches).
+            if (browserView) browserView.webContents.reload()
+            else appWindow?.webContents.reload()
+          },
+        },
+        { type: "separator" },
+        {
+          label: "Open URL Bar",
+          accelerator: "CmdOrCtrl+L",
+          click: () => appWindow?.webContents.send("browser:focus-urlbar"),
+        },
+        { type: "separator" },
+        {
+          label: "Developer Tools",
+          accelerator: "CmdOrCtrl+Alt+I",
+          click: () => appWindow?.webContents.openDevTools({ mode: "detach" }),
+        },
+        {
+          label: "Developer Tools (Browser Panel)",
+          click: () => browserView?.webContents.openDevTools({ mode: "detach" }),
+          visible: DEV,
+        },
+      ],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        ...(isMac ? [
+          { type: "separator" },
+          { role: "front" },
+          { type: "separator" },
+          { role: "window" },
+        ] : [{ role: "close" }]),
+      ],
+    },
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -318,10 +419,6 @@ function createAppWindow() {
 
   appWindow.loadURL(`${BASE_URL}/login?source=electron`)
 
-  // Install the pageComps interceptor so structured-extraction comps flow
-  // through to the /results URL after the user clicks "Full report".
-  installPageCompsInterceptor()
-
   const persistMainBounds = () => {
     if (!appWindow || appWindow.isDestroyed() || !isMainMode) return
     writeMainBoundsDebounced(appWindow.getBounds())
@@ -389,9 +486,9 @@ function expandToMainApp() {
     if (now - lastExpandNavMs > EXPAND_NAV_COOLDOWN_MS) {
       try {
         const pathname = new URL(appWindow.webContents.getURL()).pathname
-        if (pathname !== "/research") {
+        if (pathname !== "/browse") {
           lastExpandNavMs = now
-          appWindow.loadURL(`${BASE_URL}/research`)
+          appWindow.loadURL(`${BASE_URL}/browse`)
         }
       } catch { /* ignore unparseable URL */ }
     }
@@ -406,8 +503,10 @@ function expandToMainApp() {
   // Restore the user's last window size + position. If they've never opened
   // the app before, or the saved bounds are off-screen (unplugged monitor),
   // readMainBounds() falls back to a centered default.
-  appWindow.setBounds(readMainBounds())
-  appWindow.loadURL(`${BASE_URL}/research`)
+  // `true` = animated resize on macOS — the window smoothly expands while
+  // the page loads in the background rather than snapping.
+  appWindow.setBounds(readMainBounds(), true)
+  appWindow.loadURL(`${BASE_URL}/browse`)
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
 }
@@ -421,10 +520,11 @@ function shrinkToLogin() {
   destroyBrowserView()
   isMainMode = false
 
-  // Clear the minimum size before shrinking, then lock resizing
+  // Clear the minimum size before shrinking, then lock resizing.
+  // `true` = animated — the window shrinks smoothly rather than snapping.
   appWindow.setMinimumSize(0, 0)
   appWindow.setResizable(false)
-  appWindow.setBounds(centeredBounds(LOGIN_W, LOGIN_H), true)  // animated
+  appWindow.setBounds(centeredBounds(LOGIN_W, LOGIN_H), true)
 
   // Navigate after the animation has started so it doesn't flash
   setTimeout(() => {
@@ -479,10 +579,35 @@ function createBrowserView() {
   browserView.webContents.on("did-start-loading", () => {
     appWindow?.webContents.send("browser:nav-update", { loading: true })
   })
-  browserView.webContents.on("did-stop-loading",     () => sendNav(true))
+  browserView.webContents.on("did-stop-loading", () => {
+    sendNav(true)
+    autoAnalyze()
+  })
   browserView.webContents.setWindowOpenHandler(({ url }) => {
     browserView?.webContents.loadURL(url)
     return { action: "deny" }
+  })
+
+  // Intercept keyboard shortcuts that should act on the app frame rather
+  // than the embedded page. The browser view normally swallows these.
+  browserView.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return
+    const mod = process.platform === "darwin" ? input.meta : input.control
+
+    // Cmd/Ctrl+L — focus OUR URL bar (not Chromium's invisible address bar).
+    // preventDefault stops Chromium from handling it as "select all in URL bar"
+    // which would be a no-op anyway since there's no visible URL bar in the view.
+    if (mod && !input.shift && !input.alt && input.key === "l") {
+      event.preventDefault()
+      appWindow?.webContents.send("browser:focus-urlbar")
+      return
+    }
+
+    // Cmd/Ctrl+Opt+I — DevTools for the browser panel itself.
+    if (mod && input.alt && input.key === "I") {
+      event.preventDefault()
+      browserView.webContents.openDevTools({ mode: "detach" })
+    }
   })
 }
 
@@ -759,9 +884,116 @@ async function callAnthropicHaiku(apiKey, dom) {
   }
 }
 
-// Module-level store for page comps from the most recent analyze call.
-// Used by the will-navigate intercept to add pagecomps to the /results URL.
-let pendingPageComps = null
+// Prevents concurrent auto-analysis runs (one at a time)
+let autoAnalyzing = false
+
+// ---------------------------------------------------------------------------
+// Auto-analysis — fires on every did-stop-loading.
+//
+// Flow:
+//   1. If URL doesn't look like a listing → send panel:hide
+//   2. Send panel:analyzing (panel slides in with loading state)
+//   3. Extract DOM → Haiku extraction → POST /api/analyze
+//   4. Send panel:ready with full PanelResult, or panel:error on failure
+// ---------------------------------------------------------------------------
+
+async function autoAnalyze() {
+  if (!browserView || !appWindow || autoAnalyzing) return
+
+  const url = browserView.webContents.getURL()
+  if (!shouldAutoExtract(url)) {
+    appWindow.webContents.send("panel:hide")
+    return
+  }
+
+  autoAnalyzing = true
+  appWindow.webContents.send("panel:analyzing")
+  lastExtractDebug = { stage: "started", at: new Date().toISOString() }
+
+  try {
+    // Wait for DOM to hydrate (SPAs fire did-stop-loading early)
+    const POLL_TARGET_LEN = 1200
+    const POLL_DEADLINE_MS = 18_000
+    const pollStart = Date.now()
+    let dom = null
+    let highWater = 0
+
+    while (Date.now() - pollStart < POLL_DEADLINE_MS) {
+      try {
+        dom = await browserView.webContents.executeJavaScript(`
+          (() => {
+            const clone = document.body.cloneNode(true)
+            clone.querySelectorAll('nav,header,footer,script,style,[aria-hidden="true"]').forEach(el => el.remove())
+            return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,25000) }
+          })()
+        `)
+      } catch { dom = null }
+      const len = dom?.text?.length ?? 0
+      if (len > highWater) highWater = len
+      if (len >= POLL_TARGET_LEN) break
+      await new Promise((r) => setTimeout(r, 750))
+    }
+
+    if (!dom || (dom.text?.length ?? 0) < 200) {
+      appWindow.webContents.send("panel:error", "Couldn't read enough page content. Try refreshing the listing.")
+      return
+    }
+
+    if (looksLikeCaptcha(dom.title, dom.text)) {
+      appWindow.webContents.send("panel:error", "Verify you're not a robot, then the panel will populate.")
+      return
+    }
+
+    const sig = scanSignals(dom.text, dom.url)
+    if (sig.looksLikeSearchResults || !sig.looksLikeListing) {
+      appWindow.webContents.send("panel:hide")
+      return
+    }
+
+    const config = readConfig()
+    const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.", "") } catch { return "listing" } })()
+
+    let extracted = null
+    if (config.anthropicApiKey) {
+      extracted = await callAnthropicHaiku(config.anthropicApiKey, dom)
+    }
+
+    if (!extracted) {
+      appWindow.webContents.send("panel:error", "Add an Anthropic key in Settings to enable auto-analysis.")
+      return
+    }
+
+    const extractResult = postProcess(extracted, hostname, "anthropic")
+    if (!extractResult?.ok) {
+      appWindow.webContents.send("panel:error", extractResult?.message ?? "Couldn't read this listing.")
+      return
+    }
+
+    // POST to /api/analyze — runs FRED + HUD FMR enrichment + calculations
+    const analyzeRes = await fetch(`${BASE_URL}/api/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ extraction: extractResult }),
+      signal: AbortSignal.timeout(30_000),
+    })
+
+    if (!analyzeRes.ok) {
+      const body = await analyzeRes.json().catch(() => ({}))
+      appWindow.webContents.send("panel:error", body?.message ?? "Analysis failed. Please try again.")
+      return
+    }
+
+    const panelResult = await analyzeRes.json()
+    appWindow.webContents.send("panel:ready", panelResult)
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error("[autoAnalyze] error:", msg)
+    appWindow.webContents.send("panel:error", "Something went wrong. Try refreshing the page.")
+  } finally {
+    autoAnalyzing = false
+  }
+}
 
 // ---------------------------------------------------------------------------
 // IPC — browser:analyze
@@ -915,7 +1147,6 @@ ipcMain.handle("browser:analyze", async () => {
   if (!browserView) {
     return { ok: false, errorCode: "unknown", message: userMessageFor("unknown") }
   }
-  pendingPageComps = null
   lastExtractDebug = { stage: "started", at: new Date().toISOString() }
 
   // Wait for the page to finish loading. Zillow / Redfin etc. fire
@@ -1184,39 +1415,6 @@ function postProcess(raw, hostname, modelUsed) {
 }
 
 // ---------------------------------------------------------------------------
-// Intercept navigation to /results in the main window and append pagecomps
-// when a structured extraction just produced them.  This threads page-extracted
-// sale comps to the results page without modifying research/page.tsx.
-// ---------------------------------------------------------------------------
-
-function installPageCompsInterceptor() {
-  if (!appWindow) return
-  appWindow.webContents.on("will-navigate", (event, navigationUrl) => {
-    if (!pendingPageComps || pendingPageComps.length === 0) return
-    try {
-      const u = new URL(navigationUrl)
-      // Only intercept /results navigations on our own host
-      const isOurHost = DEV
-        ? (u.hostname === "127.0.0.1" || u.hostname === "localhost")
-        : PRODUCTION_APP_HOSTS.has(u.hostname)
-      if (!isOurHost || !u.pathname.startsWith("/results")) return
-
-      const comps = pendingPageComps
-      pendingPageComps = null
-
-      // base64-encode the comps array so it survives URL encoding cleanly
-      const encoded = Buffer.from(JSON.stringify(comps)).toString("base64")
-      u.searchParams.set("pagecomps", encoded)
-
-      event.preventDefault()
-      appWindow.webContents.loadURL(u.toString())
-    } catch {
-      // navigation proceeds unmodified
-    }
-  })
-}
-
-// ---------------------------------------------------------------------------
 // IPC — auth
 // ---------------------------------------------------------------------------
 
@@ -1347,6 +1545,7 @@ ipcMain.handle("extract:debug:last", () => {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(buildAppMenu())
   createAppWindow()
 
   app.on("activate", () => {

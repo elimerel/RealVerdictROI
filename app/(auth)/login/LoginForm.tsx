@@ -203,18 +203,20 @@ export default function LoginForm({
 
   if (status.state === "needs_confirmation") {
     return (
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300">
+      <div className="w-full max-w-md rounded-2xl p-8 rv-shadow-md"
+           style={{ background: "var(--rv-surface-1)", border: "1px solid var(--rv-fill-border)" }}>
+        <div
+          className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-full"
+          style={{ background: "var(--rv-accent-subtle)", color: "var(--rv-accent)" }}
+        >
           ✓
         </div>
-        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+        <h1 className="text-xl font-semibold rv-t1" style={{ letterSpacing: "-0.02em" }}>
           Check your email
         </h1>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="mt-2 text-[13px] rv-t3 leading-relaxed">
           We sent a confirmation link to{" "}
-          <span className="font-mono text-zinc-900 dark:text-zinc-50">
-            {email}
-          </span>
+          <span className="font-mono rv-t1">{email}</span>
           . Click it to activate your account, then sign in.
         </p>
         <button
@@ -223,7 +225,7 @@ export default function LoginForm({
             setMode("signin");
             setStatus({ state: "idle" });
           }}
-          className="mt-6 text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50"
+          className="mt-6 text-[13px] font-medium rv-t1 underline underline-offset-2"
         >
           Back to sign in
         </button>
@@ -231,11 +233,13 @@ export default function LoginForm({
     );
   }
 
-  // Compact (Electron) — flat dark form, no card, no scroll
+  // Compact (Electron) — flat dark form, no card, no scroll.
+  // Rendered inside a `dark`-classed container so --rv-* tokens resolve
+  // to dark-mode values against the #0a0a0b Electron login window.
   if (compact) {
     return (
       <div className="w-full max-w-xs">
-        <p className="mb-3 text-center text-xs text-zinc-500">
+        <p className="mb-3 text-center text-[11px] rv-t3">
           {mode === "signup" ? "Create your account" : "Sign in to your account"}
         </p>
 
@@ -244,7 +248,11 @@ export default function LoginForm({
           type="button"
           onClick={signInWithGoogle}
           disabled={busy || oauthBusy}
-          className="mb-3 inline-flex w-full items-center justify-center gap-2.5 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mb-3 inline-flex w-full items-center justify-center gap-2.5 rounded-lg px-4 py-2.5 text-[13px] font-medium rv-t1 transition disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            background: "var(--rv-fill-2)",
+            border: "1px solid var(--rv-fill-border)",
+          }}
         >
           <GoogleIcon />
           {oauthBusy ? "Redirecting…" : "Continue with Google"}
@@ -252,45 +260,51 @@ export default function LoginForm({
 
         {/* Divider */}
         <div className="mb-3 flex items-center gap-3">
-          <div className="flex-1 h-px bg-zinc-800" />
-          <span className="text-xs text-zinc-600">or</span>
-          <div className="flex-1 h-px bg-zinc-800" />
+          <div className="flex-1 h-px" style={{ background: "var(--rv-fill-border)" }} />
+          <span className="text-[11px] rv-t4">or</span>
+          <div className="flex-1 h-px" style={{ background: "var(--rv-fill-border)" }} />
         </div>
 
         <form onSubmit={submit} className="flex flex-col gap-2.5">
           <div className="flex flex-col gap-1">
-            <label htmlFor="email" className="text-xs font-medium text-zinc-400">Email</label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500/30"
-            />
+            <label htmlFor="email-compact" className="text-[11px] font-medium rv-t3">Email</label>
+            <div className="rv-input flex items-center px-3 py-2">
+              <input
+                id="email-compact"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="flex-1 bg-transparent text-[13px] rv-t1 placeholder:rv-t4"
+                placeholder="you@example.com"
+              />
+            </div>
           </div>
           <div className="flex flex-col gap-1">
-            <label htmlFor="password" className="text-xs font-medium text-zinc-400">Password</label>
-            <input
-              id="password"
-              type="password"
-              autoComplete={mode === "signup" ? "new-password" : "current-password"}
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500/30"
-            />
+            <label htmlFor="password-compact" className="text-[11px] font-medium rv-t3">Password</label>
+            <div className="rv-input flex items-center px-3 py-2">
+              <input
+                id="password-compact"
+                type="password"
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="flex-1 bg-transparent text-[13px] rv-t1"
+              />
+            </div>
           </div>
 
           {mode === "signup" && (
-            <label className="mt-1 flex items-start gap-2 text-[11px] leading-snug text-zinc-400">
+            <label className="mt-1 flex items-start gap-2 text-[11px] leading-snug rv-t3">
               <input
                 type="checkbox"
                 checked={termsAccepted}
                 onChange={(e) => setTermsAccepted(e.target.checked)}
-                className="mt-0.5 h-3.5 w-3.5 rounded border border-zinc-600 bg-zinc-900 text-zinc-100 accent-zinc-100"
+                className="mt-0.5 h-3.5 w-3.5 rounded"
+                style={{ accentColor: "var(--rv-accent)" }}
               />
               <span>
                 I agree to the{" "}
@@ -298,7 +312,7 @@ export default function LoginForm({
                   href="https://realverdict.app/terms"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-medium text-zinc-200 underline underline-offset-2 hover:text-white"
+                  className="rv-t1 underline underline-offset-2"
                 >
                   Terms of Service
                 </a>{" "}
@@ -307,7 +321,7 @@ export default function LoginForm({
                   href="https://realverdict.app/privacy"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-medium text-zinc-200 underline underline-offset-2 hover:text-white"
+                  className="rv-t1 underline underline-offset-2"
                 >
                   Privacy Policy
                 </a>
@@ -317,7 +331,10 @@ export default function LoginForm({
           )}
 
           {status.state === "error" && (
-            <div className="rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+            <div
+              className="rounded-lg px-3 py-2 text-[12px]"
+              style={{ background: "var(--rv-bad-sub)", color: "var(--rv-bad)", border: "1px solid var(--rv-bad)" }}
+            >
               {status.message}
             </div>
           )}
@@ -325,7 +342,7 @@ export default function LoginForm({
           <button
             type="submit"
             disabled={busy || (mode === "signup" && !termsAccepted)}
-            className="mt-1 inline-flex h-9 items-center justify-center rounded-lg bg-white text-sm font-semibold text-zinc-900 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1 rv-pill disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
           </button>
@@ -335,7 +352,7 @@ export default function LoginForm({
           <button
             type="button"
             onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setStatus({ state: "idle" }); }}
-            className="text-xs text-zinc-500 hover:text-zinc-300 transition"
+            className="text-[11px] rv-t4 hover:rv-t2 transition"
           >
             {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
           </button>
@@ -346,12 +363,15 @@ export default function LoginForm({
 
   // Standard web layout (with card)
   return (
-    <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="mb-6 flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+    <div
+      className="w-full max-w-md rounded-2xl p-8 rv-shadow-md"
+      style={{ background: "var(--rv-surface-1)", border: "1px solid var(--rv-fill-border)" }}
+    >
+      <div className="mb-6 flex flex-col gap-1.5">
+        <h1 className="text-[22px] font-semibold rv-t1" style={{ letterSpacing: "-0.022em" }}>
           {mode === "signup" ? "Create your account" : "Welcome back"}
         </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="text-[13px] rv-t3">
           {mode === "signup"
             ? "Save deals and build your portfolio."
             : "Sign in to access your dashboard."}
@@ -363,7 +383,10 @@ export default function LoginForm({
         type="button"
         onClick={signInWithGoogle}
         disabled={busy || oauthBusy}
-        className="mb-4 inline-flex w-full items-center justify-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-900 shadow-sm transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:bg-zinc-800"
+        className="mb-4 inline-flex w-full items-center justify-center gap-2.5 rounded-lg px-4 py-2.5 text-[13px] font-medium rv-t1 transition disabled:cursor-not-allowed disabled:opacity-60"
+        style={{ background: "var(--rv-fill-1)", border: "1px solid var(--rv-fill-border)" }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--rv-fill-2)")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "var(--rv-fill-1)")}
       >
         <GoogleIcon />
         {oauthBusy ? "Redirecting…" : "Continue with Google"}
@@ -371,48 +394,58 @@ export default function LoginForm({
 
       {/* Divider */}
       <div className="mb-4 flex items-center gap-3">
-        <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-800" />
-        <span className="text-xs text-zinc-400">or</span>
-        <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-800" />
+        <div className="flex-1 h-px" style={{ background: "var(--rv-fill-border)" }} />
+        <span className="text-[11px] rv-t4">or</span>
+        <div className="flex-1 h-px" style={{ background: "var(--rv-fill-border)" }} />
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="email" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Email</label>
-          <input
-            id="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-200 dark:focus:ring-zinc-100/10"
-          />
+          <label htmlFor="email" className="text-[11px] font-semibold uppercase tracking-[0.08em] rv-t3">
+            Email
+          </label>
+          <div className="rv-input flex items-center px-3 py-2.5">
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="flex-1 bg-transparent text-[13px] rv-t1 placeholder:rv-t4"
+              placeholder="you@example.com"
+            />
+          </div>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="password" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Password</label>
-          <input
-            id="password"
-            type="password"
-            autoComplete={mode === "signup" ? "new-password" : "current-password"}
-            required
-            minLength={6}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-200 dark:focus:ring-zinc-100/10"
-          />
+          <label htmlFor="password" className="text-[11px] font-semibold uppercase tracking-[0.08em] rv-t3">
+            Password
+          </label>
+          <div className="rv-input flex items-center px-3 py-2.5">
+            <input
+              id="password"
+              type="password"
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="flex-1 bg-transparent text-[13px] rv-t1"
+            />
+          </div>
           {mode === "signup" && (
-            <p className="text-xs text-zinc-500">At least 6 characters.</p>
+            <p className="text-[11px] rv-t4">At least 6 characters.</p>
           )}
         </div>
 
         {mode === "signup" && (
-          <label className="flex items-start gap-2.5 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+          <label className="flex items-start gap-2.5 text-[12px] leading-snug rv-t3">
             <input
               type="checkbox"
               checked={termsAccepted}
               onChange={(e) => setTermsAccepted(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border border-zinc-300 text-zinc-900 accent-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:accent-zinc-100"
+              className="mt-0.5 h-4 w-4 rounded"
+              style={{ accentColor: "var(--rv-accent)" }}
             />
             <span>
               I agree to the{" "}
@@ -420,7 +453,7 @@ export default function LoginForm({
                 href="/terms"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
+                className="rv-t1 font-medium underline underline-offset-2"
               >
                 Terms of Service
               </a>{" "}
@@ -429,7 +462,7 @@ export default function LoginForm({
                 href="/privacy"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
+                className="rv-t1 font-medium underline underline-offset-2"
               >
                 Privacy Policy
               </a>
@@ -439,7 +472,10 @@ export default function LoginForm({
         )}
 
         {status.state === "error" && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+          <div
+            className="rounded-lg px-3 py-2 text-[12px] leading-snug"
+            style={{ background: "var(--rv-bad-sub)", color: "var(--rv-bad)", border: "1px solid var(--rv-bad)" }}
+          >
             {status.message}
           </div>
         )}
@@ -447,21 +483,21 @@ export default function LoginForm({
         <button
           type="submit"
           disabled={busy || (mode === "signup" && !termsAccepted)}
-          className="mt-2 inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="mt-1 rv-pill disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
       </form>
 
-      <div className="mt-4 flex items-center justify-between text-sm">
+      <div className="mt-4 flex items-center justify-between text-[13px]">
         <button
           type="button"
           onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setStatus({ state: "idle" }); }}
-          className="font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          className="rv-t3 hover:rv-t1 transition-colors"
         >
           {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
         </button>
-        <Link href="/" className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+        <Link href="/" className="rv-t4 hover:rv-t2 transition-colors">
           Back home
         </Link>
       </div>
