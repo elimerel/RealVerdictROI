@@ -13,10 +13,10 @@
   --rv-raised:   #1e1e22;
   --rv-overlay:  #252529;
 
-  /* Glass — semi-transparent so macOS vibrancy material shows through */
-  --rv-glass:        rgba(13, 13, 15, 0.55);
-  --rv-glass-mid:    rgba(13, 13, 15, 0.42);
-  --rv-glass-light:  rgba(13, 13, 15, 0.28);
+  /* Glass — white-tinted so vibrancy reads lighter than the solid content */
+  --rv-glass:        rgba(255, 255, 255, 0.05);
+  --rv-glass-mid:    rgba(255, 255, 255, 0.07);
+  --rv-glass-light:  rgba(255, 255, 255, 0.03);
 
   /* Text */
   --rv-t1: rgba(245, 245, 247, 0.95);
@@ -24,10 +24,10 @@
   --rv-t3: rgba(245, 245, 247, 0.33);
   --rv-t4: rgba(245, 245, 247, 0.16);
 
-  /* Borders */
-  --rv-border:     rgba(255, 255, 255, 0.07);
-  --rv-border-mid: rgba(255, 255, 255, 0.11);
-  --rv-border-hi:  rgba(255, 255, 255, 0.18);
+  /* Borders — hairline style (pair with border-width: 0.5px) */
+  --rv-border:     rgba(255, 255, 255, 0.09);
+  --rv-border-mid: rgba(255, 255, 255, 0.14);
+  --rv-border-hi:  rgba(255, 255, 255, 0.22);
 
   /* Accent — forest green */
   --rv-accent:        #30a46c;
@@ -150,12 +150,37 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* macOS uses arrow cursor for all UI — pointer is only for external links */
+    cursor: default;
+    /* No text selection on UI chrome */
+    user-select: none;
+    /* 0.5px hairline borders — the macOS signature look */
+    border-width: 0.5px;
   }
+
+  /* Re-enable text selection for actual content */
+  p, span, h1, h2, h3, h4, input, textarea, [data-selectable] {
+    user-select: text;
+  }
+
+  input, textarea, [contenteditable] {
+    cursor: text;
+  }
+
+  html {
+    /* 13px base — native macOS UI default, not web's 16px */
+    font-size: 13px;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+                 ui-sans-serif, system-ui, sans-serif;
+  }
+
   body {
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-size: 13px;
   }
+
   /* Transparent window body so vibrancy shows through in glass areas */
   .electron body {
     background: transparent;

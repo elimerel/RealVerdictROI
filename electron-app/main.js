@@ -348,6 +348,7 @@ function createAppWindow() {
     // backgroundColor must be absent (or fully transparent) for vibrancy to show.
     transparent: true,
     vibrancy: "sidebar",
+    visualEffectState: "active",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 14, y: 10 },
     acceptFirstMouse: true,
