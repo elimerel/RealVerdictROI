@@ -62,8 +62,8 @@ export default async function LoginPage({
         ) : (
           <UnconfiguredNotice />
         )}
-      </div>  {/* inner flex */}
-      </div>  {/* outer wrapper */}
+      </div>
+      </div>
     )
   }
 
