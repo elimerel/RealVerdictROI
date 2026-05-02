@@ -657,10 +657,10 @@ function shrinkToLogin() {
 // WebContentsView
 // ---------------------------------------------------------------------------
 
-// Toolbar height in CSS pixels — must match `h-10` (40px) on the React
-// Toolbar component inside nextView.  Hardcoded here so the main process
-// can position browserView without an IPC roundtrip on every resize tick.
-const TOOLBAR_H = 40
+// Toolbar height in CSS pixels — must match the React Toolbar's height
+// (52px). If this drifts, browserView overlaps the bottom strip of the
+// toolbar and intercepts clicks meant for the URL bar / nav buttons.
+const TOOLBAR_H = 52
 
 // Sidebar geometry — main is the source of truth so window-resize and
 // sidebar-drag layouts can be computed without waiting on shell IPC.
