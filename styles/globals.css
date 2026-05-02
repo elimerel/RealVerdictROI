@@ -3,116 +3,148 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── RealVerdict design tokens ────────────────────────────────────────────── */
+/* Always dark. Both :root and .dark define the same values so the dark-class  */
+/* toggle is a no-op — the app is opinionated about its aesthetic.             */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Surfaces */
+  --rv-bg:       #0d0d0f;
+  --rv-surface:  #161618;
+  --rv-raised:   #1e1e22;
+  --rv-overlay:  #252529;
+
+  /* Glass — semi-transparent for vibrancy windows */
+  --rv-glass:        rgba(13, 13, 15, 0.80);
+  --rv-glass-mid:    rgba(13, 13, 15, 0.70);
+  --rv-glass-light:  rgba(13, 13, 15, 0.55);
+
+  /* Text */
+  --rv-t1: rgba(245, 245, 247, 0.95);
+  --rv-t2: rgba(245, 245, 247, 0.58);
+  --rv-t3: rgba(245, 245, 247, 0.33);
+  --rv-t4: rgba(245, 245, 247, 0.16);
+
+  /* Borders */
+  --rv-border:     rgba(255, 255, 255, 0.07);
+  --rv-border-mid: rgba(255, 255, 255, 0.11);
+  --rv-border-hi:  rgba(255, 255, 255, 0.18);
+
+  /* Accent — forest green */
+  --rv-accent:        #30a46c;
+  --rv-accent-dim:    rgba(48, 164, 108, 0.14);
+  --rv-accent-border: rgba(48, 164, 108, 0.26);
+
+  /* Signals */
+  --rv-good:    #30a46c;
+  --rv-good-bg: rgba(48, 164, 108, 0.12);
+  --rv-warn:    #f59e0b;
+  --rv-warn-bg: rgba(245, 158, 11, 0.12);
+  --rv-bad:     #ef4444;
+  --rv-bad-bg:  rgba(239, 68, 68, 0.11);
+
+  /* Source confidence chips */
+  --rv-src-hi-bg: rgba(48, 164, 108, 0.14);
+  --rv-src-hi-fg: #30a46c;
+  --rv-src-md-bg: rgba(245, 158, 11, 0.12);
+  --rv-src-md-fg: #f59e0b;
+  --rv-src-lo-bg: rgba(239, 68, 68, 0.10);
+  --rv-src-lo-fg: #ef4444;
+
+  /* ── Aliases for existing components ────────────────────────────────────── */
+
+  /* Panel (always dark glass) */
+  --p-bg:         var(--rv-glass);
+  --p-surface:    var(--rv-raised);
+  --p-raised:     var(--rv-overlay);
+  --p-border:     var(--rv-border);
+  --p-border-sub: var(--rv-border);
+  --p-t1:         var(--rv-t1);
+  --p-t2:         var(--rv-t2);
+  --p-t3:         var(--rv-t3);
+  --p-t4:         var(--rv-t4);
+
+  /* Frame (toolbar / browse shell) — also glass */
+  --f-bg:      var(--rv-bg);
+  --f-toolbar: var(--rv-glass);
+  --f-border:  var(--rv-border);
+  --f-t1:      var(--rv-t1);
+  --f-t2:      var(--rv-t2);
+  --f-t3:      var(--rv-t3);
+  --f-t4:      var(--rv-t4);
+
+  /* Global signals + accent (legacy names) */
+  --accent:        var(--rv-accent);
+  --accent-dim:    var(--rv-accent-dim);
+  --accent-border: var(--rv-accent-border);
+  --good:          var(--rv-good);
+  --good-bg:       var(--rv-good-bg);
+  --warn:          var(--rv-warn);
+  --warn-bg:       var(--rv-warn-bg);
+  --bad:           var(--rv-bad);
+  --bad-bg:        var(--rv-bad-bg);
+  --src-hi-bg:     var(--rv-src-hi-bg);
+  --src-hi-fg:     var(--rv-src-hi-fg);
+  --src-md-bg:     var(--rv-src-md-bg);
+  --src-md-fg:     var(--rv-src-md-fg);
+  --src-lo-bg:     var(--rv-src-lo-bg);
+  --src-lo-fg:     var(--rv-src-lo-fg);
+
+  /* ── Shadcn / Tailwind compatibility ────────────────────────────────────── */
+  --background:           var(--rv-bg);
+  --foreground:           var(--rv-t1);
+  --card:                 var(--rv-surface);
+  --card-foreground:      var(--rv-t1);
+  --popover:              var(--rv-overlay);
+  --popover-foreground:   var(--rv-t1);
+  --primary:              var(--rv-t1);
+  --primary-foreground:   var(--rv-bg);
+  --secondary:            var(--rv-raised);
+  --secondary-foreground: var(--rv-t1);
+  --muted:                var(--rv-raised);
+  --muted-foreground:     var(--rv-t3);
+  --destructive:          var(--rv-bad);
+  --destructive-foreground: #fff;
+  --border:               var(--rv-border);
+  --input:                var(--rv-surface);
+  --ring:                 var(--rv-accent-border);
+  --radius:               0.625rem;
+  --sidebar:              var(--rv-surface);
+  --sidebar-foreground:   var(--rv-t1);
+  --sidebar-border:       var(--rv-border);
 }
 
+/* .dark mirrors :root — app is always dark regardless of system setting */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --background: var(--rv-bg);
+  --foreground:  var(--rv-t1);
+  --border:      var(--rv-border);
+  --input:       var(--rv-surface);
 }
 
 @theme inline {
-  --font-sans: 'Geist', 'Geist Fallback';
-  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
+  --color-background:            var(--background);
+  --color-foreground:            var(--foreground);
+  --color-card:                  var(--card);
+  --color-card-foreground:       var(--card-foreground);
+  --color-popover:               var(--popover);
+  --color-popover-foreground:    var(--popover-foreground);
+  --color-primary:               var(--primary);
+  --color-primary-foreground:    var(--primary-foreground);
+  --color-secondary:             var(--secondary);
+  --color-secondary-foreground:  var(--secondary-foreground);
+  --color-muted:                 var(--muted);
+  --color-muted-foreground:      var(--muted-foreground);
+  --color-destructive:           var(--destructive);
+  --color-border:                var(--border);
+  --color-input:                 var(--input);
+  --color-ring:                  var(--ring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar:               var(--sidebar);
+  --color-sidebar-foreground:    var(--sidebar-foreground);
+  --color-sidebar-border:        var(--sidebar-border);
 }
 
 @layer base {
@@ -121,5 +153,46 @@
   }
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+  /* Transparent window body so vibrancy shows through in glass areas */
+  .electron body {
+    background: transparent;
+  }
+}
+
+/* ── Panel slide animations ───────────────────────────────────────────────── */
+@keyframes panelIn {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes panelOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(16px); }
+}
+.panel-enter { animation: panelIn  220ms cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+.panel-exit  { animation: panelOut 180ms cubic-bezier(0.55, 0, 1, 0.45) forwards; }
+
+/* ── Analyzing dots ───────────────────────────────────────────────────────── */
+@keyframes dotPulse {
+  0%, 80%, 100% { transform: scale(0.55); opacity: 0.35; }
+  40%           { transform: scale(1);    opacity: 1;    }
+}
+.dot-pulse { animation: dotPulse 1.4s ease-in-out infinite; }
+
+/* ── Ring pulse (analyzing state) ────────────────────────────────────────── */
+@keyframes ringPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(48, 164, 108, 0.45); }
+  70%  { box-shadow: 0 0 0 12px rgba(48, 164, 108, 0);   }
+  100% { box-shadow: 0 0 0 0   rgba(48, 164, 108, 0);    }
+}
+.ring-pulse { animation: ringPulse 1.6s ease-in-out infinite; }
+
+/* ── Thin scrollbar for panel ────────────────────────────────────────────── */
+.panel-scroll::-webkit-scrollbar       { width: 3px; }
+.panel-scroll::-webkit-scrollbar-track { background: transparent; }
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: var(--rv-border-mid);
+  border-radius: 2px;
 }

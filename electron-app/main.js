@@ -1,6 +1,6 @@
 "use strict"
 
-const { app, BrowserWindow, WebContentsView, ipcMain, screen, session, Menu } = require("electron")
+const { app, BrowserWindow, WebContentsView, ipcMain, screen, session, Menu, nativeTheme } = require("electron")
 const path = require("path")
 const fs = require("fs")
 
@@ -344,16 +344,12 @@ function createAppWindow() {
     ...centeredBounds(LOGIN_W, LOGIN_H),
     resizable: false,
     show: false,
-    backgroundColor: "#08080f",
-    // hiddenInset from the start so traffic lights are always in place
-    // and the window can expand into main-app mode without recreating it.
+    // transparent + vibrancy gives us real macOS glass on the toolbar/panel.
+    // backgroundColor must be absent (or fully transparent) for vibrancy to show.
+    transparent: true,
+    vibrancy: "sidebar",
     titleBarStyle: "hiddenInset",
-    // x=14: slight inset from window edge. y=10: vertically centered in
-    // the 28px drag zone, matching the sidebar logo's clear breathing room.
     trafficLightPosition: { x: 14, y: 10 },
-    // macOS: pass the first click straight to the web content instead of
-    // just focusing the window.  Without this the user has to click twice
-    // before any button or input responds, making the login form feel broken.
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -1547,6 +1543,7 @@ ipcMain.handle("extract:debug:last", () => {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  nativeTheme.themeSource = "dark"
   Menu.setApplicationMenu(buildAppMenu())
   createAppWindow()
 

@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require("electron")
 
 if (typeof document !== "undefined" && document.documentElement) {
-  document.documentElement.classList.add("electron")
+  document.documentElement.classList.add("electron", "dark")
 }
 
 contextBridge.exposeInMainWorld("electronAPI", {
