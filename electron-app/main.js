@@ -113,7 +113,7 @@ function buildAppMenu() {
         {
           label: "Open URL Bar",
           accelerator: "CmdOrCtrl+L",
-          click: () => appWindow?.webContents.send("browser:focus-urlbar"),
+          click: () => broadcast("browser:focus-urlbar"),
         },
         { type: "separator" },
         {
@@ -273,6 +273,26 @@ let nextViewBounds = null
 
 
 let isMainMode = false   // tracks whether window is currently in main-app mode
+
+// ---------------------------------------------------------------------------
+// IPC fan-out
+// ---------------------------------------------------------------------------
+//
+// The shell HTML (loaded into appWindow.webContents) and the Next.js app
+// (loaded into nextView.webContents) are SEPARATE webContents.  An IPC
+// message sent to one is invisible to the other.  Most app events
+// (browser:nav-update, panel:*) need to reach the React side inside
+// nextView, so a bare `appWindow.webContents.send(...)` silently swallows
+// them.  This helper fans out to whichever contexts are alive — sending
+// to a context with no listener is harmless.
+function broadcast(channel, ...args) {
+  if (appWindow && !appWindow.isDestroyed()) {
+    appWindow.webContents.send(channel, ...args)
+  }
+  if (nextView && !nextView.webContents.isDestroyed()) {
+    nextView.webContents.send(channel, ...args)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Window helpers
@@ -565,10 +585,18 @@ function createNextView(initialRoute = "/browse") {
 
   // Forward route changes back to the shell so the sidebar's active item
   // stays in sync (e.g. when the user uses keyboard shortcuts inside the app).
+  // Also gates the embedded browserView: it's only relevant on /browse, so
+  // we park it off-screen on other routes — otherwise it'd float over the
+  // Pipeline / Settings views (hard navigation tears down the React JS
+  // context, so the renderer's destroyBrowser cleanup never fires).
   nextView.webContents.on("did-navigate", (_e, url) => {
     try {
       const path = new URL(url).pathname
-      appWindow?.webContents.send("shell:active-route", path)
+      broadcast("shell:active-route", path)
+      if (browserView) {
+        if (path === "/browse") showBrowserView()
+        else                    hideBrowserView()
+      }
     } catch { /* ignore */ }
   })
 
@@ -671,7 +699,7 @@ function createBrowserView() {
   const sendNav = (ready = false) => {
     if (!appWindow || !browserView) return
     const url = browserView.webContents.getURL()
-    appWindow.webContents.send("browser:nav-update", {
+    broadcast("browser:nav-update", {
       url,
       title:     browserView.webContents.getTitle(),
       isListing: shouldAutoExtract(url),
@@ -684,7 +712,7 @@ function createBrowserView() {
   browserView.webContents.on("did-navigate-in-page", () => sendNav(false))
   browserView.webContents.on("page-title-updated",   () => sendNav(false))
   browserView.webContents.on("did-start-loading", () => {
-    appWindow?.webContents.send("browser:nav-update", { loading: true })
+    broadcast("browser:nav-update", { loading: true })
   })
   browserView.webContents.on("did-stop-loading", () => {
     sendNav(true)
@@ -706,7 +734,7 @@ function createBrowserView() {
     // which would be a no-op anyway since there's no visible URL bar in the view.
     if (mod && !input.shift && !input.alt && input.key === "l") {
       event.preventDefault()
-      appWindow?.webContents.send("browser:focus-urlbar")
+      broadcast("browser:focus-urlbar")
       return
     }
 
@@ -1023,12 +1051,12 @@ async function autoAnalyze() {
 
   const url = browserView.webContents.getURL()
   if (!shouldAutoExtract(url)) {
-    appWindow.webContents.send("panel:hide")
+    broadcast("panel:hide")
     return
   }
 
   autoAnalyzing = true
-  appWindow.webContents.send("panel:analyzing")
+  broadcast("panel:analyzing")
   lastExtractDebug = { stage: "started", at: new Date().toISOString() }
 
   try {
@@ -1056,18 +1084,18 @@ async function autoAnalyze() {
     }
 
     if (!dom || (dom.text?.length ?? 0) < 200) {
-      appWindow.webContents.send("panel:error", "Couldn't read enough page content. Try refreshing the listing.")
+      broadcast("panel:error", "Couldn't read enough page content. Try refreshing the listing.")
       return
     }
 
     if (looksLikeCaptcha(dom.title, dom.text)) {
-      appWindow.webContents.send("panel:error", "Verify you're not a robot, then the panel will populate.")
+      broadcast("panel:error", "Verify you're not a robot, then the panel will populate.")
       return
     }
 
     const sig = scanSignals(dom.text, dom.url)
     if (sig.looksLikeSearchResults || !sig.looksLikeListing) {
-      appWindow.webContents.send("panel:hide")
+      broadcast("panel:hide")
       return
     }
 
@@ -1080,13 +1108,13 @@ async function autoAnalyze() {
     }
 
     if (!extracted) {
-      appWindow.webContents.send("panel:error", "Add an Anthropic key in Settings to enable auto-analysis.")
+      broadcast("panel:error", "Add an Anthropic key in Settings to enable auto-analysis.")
       return
     }
 
     const extractResult = postProcess(extracted, hostname, "anthropic")
     if (!extractResult?.ok) {
-      appWindow.webContents.send("panel:error", extractResult?.message ?? "Couldn't read this listing.")
+      broadcast("panel:error", extractResult?.message ?? "Couldn't read this listing.")
       return
     }
 
@@ -1100,17 +1128,17 @@ async function autoAnalyze() {
 
     if (!analyzeRes.ok) {
       const body = await analyzeRes.json().catch(() => ({}))
-      appWindow.webContents.send("panel:error", body?.message ?? "Analysis failed. Please try again.")
+      broadcast("panel:error", body?.message ?? "Analysis failed. Please try again.")
       return
     }
 
     const panelResult = await analyzeRes.json()
-    appWindow.webContents.send("panel:ready", panelResult)
+    broadcast("panel:ready", panelResult)
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error("[autoAnalyze] error:", msg)
-    appWindow.webContents.send("panel:error", "Something went wrong. Try refreshing the page.")
+    broadcast("panel:error", "Something went wrong. Try refreshing the page.")
   } finally {
     autoAnalyzing = false
   }
@@ -1570,12 +1598,7 @@ ipcMain.handle("shell:navigate", (_e, route) => {
 let sidebarOpen = true
 
 function broadcastSidebarState() {
-  if (appWindow && !appWindow.isDestroyed()) {
-    appWindow.webContents.send("sidebar:state", sidebarOpen)
-  }
-  if (nextView && !nextView.webContents.isDestroyed()) {
-    nextView.webContents.send("sidebar:state", sidebarOpen)
-  }
+  broadcast("sidebar:state", sidebarOpen)
 }
 
 ipcMain.handle("sidebar:get-state", () => {
