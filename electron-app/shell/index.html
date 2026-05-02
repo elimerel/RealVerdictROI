@@ -73,18 +73,6 @@
     <main id="contentPane" class="content-pane"></main>
   </div>
 
-  <!-- ─── Unified sidebar toggle button (always-visible, fixed position) ──
-       Lives outside #app at fixed top:12 left:84.  Stays in this exact
-       same spot whether sidebar is open or hidden — same icon, just
-       toggles the sidebar each click.  Lives in the shell webContents so
-       drag regions don't fight the click. -->
-  <button id="sidebarToggle" class="sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-      <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.4"/>
-      <line x1="6" y1="3" x2="6" y2="13" stroke="currentColor" stroke-width="1.4"/>
-    </svg>
-  </button>
-
   <script src="shell.js"></script>
 </body>
 </html>

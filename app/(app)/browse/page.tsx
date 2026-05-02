@@ -105,12 +105,11 @@ export default function BrowsePage() {
         urlbarRef={urlbarRef}
       />
 
-      {/* Browser pane has SOLID dark bg — websites and StartScreen render on
-          a real surface. Toolbar above stays transparent so vibrancy shows. */}
-      <div
-        className="flex flex-1 min-h-0 relative"
-        style={{ background: "#0d0d0f" }}
-      >
+      {/* Browser pane stays transparent — the embedded browserView paints
+          its own opaque backdrop when a URL is loaded; otherwise the macOS
+          vibrancy material shows through, giving the StartScreen the same
+          frosted-glass feel as the rest of the shell chrome. */}
+      <div className="flex flex-1 min-h-0 relative">
         <div className="flex-1 min-w-0 relative">
           {showPlaceholder && <StartScreen onNavigate={navigate} />}
         </div>
@@ -283,9 +282,11 @@ function StartScreen({ onNavigate }: { onNavigate: (url: string) => void }) {
   return (
     <div
       // GPU-compositing hint — `will-change: transform` puts this on its own
-      // layer so window resize doesn't repaint it
+      // layer so window resize doesn't repaint it. No opaque background:
+      // macOS vibrancy reads through nextView (transparent webContents bg)
+      // for native chrome feel.
       className="absolute inset-0 flex flex-col items-center justify-center px-8 select-none rv-start-fade"
-      style={{ background: "var(--rv-bg)", willChange: "transform" }}
+      style={{ willChange: "transform" }}
     >
       {/* Soft radial glow from the forest-green accent */}
       <div

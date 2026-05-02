@@ -8,11 +8,10 @@
 
   const app            = $("app")
   const sidebar        = $("sidebar")
-  const sidebarToggle  = $("sidebarToggle")
   const resizeHandle   = $("resizeHandle")
   const pane           = $("contentPane")
 
-  if (!app || !sidebar || !sidebarToggle || !resizeHandle || !pane) {
+  if (!app || !sidebar || !resizeHandle || !pane) {
     console.error("[shell] missing critical DOM nodes — aborting")
     return
   }
@@ -41,19 +40,17 @@
     animateBounds(220)  // matches the new transition duration
   }
 
-  function animateBounds(duration) {
-    const start = performance.now()
-    function step() {
-      pushBounds()
-      if (performance.now() - start < duration) requestAnimationFrame(step)
-    }
-    requestAnimationFrame(step)
+  function animateBounds(_duration) {
+    // No-op now: main owns layout and recomputes synchronously on every
+    // window-resize tick, sidebar toggle, and sidebar-drag mousemove.
+    // The CSS transition on .sidebar visually animates width on its own.
   }
 
   function setExpandedWidth(w, { persist = true } = {}) {
     expandedWidth = Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, w))
     document.documentElement.style.setProperty("--sidebar-w", `${expandedWidth}px`)
     if (persist) localStorage.setItem(STORAGE_W, String(expandedWidth))
+    window.shellAPI?.setSidebarWidth?.(expandedWidth)
   }
 
   // Restore persisted width
@@ -89,14 +86,6 @@
     })
   }
 
-  // ── Unified toggle button → toggleSidebar ────────────────────────────────
-  // Same button handles both hide AND show.  Stays in the same spot.
-  sidebarToggle.addEventListener("click", (e) => {
-    e.stopPropagation()
-    console.log("[shell] sidebarToggle clicked, current openMirror:", openMirror)
-    window.shellAPI?.toggleSidebar?.()
-  })
-
   // ── Drag-to-resize ──────────────────────────────────────────────────────
   let dragStartX     = 0
   let dragStartWidth = 0
@@ -123,7 +112,8 @@
     const w = Math.max(0, Math.min(SIDEBAR_MAX_W, target))
     sidebar.style.width = `${w}px`
     document.documentElement.style.setProperty("--sidebar-w", `${Math.max(SIDEBAR_MIN_W, w)}px`)
-    pushBounds()
+    // Tell main the live width so nextView/browserView reflow per tick.
+    window.shellAPI?.setSidebarWidth?.(w)
   })
 
   window.addEventListener("mouseup", (e) => {
@@ -165,8 +155,12 @@
     window.shellAPI.onActiveRoute((route) => setActive(route))
   }
 
-  // ── Push content-pane bounds to main ────────────────────────────────────
-  function pushBounds() {
+  // ── First-paint signal — triggers nextView creation in main ────────────
+  // Main computes layout on its own from cached sidebarWidth + sidebarOpen,
+  // so we don't push bounds anymore. We just need to nudge it once so it
+  // creates nextView. The bounds value is ignored on the main side, but
+  // we keep the legacy IPC contract intact.
+  function notifyShellReady() {
     if (!pane || !window.shellAPI) return
     const r = pane.getBoundingClientRect()
     window.shellAPI.setContentBounds({
@@ -175,12 +169,11 @@
       width:  Math.max(100, Math.round(r.width)),
       height: Math.max(100, Math.round(r.height)),
     })
+    window.shellAPI.setSidebarWidth?.(expandedWidth)
   }
 
-  window.addEventListener("resize", pushBounds)
-  new ResizeObserver(pushBounds).observe(pane)
-  requestAnimationFrame(pushBounds)
-  ;[100, 300, 600].forEach((ms) => setTimeout(pushBounds, ms))
+  requestAnimationFrame(notifyShellReady)
+  ;[100, 300, 600].forEach((ms) => setTimeout(notifyShellReady, ms))
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────
   window.addEventListener("keydown", (e) => {

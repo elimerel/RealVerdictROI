@@ -462,10 +462,10 @@ function createAppWindow() {
   }
 
   appWindow.on("resize", () => {
-    // The shell pushes new content-pane bounds via ResizeObserver, which
-    // will call applyLayout from the shell:content-bounds handler. Calling
-    // it here too is a fallback for the rare frame where the shell hasn't
-    // ticked yet — we re-apply against the latest nextViewBounds we know.
+    // Main owns layout — recompute synchronously on every native resize
+    // tick from getContentBounds() + cached sidebar/panel state. This
+    // skips the shell's DOM ResizeObserver + IPC roundtrip, keeping the
+    // embedded views glued to the window edge without a frame of lag.
     applyLayout()
     persistMainBounds()
   })
@@ -564,6 +564,14 @@ function createNextView(initialRoute = "/browse") {
     },
   })
 
+  // Transparent compositor backdrop — combined with `html.electron body
+  // { background: transparent }` in globals.css, this lets the macOS
+  // sidebar vibrancy material show through wherever a page doesn't
+  // explicitly paint an opaque background. Pages that need an opaque
+  // surface (Pipeline, Settings) set their own bg; Browse leaves the
+  // start-screen area transparent so vibrancy reads as native chrome.
+  try { nextView.webContents.setBackgroundColor("#00000000") } catch { /* best-effort */ }
+
   // Stamp our internal-request marker the same way appWindow does — so
   // /api/* routes can tell this is the desktop app.
   try {
@@ -654,10 +662,16 @@ function shrinkToLogin() {
 // can position browserView without an IPC roundtrip on every resize tick.
 const TOOLBAR_H = 40
 
+// Sidebar geometry — main is the source of truth so window-resize and
+// sidebar-drag layouts can be computed without waiting on shell IPC.
+// Shell pushes any width change via `shell:sidebar-width`; sidebarOpen
+// flips through the existing sidebar:toggle / sidebar:set channels.
+let sidebarWidth = 200
+
 // Renderer-controlled layout. The Next.js renderer pushes panelWidth via
 // `browser:set-layout` whenever the analysis panel opens, closes, or is
-// resized.  Main computes browserView bounds against the *current*
-// nextViewBounds — so window-edge drag-resize and sidebar collapse stay
+// resized.  Main computes browserView bounds against the current window
+// + sidebar state — so window-edge drag-resize and sidebar collapse stay
 // glued to the embedded browser without IPC roundtrips per frame.
 let viewLayout = { panelWidth: 0 }
 
@@ -666,10 +680,33 @@ let viewLayout = { panelWidth: 0 }
 // doesn't unpark it.
 let browserViewHidden = false
 
-// Position browserView WITHIN nextView, taking up the full nextView area
-// minus the toolbar at the top and the analysis panel on the right.
+// Compute nextView's window-relative bounds from the current window size
+// and cached sidebar state. Single source of truth — eliminates the IPC
+// roundtrip-per-frame the shell's ResizeObserver used to do.
+function computeNextViewBounds() {
+  if (!appWindow || appWindow.isDestroyed()) return null
+  const c  = appWindow.getContentBounds()
+  const sb = sidebarOpen ? sidebarWidth : 0
+  return {
+    x:      sb,
+    y:      0,
+    width:  Math.max(100, c.width - sb),
+    height: c.height,
+  }
+}
+
+// Position both nextView (the Next.js content view) and browserView (the
+// embedded site) in a single synchronous pass. browserView lives within
+// nextView, taking the full area minus the toolbar at the top and the
+// analysis panel on the right.
 function applyLayout() {
-  if (!browserView || !appWindow || appWindow.isDestroyed()) return
+  if (!appWindow || appWindow.isDestroyed()) return
+  const b = computeNextViewBounds()
+  if (b) {
+    nextViewBounds = b
+    if (nextView && !nextView.webContents.isDestroyed()) nextView.setBounds(b)
+  }
+  if (!browserView) return
   if (browserViewHidden) return
   const nv = nextViewBounds
   if (!nv) return
@@ -1571,13 +1608,24 @@ function postProcess(raw, hostname, modelUsed) {
 // changes (sidebar collapse, window resize, etc.).  Main re-positions the
 // Next.js WebContentsView accordingly.  Also: the FIRST time bounds arrive,
 // create nextView — this guarantees we don't try to position an unloaded view.
-ipcMain.handle("shell:content-bounds", (_e, bounds) => {
-  nextViewBounds = bounds
+// Shell signals it's ready — first call triggers nextView creation. The
+// `bounds` arg is now ignored: main owns layout via computeNextViewBounds()
+// and recomputes on every relevant trigger (window resize, sidebar toggle,
+// sidebar drag, panel layout change).
+ipcMain.handle("shell:content-bounds", (_e, _bounds) => {
   if (!nextView) {
     createNextView("/browse")
   } else {
-    nextView.setBounds(bounds)
-    applyLayout()  // keep the embedded browserView aligned too
+    applyLayout()
+  }
+})
+
+// Sidebar drag handle pushes its width here on every mousemove tick + on
+// release. Main re-computes nextView and browserView bounds in one pass.
+ipcMain.handle("shell:sidebar-width", (_e, w) => {
+  if (typeof w === "number" && Number.isFinite(w)) {
+    sidebarWidth = Math.max(0, Math.round(w))
+    applyLayout()
   }
 })
 
@@ -1611,6 +1659,7 @@ ipcMain.handle("sidebar:toggle", () => {
   sidebarOpen = !sidebarOpen
   console.log("[main] sidebar:toggle → broadcasting", sidebarOpen)
   broadcastSidebarState()
+  applyLayout()
   return sidebarOpen
 })
 
@@ -1618,6 +1667,7 @@ ipcMain.handle("sidebar:set", (_e, open) => {
   console.log("[main] sidebar:set received:", open)
   sidebarOpen = !!open
   broadcastSidebarState()
+  applyLayout()
   return sidebarOpen
 })
 
@@ -1625,10 +1675,12 @@ ipcMain.handle("sidebar:set", (_e, open) => {
 ipcMain.handle("shell:toggle-sidebar", () => {
   sidebarOpen = !sidebarOpen
   broadcastSidebarState()
+  applyLayout()
 })
 ipcMain.handle("shell:sidebar-state", (_e, open) => {
   sidebarOpen = !!open
   broadcastSidebarState()
+  applyLayout()
 })
 
 // ---------------------------------------------------------------------------

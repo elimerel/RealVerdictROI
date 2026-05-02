@@ -347,44 +347,11 @@ body {
   height: 100%;
   position: relative;
   background: #0a0a0c;
-  transition: margin-left 280ms cubic-bezier(0.32, 0.72, 0, 1);
 }
-
-/* When sidebar is hidden, shift the content-pane right by 120px to leave
-   shell territory visible for the unified toggle button.  WebContentsView
-   follows automatically via pushBounds. */
-#app.sidebar-hidden .content-pane {
-  margin-left: 120px;
-}
-
-/* ── Unified sidebar toggle button ─────────────────────────────────────────
-   Fixed at top:12 left:84 — exact same position whether sidebar is open or
-   hidden.  When sidebar is OPEN, the button is over the sidebar's left area.
-   When HIDDEN, it's in the 120px shell strip.  Stays put either way. */
-.sidebar-toggle {
-  position: fixed;
-  top: 12px;
-  left: 84px;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: rgba(245, 245, 247, 0.42);
-  cursor: default;
-  z-index: 1000;
-  -webkit-app-region: no-drag;
-  transition: color 100ms cubic-bezier(0.4, 0, 0.2, 1),
-              background-color 100ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.sidebar-toggle:hover {
-  color: rgba(245, 245, 247, 0.95);
-  background: rgba(255, 255, 255, 0.08);
-}
+/* No content-pane shift when sidebar collapses — content fills the full
+   window. The sidebar-toggle now lives in the React Toolbar (rendered
+   inside nextView) so it follows the toolbar's left edge instead of
+   needing reserved shell territory. */
 
 /* ── Native StartScreen ────────────────────────────────────────────────────
    Rendered directly by the shell HTML.  No React, no WebContentsView re-

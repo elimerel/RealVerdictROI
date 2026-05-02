@@ -87,6 +87,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 contextBridge.exposeInMainWorld("shellAPI", {
   navigate:         (route)  => ipcRenderer.invoke("shell:navigate", route),
   setContentBounds: (bounds) => ipcRenderer.invoke("shell:content-bounds", bounds),
+  setSidebarWidth:  (w)      => ipcRenderer.invoke("shell:sidebar-width", w),
 
   // Sidebar state is owned by main process — both the shell HTML and the
   // Next.js Toolbar read/write through these.  Main broadcasts changes to

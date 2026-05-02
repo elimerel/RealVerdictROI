@@ -170,7 +170,10 @@ export interface ElectronAPI {
 export interface ShellAPI {
   navigate:         (route: string) => Promise<void>
   setContentBounds: (bounds: ElectronBounds) => Promise<void>
+  setSidebarWidth:  (w: number) => Promise<void>
   toggleSidebar:    () => Promise<void>
+  setSidebar:       (open: boolean) => Promise<void>
+  getSidebarState:  () => Promise<boolean>
   onActiveRoute:    (cb: (route: string) => void) => () => void
   onSidebarState:   (cb: (open: boolean) => void) => () => void
 }

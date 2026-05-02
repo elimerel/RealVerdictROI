@@ -143,17 +143,22 @@ export default function Toolbar({
         height:          52,
         WebkitAppRegion: "drag",
         background:      "transparent",
-        // Toolbar lives inside nextView which is shifted right by 120px
-        // by the shell when sidebar is hidden, so traffic lights + the
-        // unified toggle button always sit in shell territory — no need
-        // for the toolbar to pad past them.
-        paddingLeft:     8,
+        // When sidebar is HIDDEN, the toolbar reaches the window's left
+        // edge — pad past macOS traffic lights (x:14 → ~72) so they don't
+        // overlap the toggle. When OPEN, traffic lights live over the
+        // sidebar's drag region, so no extra padding needed.
+        paddingLeft:     sidebarOpen ? 8 : 80,
       } as React.CSSProperties}
     >
       {/* Inner wrapper stays a DRAG region for window-move; each button
-          opts out via `no-drag`. The sidebar toggle lives in the SHELL
-          (electron-app/shell) at a fixed position — not in the toolbar. */}
+          opts out via `no-drag`. Sidebar toggle is leftmost — moves with
+          the toolbar's left edge instead of needing reserved shell
+          territory (which used to leave a 120 px black bar). */}
       <div className="flex items-center gap-1 flex-1 pr-2">
+        <NavBtn onClick={() => window.shellAPI?.toggleSidebar?.()} title="Toggle sidebar">
+          <SidebarIcon />
+        </NavBtn>
+
         {/* Browser nav */}
         <NavBtn onClick={onBack}    disabled={!nav.canGoBack}    title="Back">    <BackIcon />    </NavBtn>
         <NavBtn onClick={onForward} disabled={!nav.canGoForward} title="Forward"> <ForwardIcon /> </NavBtn>
