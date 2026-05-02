@@ -25,14 +25,24 @@
   let openMirror    = true
   let expandedWidth = SIDEBAR_DEFAULT_W
 
+  // Width to restore the sidebar to whenever the toggle re-opens it.
+  // Frozen at app launch from localStorage so a session's drag-resize
+  // doesn't change what "toggle on" goes back to — only the next
+  // launch picks up the new persisted width.
+  let toggleWidth = SIDEBAR_DEFAULT_W
+
   // ── Apply state to DOM ──────────────────────────────────────────────────
   // Set inline width explicitly to the target so the CSS transition always
   // fires from the current (possibly drag-updated) width to the target.
   function applyState(open) {
-    document.documentElement.style.setProperty("--sidebar-w", `${expandedWidth}px`)
     if (open) {
+      // Toggle-on always reverts to the launch-time width — drag is
+      // session-temporary; preferred width persists across launches.
+      expandedWidth = toggleWidth
+      document.documentElement.style.setProperty("--sidebar-w", `${expandedWidth}px`)
       app.classList.remove("sidebar-hidden")
       sidebar.style.width = `${expandedWidth}px`
+      window.shellAPI?.setSidebarWidth?.(expandedWidth)
     } else {
       app.classList.add("sidebar-hidden")
       sidebar.style.width = "0px"
@@ -53,10 +63,16 @@
     window.shellAPI?.setSidebarWidth?.(expandedWidth)
   }
 
-  // Restore persisted width
+  // Restore persisted width — sets both the current expanded width AND
+  // the toggle-restore width from localStorage at launch.
   ;(() => {
     const savedW = parseInt(localStorage.getItem(STORAGE_W) || "", 10)
-    if (Number.isFinite(savedW)) setExpandedWidth(savedW, { persist: false })
+    if (Number.isFinite(savedW)) {
+      const clamped = Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, savedW))
+      expandedWidth = clamped
+      toggleWidth   = clamped
+      document.documentElement.style.setProperty("--sidebar-w", `${clamped}px`)
+    }
   })()
 
   // ── Subscribe to sidebar state from main ────────────────────────────────
