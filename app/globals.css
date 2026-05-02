@@ -13,10 +13,10 @@
   --rv-raised:   #1e1e22;
   --rv-overlay:  #252529;
 
-  /* Glass — semi-transparent for vibrancy windows */
-  --rv-glass:        rgba(13, 13, 15, 0.80);
-  --rv-glass-mid:    rgba(13, 13, 15, 0.70);
-  --rv-glass-light:  rgba(13, 13, 15, 0.55);
+  /* Glass — semi-transparent so macOS vibrancy material shows through */
+  --rv-glass:        rgba(13, 13, 15, 0.55);
+  --rv-glass-mid:    rgba(13, 13, 15, 0.42);
+  --rv-glass-light:  rgba(13, 13, 15, 0.28);
 
   /* Text */
   --rv-t1: rgba(245, 245, 247, 0.95);

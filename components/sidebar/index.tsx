@@ -3,40 +3,39 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-// ── Icons ──────────────────────────────────────────────────────────────────────
+export const SIDEBAR_W = 56
 
-function IconCompass() {
+function IconBrowse() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-      <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.4"/>
-      <path d="M11.5 6.5l-2 4.5-4.5 2 2-4.5 4.5-2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden>
+      <circle cx="8.5" cy="8.5" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M10.8 5.7l-1.8 4.2-4.2 1.8 1.8-4.2 4.2-1.8z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
     </svg>
   )
 }
 
-function IconLayers() {
+function IconPipeline() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-      <path d="M9 2L15.5 5.5 9 9 2.5 5.5 9 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round"/>
-      <path d="M2.5 9L9 12.5 15.5 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-      <path d="M2.5 12.5L9 16 15.5 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden>
+      <rect x="1.5" y="1.5" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="9.5" y="1.5" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="1.5" y="9.5" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="9.5" y="9.5" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
     </svg>
   )
 }
 
 function IconSettings() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-      <circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.4"/>
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden>
+      <circle cx="8.5" cy="8.5" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
       <path
-        d="M9 1.5v2M9 14.5v2M1.5 9h2M14.5 9h2M3.55 3.55l1.41 1.41M13.04 13.04l1.41 1.41M14.45 3.55l-1.41 1.41M4.96 13.04l-1.41 1.41"
+        d="M8.5 1.5v1.8M8.5 13.7v1.8M1.5 8.5h1.8M13.7 8.5h1.8M3.55 3.55l1.27 1.27M12.18 12.18l1.27 1.27M13.45 3.55l-1.27 1.27M4.82 12.18l-1.27 1.27"
         stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"
       />
     </svg>
   )
 }
-
-// ── Nav item ───────────────────────────────────────────────────────────────────
 
 function NavItem({
   href, label, icon, active,
@@ -50,15 +49,17 @@ function NavItem({
     <Link
       href={href}
       title={label}
-      className="group relative flex items-center justify-center w-9 h-9 rounded-xl transition-all duration-100"
+      className="relative flex items-center justify-center rounded-xl transition-all duration-100"
       style={{
-        color:      active ? "var(--rv-t1)"     : "var(--rv-t3)",
-        background: active ? "var(--rv-raised)" : "transparent",
+        width: 36,
+        height: 36,
+        color:      active ? "var(--rv-t1)"  : "var(--rv-t3)",
+        background: active ? "rgba(255,255,255,0.08)" : "transparent",
       }}
       onMouseEnter={(e) => {
         if (!active) {
           e.currentTarget.style.color      = "var(--rv-t2)"
-          e.currentTarget.style.background = "var(--rv-glass-hover, rgba(255,255,255,0.05))"
+          e.currentTarget.style.background = "rgba(255,255,255,0.05)"
         }
       }}
       onMouseLeave={(e) => {
@@ -69,19 +70,20 @@ function NavItem({
       }}
     >
       {icon}
+      {/* Active pill */}
       {active && (
         <span
-          className="absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] h-4 rounded-r-full"
-          style={{ background: "var(--rv-accent)" }}
+          className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full"
+          style={{
+            width: 2.5,
+            height: 16,
+            background: "var(--rv-accent)",
+          }}
         />
       )}
     </Link>
   )
 }
-
-// ── Sidebar ────────────────────────────────────────────────────────────────────
-
-export const SIDEBAR_W = 52
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -95,58 +97,27 @@ export default function Sidebar() {
         borderRight: "1px solid var(--rv-border)",
       }}
     >
-      {/* Traffic light clearance — drag zone at the top */}
+      {/* Traffic light + drag zone */}
       <div
         className="w-full shrink-0"
-        style={{
-          height: 40,
-          WebkitAppRegion: "drag",
-        } as React.CSSProperties}
+        style={{ height: 52, WebkitAppRegion: "drag" } as React.CSSProperties}
       />
-
-      {/* Wordmark — no-drag so it's not accidentally dragged */}
-      <div
-        className="w-full flex items-center justify-center pb-3"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
-        <span
-          className="text-[9px] font-bold tracking-[0.12em] uppercase rotate-[-90deg] whitespace-nowrap select-none"
-          style={{ color: "var(--rv-t4)" }}
-        >
-          RV
-        </span>
-      </div>
 
       {/* Nav items */}
       <nav
-        className="flex flex-col items-center gap-1 flex-1 w-full px-1.5"
+        className="flex flex-col items-center gap-1.5 flex-1 w-full"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <NavItem
-          href="/browse"
-          label="Browse"
-          icon={<IconCompass />}
-          active={pathname === "/browse"}
-        />
-        <NavItem
-          href="/pipeline"
-          label="Pipeline"
-          icon={<IconLayers />}
-          active={pathname === "/pipeline"}
-        />
+        <NavItem href="/browse"   label="Browse"   icon={<IconBrowse />}   active={pathname === "/browse"} />
+        <NavItem href="/pipeline" label="Pipeline" icon={<IconPipeline />} active={pathname === "/pipeline"} />
       </nav>
 
-      {/* Bottom — settings */}
+      {/* Bottom */}
       <div
-        className="flex flex-col items-center pb-4 px-1.5"
+        className="flex flex-col items-center pb-5"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <NavItem
-          href="/settings"
-          label="Settings"
-          icon={<IconSettings />}
-          active={pathname === "/settings"}
-        />
+        <NavItem href="/settings" label="Settings" icon={<IconSettings />} active={pathname === "/settings"} />
       </div>
     </div>
   )
