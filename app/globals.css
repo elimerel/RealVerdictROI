@@ -1,238 +1,198 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   RealVerdict Design System
-   Two visual layers:
-     --p-*  Panel tokens  — always dark, overlays the bright listing page
-     --f-*  Frame tokens  — follows system light/dark for the app chrome
-   ───────────────────────────────────────────────────────────────────────── */
+/* ── RealVerdict design tokens ────────────────────────────────────────────── */
+/* Always dark. Both :root and .dark define the same values so the dark-class  */
+/* toggle is a no-op — the app is opinionated about its aesthetic.             */
+:root {
+  /* Surfaces */
+  --rv-bg:       #0d0d0f;
+  --rv-surface:  #161618;
+  --rv-raised:   #1e1e22;
+  --rv-overlay:  #252529;
 
-@layer base {
-  :root {
-    /* ── Panel (always dark) ─────────────────────────────────────────────── */
-    --p-bg:          oklch(0.100 0.012 258);
-    --p-surface:     oklch(0.148 0.010 258);
-    --p-raised:      oklch(0.185 0.009 258);
-    --p-border:      oklch(0.230 0.008 258);
-    --p-border-sub:  oklch(0.190 0.006 258);
-    --p-t1:          oklch(0.970 0.000   0);
-    --p-t2:          oklch(0.720 0.000   0);
-    --p-t3:          oklch(0.490 0.000   0);
-    --p-t4:          oklch(0.320 0.000   0);
+  /* Glass — semi-transparent for vibrancy windows */
+  --rv-glass:        rgba(13, 13, 15, 0.80);
+  --rv-glass-mid:    rgba(13, 13, 15, 0.70);
+  --rv-glass-light:  rgba(13, 13, 15, 0.55);
 
-    /* ── Frame (light default) ───────────────────────────────────────────── */
-    --f-bg:          oklch(0.978 0.003 258);
-    --f-toolbar:     oklch(0.948 0.004 258);
-    --f-border:      oklch(0.880 0.005 258);
-    --f-t1:          oklch(0.140 0.008 258);
-    --f-t2:          oklch(0.400 0.006 258);
-    --f-t3:          oklch(0.580 0.005 258);
+  /* Text */
+  --rv-t1: rgba(245, 245, 247, 0.95);
+  --rv-t2: rgba(245, 245, 247, 0.58);
+  --rv-t3: rgba(245, 245, 247, 0.33);
+  --rv-t4: rgba(245, 245, 247, 0.16);
 
-    /* ── Accent (forest green) ───────────────────────────────────────────── */
-    --accent:        oklch(0.600 0.180 155);
-    --accent-dim:    oklch(0.600 0.180 155 / 12%);
-    --accent-border: oklch(0.600 0.180 155 / 32%);
-    --accent-text:   oklch(0.680 0.160 155);
+  /* Borders */
+  --rv-border:     rgba(255, 255, 255, 0.07);
+  --rv-border-mid: rgba(255, 255, 255, 0.11);
+  --rv-border-hi:  rgba(255, 255, 255, 0.18);
 
-    /* ── Signal colours ──────────────────────────────────────────────────── */
-    --good:          oklch(0.700 0.170 145);
-    --good-bg:       oklch(0.700 0.170 145 / 14%);
-    --warn:          oklch(0.780 0.160  75);
-    --warn-bg:       oklch(0.780 0.160  75 / 14%);
-    --bad:           oklch(0.640 0.220  22);
-    --bad-bg:        oklch(0.640 0.220  22 / 14%);
+  /* Accent — forest green */
+  --rv-accent:        #30a46c;
+  --rv-accent-dim:    rgba(48, 164, 108, 0.14);
+  --rv-accent-border: rgba(48, 164, 108, 0.26);
 
-    /* ── Source-chip confidence ──────────────────────────────────────────── */
-    --src-hi-bg:     oklch(0.700 0.170 145 / 16%);
-    --src-hi-fg:     oklch(0.700 0.170 145);
-    --src-md-bg:     oklch(0.780 0.160  75 / 16%);
-    --src-md-fg:     oklch(0.780 0.160  75);
-    --src-lo-bg:     oklch(0.580 0.080 258 / 20%);
-    --src-lo-fg:     oklch(0.680 0.000   0);
+  /* Signals */
+  --rv-good:    #30a46c;
+  --rv-good-bg: rgba(48, 164, 108, 0.12);
+  --rv-warn:    #f59e0b;
+  --rv-warn-bg: rgba(245, 158, 11, 0.12);
+  --rv-bad:     #ef4444;
+  --rv-bad-bg:  rgba(239, 68, 68, 0.11);
 
-    /* ── Motion ──────────────────────────────────────────────────────────── */
-    --ease-spring:   cubic-bezier(0.16, 1, 0.3, 1);
-    --ease-out:      cubic-bezier(0.0,  0, 0.2, 1);
-    --ease-in:       cubic-bezier(0.4,  0, 1.0, 1);
-    --dur-panel:     280ms;
-    --dur-normal:    200ms;
-    --dur-fast:      120ms;
-  }
+  /* Source confidence chips */
+  --rv-src-hi-bg: rgba(48, 164, 108, 0.14);
+  --rv-src-hi-fg: #30a46c;
+  --rv-src-md-bg: rgba(245, 158, 11, 0.12);
+  --rv-src-md-fg: #f59e0b;
+  --rv-src-lo-bg: rgba(239, 68, 68, 0.10);
+  --rv-src-lo-fg: #ef4444;
 
-  .dark {
-    --f-bg:          oklch(0.110 0.012 258);
-    --f-toolbar:     oklch(0.090 0.010 258);
-    --f-border:      oklch(0.210 0.008 258);
-    --f-t1:          oklch(0.960 0.000   0);
-    --f-t2:          oklch(0.700 0.000   0);
-    --f-t3:          oklch(0.490 0.000   0);
-  }
+  /* ── Aliases for existing components ────────────────────────────────────── */
+
+  /* Panel (always dark glass) */
+  --p-bg:         var(--rv-glass);
+  --p-surface:    var(--rv-raised);
+  --p-raised:     var(--rv-overlay);
+  --p-border:     var(--rv-border);
+  --p-border-sub: var(--rv-border);
+  --p-t1:         var(--rv-t1);
+  --p-t2:         var(--rv-t2);
+  --p-t3:         var(--rv-t3);
+  --p-t4:         var(--rv-t4);
+
+  /* Frame (toolbar / browse shell) — also glass */
+  --f-bg:      var(--rv-bg);
+  --f-toolbar: var(--rv-glass);
+  --f-border:  var(--rv-border);
+  --f-t1:      var(--rv-t1);
+  --f-t2:      var(--rv-t2);
+  --f-t3:      var(--rv-t3);
+  --f-t4:      var(--rv-t4);
+
+  /* Global signals + accent (legacy names) */
+  --accent:        var(--rv-accent);
+  --accent-dim:    var(--rv-accent-dim);
+  --accent-border: var(--rv-accent-border);
+  --good:          var(--rv-good);
+  --good-bg:       var(--rv-good-bg);
+  --warn:          var(--rv-warn);
+  --warn-bg:       var(--rv-warn-bg);
+  --bad:           var(--rv-bad);
+  --bad-bg:        var(--rv-bad-bg);
+  --src-hi-bg:     var(--rv-src-hi-bg);
+  --src-hi-fg:     var(--rv-src-hi-fg);
+  --src-md-bg:     var(--rv-src-md-bg);
+  --src-md-fg:     var(--rv-src-md-fg);
+  --src-lo-bg:     var(--rv-src-lo-bg);
+  --src-lo-fg:     var(--rv-src-lo-fg);
+
+  /* ── Shadcn / Tailwind compatibility ────────────────────────────────────── */
+  --background:           var(--rv-bg);
+  --foreground:           var(--rv-t1);
+  --card:                 var(--rv-surface);
+  --card-foreground:      var(--rv-t1);
+  --popover:              var(--rv-overlay);
+  --popover-foreground:   var(--rv-t1);
+  --primary:              var(--rv-t1);
+  --primary-foreground:   var(--rv-bg);
+  --secondary:            var(--rv-raised);
+  --secondary-foreground: var(--rv-t1);
+  --muted:                var(--rv-raised);
+  --muted-foreground:     var(--rv-t3);
+  --destructive:          var(--rv-bad);
+  --destructive-foreground: #fff;
+  --border:               var(--rv-border);
+  --input:                var(--rv-surface);
+  --ring:                 var(--rv-accent-border);
+  --radius:               0.625rem;
+  --sidebar:              var(--rv-surface);
+  --sidebar-foreground:   var(--rv-t1);
+  --sidebar-border:       var(--rv-border);
+}
+
+/* .dark mirrors :root — app is always dark regardless of system setting */
+.dark {
+  --background: var(--rv-bg);
+  --foreground:  var(--rv-t1);
+  --border:      var(--rv-border);
+  --input:       var(--rv-surface);
+}
+
+@theme inline {
+  --color-background:            var(--background);
+  --color-foreground:            var(--foreground);
+  --color-card:                  var(--card);
+  --color-card-foreground:       var(--card-foreground);
+  --color-popover:               var(--popover);
+  --color-popover-foreground:    var(--popover-foreground);
+  --color-primary:               var(--primary);
+  --color-primary-foreground:    var(--primary-foreground);
+  --color-secondary:             var(--secondary);
+  --color-secondary-foreground:  var(--secondary-foreground);
+  --color-muted:                 var(--muted);
+  --color-muted-foreground:      var(--muted-foreground);
+  --color-destructive:           var(--destructive);
+  --color-border:                var(--border);
+  --color-input:                 var(--input);
+  --color-ring:                  var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar:               var(--sidebar);
+  --color-sidebar-foreground:    var(--sidebar-foreground);
+  --color-sidebar-border:        var(--sidebar-border);
 }
 
 @layer base {
-  *,
-  *::before,
-  *::after { box-sizing: border-box; }
-
-  html {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
-      "Helvetica Neue", Arial, sans-serif;
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
   }
-
-  body {
-    background: var(--f-bg);
-    color: var(--f-t1);
-    margin: 0;
-  }
-
-  .electron body { user-select: none; }
-  .electron input,
-  .electron textarea,
-  .electron [data-selectable] { user-select: text; }
-
-  ::-webkit-scrollbar        { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track  { background: transparent; }
-  ::-webkit-scrollbar-thumb  {
-    background: oklch(0 0 0 / 16%);
-    border-radius: 3px;
-  }
-  ::-webkit-scrollbar-thumb:hover { background: oklch(0 0 0 / 28%); }
-  .panel-scroll::-webkit-scrollbar-thumb {
-    background: oklch(1 0 0 / 12%);
-  }
-  .panel-scroll::-webkit-scrollbar-thumb:hover {
-    background: oklch(1 0 0 / 22%);
+  /* Transparent window body so vibrancy shows through in glass areas */
+  .electron body {
+    background: transparent;
   }
 }
 
-@layer utilities {
-  .font-mono-nums {
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
-    font-variant-numeric: tabular-nums;
-    font-feature-settings: "tnum" 1;
-  }
-
-  .panel-enter { animation: panelIn var(--dur-panel) var(--ease-spring) both; }
-  .panel-exit  { animation: panelOut var(--dur-normal) var(--ease-in) both; }
-  .dot-pulse   { animation: dotPulse 2s ease-in-out infinite; }
-  .ring-pulse  { animation: ringPulse 1.8s ease-in-out infinite; }
-}
-
+/* ── Panel slide animations ───────────────────────────────────────────────── */
 @keyframes panelIn {
-  from { transform: translateX(100%); opacity: 0; }
-  to   { transform: translateX(0);    opacity: 1; }
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes panelOut {
-  from { transform: translateX(0);    opacity: 1; }
-  to   { transform: translateX(100%); opacity: 0; }
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(16px); }
 }
+.panel-enter { animation: panelIn  220ms cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+.panel-exit  { animation: panelOut 180ms cubic-bezier(0.55, 0, 1, 0.45) forwards; }
+
+/* ── Analyzing dots ───────────────────────────────────────────────────────── */
 @keyframes dotPulse {
-  0%, 100% { opacity: 1;   }
-  50%       { opacity: 0.3; }
+  0%, 80%, 100% { transform: scale(0.55); opacity: 0.35; }
+  40%           { transform: scale(1);    opacity: 1;    }
 }
+.dot-pulse { animation: dotPulse 1.4s ease-in-out infinite; }
+
+/* ── Ring pulse (analyzing state) ────────────────────────────────────────── */
 @keyframes ringPulse {
-  0%   { box-shadow: 0 0 0 0   var(--accent-border); }
-  70%  { box-shadow: 0 0 0 5px oklch(0.600 0.180 155 / 0%); }
-  100% { box-shadow: 0 0 0 0   oklch(0.600 0.180 155 / 0%); }
+  0%   { box-shadow: 0 0 0 0   rgba(48, 164, 108, 0.45); }
+  70%  { box-shadow: 0 0 0 12px rgba(48, 164, 108, 0);   }
+  100% { box-shadow: 0 0 0 0   rgba(48, 164, 108, 0);    }
 }
-@keyframes shimmer {
-  from { background-position: -200% 0; }
-  to   { background-position:  200% 0; }
-}
+.ring-pulse { animation: ringPulse 1.6s ease-in-out infinite; }
 
-.skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--p-surface) 25%,
-    var(--p-raised)  50%,
-    var(--p-surface) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
-  border-radius: 4px;
-}
-
-/* ── Legacy rv-* token aliases (used by LoginForm) ────────────────────────────
-   Maps the old design token names to the current panel / frame tokens.
-   Electron login window is always rendered with .electron on <html>,
-   so --p-* resolves correctly there. Frame pages use --f-* equivalents.    */
-
-@layer base {
-  :root {
-    --rv-accent:        var(--accent);
-    --rv-accent-subtle: var(--accent-dim);
-    --rv-accent-border: var(--accent-border);
-
-    --rv-surface-bg:    var(--f-bg);
-    --rv-surface-1:     var(--f-toolbar);
-    --rv-fill-1:        oklch(0.930 0.003 258);
-    --rv-fill-2:        oklch(0.900 0.004 258);
-    --rv-fill-border:   var(--f-border);
-
-    --rv-t1: var(--f-t1);
-    --rv-t2: var(--f-t2);
-    --rv-t3: var(--f-t3);
-    --rv-t4: oklch(0.680 0.003 258);
-
-    --rv-bad:     var(--bad);
-    --rv-bad-sub: var(--bad-bg);
-  }
-
-  .dark, .electron {
-    --rv-surface-bg:  var(--p-bg);
-    --rv-surface-1:   var(--p-surface);
-    --rv-fill-1:      var(--p-surface);
-    --rv-fill-2:      var(--p-raised);
-    --rv-fill-border: var(--p-border);
-
-    --rv-t1: var(--p-t1);
-    --rv-t2: var(--p-t2);
-    --rv-t3: var(--p-t3);
-    --rv-t4: var(--p-t4);
-  }
-}
-
-/* rv-* utility classes */
-.rv-t1 { color: var(--rv-t1); }
-.rv-t2 { color: var(--rv-t2); }
-.rv-t3 { color: var(--rv-t3); }
-.rv-t4 { color: var(--rv-t4); }
-
-.rv-input {
-  width: 100%;
-  border-radius: 8px;
-  background: var(--rv-fill-1);
-  border: 1px solid var(--rv-fill-border);
-  outline: none;
-  transition: border-color 120ms;
-}
-.rv-input:focus-within {
-  border-color: var(--accent);
-}
-
-.rv-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  padding: 10px 16px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  transition: opacity 120ms;
-  letter-spacing: -0.01em;
-}
-.rv-pill:hover { opacity: 0.9; }
-
-.rv-shadow-md {
-  box-shadow: 0 4px 24px oklch(0 0 0 / 8%), 0 1px 4px oklch(0 0 0 / 6%);
+/* ── Thin scrollbar for panel ────────────────────────────────────────────── */
+.panel-scroll::-webkit-scrollbar       { width: 3px; }
+.panel-scroll::-webkit-scrollbar-track { background: transparent; }
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: var(--rv-border-mid);
+  border-radius: 2px;
 }
