@@ -417,6 +417,14 @@ function createAppWindow() {
     if (appWindow && !appWindow.isDestroyed()) appWindow.show()
   })
 
+  // Fallback: show the window after 4s regardless, so a slow Next.js startup
+  // never leaves the user staring at a black screen.
+  setTimeout(() => {
+    if (appWindow && !appWindow.isDestroyed() && !appWindow.isVisible()) {
+      appWindow.show()
+    }
+  }, 4000)
+
   appWindow.loadURL(`${BASE_URL}/login?source=electron`)
 
   const persistMainBounds = () => {
@@ -1553,14 +1561,14 @@ app.whenReady().then(() => {
       createAppWindow()
     } else if (appWindow && !appWindow.isDestroyed() && isMainMode) {
       // macOS: user clicked the dock icon while the window was in the background.
-      // Always surface /research so investors land at their analysis tool,
+      // Surface /browse so investors land at their analysis tool,
       // not wherever they happened to navigate last session.
       appWindow.focus()
       try {
         const pathname = new URL(appWindow.webContents.getURL()).pathname
-        if (pathname !== "/research") {
+        if (pathname !== "/browse") {
           lastExpandNavMs = Date.now()
-          appWindow.loadURL(`${BASE_URL}/research`)
+          appWindow.loadURL(`${BASE_URL}/browse`)
         }
       } catch { /* ignore */ }
     }
