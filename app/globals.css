@@ -13,10 +13,10 @@
   --rv-raised:   #1e1e22;
   --rv-overlay:  #252529;
 
-  /* Glass — white-tinted so vibrancy reads lighter than the solid content */
-  --rv-glass:        rgba(255, 255, 255, 0.05);
-  --rv-glass-mid:    rgba(255, 255, 255, 0.07);
-  --rv-glass-light:  rgba(255, 255, 255, 0.03);
+  /* Glass — transparent so macOS vibrancy shows through underneath */
+  --rv-glass:        transparent;
+  --rv-glass-mid:    rgba(255, 255, 255, 0.04);
+  --rv-glass-light:  transparent;
 
   /* Text */
   --rv-t1: rgba(245, 245, 247, 0.95);
@@ -181,10 +181,8 @@
     font-size: 13px;
   }
 
-  /* Transparent window body so vibrancy shows through in glass areas */
-  .electron body {
-    background: transparent;
-  }
+  /* Electron body stays opaque — vibrancy shows through transparent
+     HTML elements (sidebar, toolbar) directly via the OS compositor */
 }
 
 /* ── Panel slide animations ───────────────────────────────────────────────── */

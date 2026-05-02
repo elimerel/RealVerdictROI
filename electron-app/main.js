@@ -346,7 +346,7 @@ function createAppWindow() {
     show: false,
     // transparent + vibrancy gives us real macOS glass on the toolbar/panel.
     // backgroundColor must be absent (or fully transparent) for vibrancy to show.
-    transparent: true,
+    backgroundColor: "#0d0d0f",
     vibrancy: "sidebar",
     visualEffectState: "active",
     titleBarStyle: "hiddenInset",
