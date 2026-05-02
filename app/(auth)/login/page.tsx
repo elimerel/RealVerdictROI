@@ -30,7 +30,13 @@ export default async function LoginPage({
 
   if (isElectron) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen px-5 py-4 bg-[var(--p-bg)]">
+      <div className="flex flex-col min-h-screen bg-[var(--p-bg)]">
+        {/* Drag zone — makes the window draggable in hiddenInset titlebar mode */}
+        <div
+          className="h-8 w-full shrink-0"
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        />
+      <div className="flex flex-col items-center justify-center flex-1 px-5 pb-8">
         <div className="mb-6 flex items-center gap-2">
           <div
             className="flex h-7 w-7 items-center justify-center rounded-[7px] bg-[var(--accent)]"
@@ -56,7 +62,8 @@ export default async function LoginPage({
         ) : (
           <UnconfiguredNotice />
         )}
-      </div>
+      </div>  {/* inner flex */}
+      </div>  {/* outer wrapper */}
     )
   }
 

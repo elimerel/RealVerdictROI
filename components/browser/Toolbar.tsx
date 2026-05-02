@@ -123,8 +123,13 @@ export default function Toolbar({
   return (
     <div
       className="flex items-center gap-1.5 px-2 h-10 bg-[var(--f-toolbar)] border-b border-[var(--f-border)] shrink-0 select-none"
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
+      {/* Interactive controls — no-drag so clicks register */}
+      <div
+        className="flex items-center gap-1.5 flex-1"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
       {/* Back / Forward / Reload */}
       <NavBtn onClick={onBack}    disabled={!nav.canGoBack}    title="Back">    <BackIcon />    </NavBtn>
       <NavBtn onClick={onForward} disabled={!nav.canGoForward} title="Forward"> <ForwardIcon /> </NavBtn>
@@ -161,6 +166,7 @@ export default function Toolbar({
           )}
         </div>
       </div>
+      </div> {/* end no-drag wrapper */}
     </div>
   )
 }
