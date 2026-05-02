@@ -196,11 +196,13 @@ const BASE_URL = DEV ? "http://localhost:3000" : PRODUCTION_APP_URL
 const KNOWN_LISTING_HOSTS = /(?:^|\.)(zillow|redfin|realtor|homes|trulia|movoto|loopnet|compass)\.com$/i
 const LISTING_PATH_HINTS = /\/(homedetails|home|property|listing|for-sale|for-rent|realestateandhomes-detail|idx|mls|properties)\/[a-z0-9-]/i
 const NEVER_HOSTS = /(?:^|\.)(google|bing|duckduckgo|twitter|x|facebook|instagram|linkedin|youtube|reddit|nytimes|wikipedia|github|stackoverflow|apple|microsoft)\.[a-z.]+$/i
+const AUTH_SUBDOMAINS = /^(identity|auth|accounts|login|sso|oauth|secure|signin|signup)\./i
 
 function shouldAutoExtract(url) {
   try {
     const u = new URL(url)
     if (NEVER_HOSTS.test(u.hostname)) return false
+    if (AUTH_SUBDOMAINS.test(u.hostname)) return false
     if (KNOWN_LISTING_HOSTS.test(u.hostname)) return true
     return LISTING_PATH_HINTS.test(u.pathname)
   } catch { return false }

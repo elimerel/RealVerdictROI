@@ -10,12 +10,12 @@ const PANEL_WIDTH = 340
 type PanelPhase = "hidden" | "analyzing" | "ready" | "error"
 
 export default function BrowsePage() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const urlbarRef    = useRef<HTMLInputElement>(null)
+  const browserPaneRef = useRef<HTMLDivElement>(null)   // the area BELOW the toolbar
+  const urlbarRef      = useRef<HTMLInputElement>(null)
 
-  const [nav,         setNav]         = useState<NavUpdate>({})
-  const [panelPhase,  setPanelPhase]  = useState<PanelPhase>("hidden")
-  const [panelOpen,   setPanelOpen]   = useState(false)
+  const [nav,          setNav]          = useState<NavUpdate>({})
+  const [panelPhase,   setPanelPhase]   = useState<PanelPhase>("hidden")
+  const [panelOpen,    setPanelOpen]    = useState(false)
   const [browserReady, setBrowserReady] = useState(false)
 
   const api = typeof window !== "undefined" ? window.electronAPI : undefined
@@ -23,18 +23,16 @@ export default function BrowsePage() {
   // ── Compute bounds for the WebContentsView ──────────────────────────────────
 
   const getBrowserBounds = useCallback((): ElectronBounds | null => {
-    if (!containerRef.current) return null
-    const el   = containerRef.current
-    const rect = el.getBoundingClientRect()
-    const dpr  = window.devicePixelRatio ?? 1
-
-    const panelPx = panelOpen ? Math.round(PANEL_WIDTH * dpr) : 0
-
+    if (!browserPaneRef.current) return null
+    const rect = browserPaneRef.current.getBoundingClientRect()
+    // Electron setBounds uses logical (CSS) pixels — no DPR multiplication needed.
+    // Subtract panel width so the embedded browser doesn't overlap the panel.
+    const panelW = panelOpen ? PANEL_WIDTH : 0
     return {
-      x:      Math.round(rect.left  * dpr),
-      y:      Math.round(rect.top   * dpr),
-      width:  Math.round(rect.width * dpr) - panelPx,
-      height: Math.round(rect.height * dpr),
+      x:      Math.round(rect.left),
+      y:      Math.round(rect.top),
+      width:  Math.max(200, Math.round(rect.width) - panelW),
+      height: Math.round(rect.height),
     }
   }, [panelOpen])
 
@@ -54,7 +52,7 @@ export default function BrowsePage() {
 
     api.createBrowser(b).then(() => {
       setBrowserReady(true)
-      api.navigate("https://www.zillow.com")
+      // No default URL — show the placeholder so the user can navigate anywhere
     })
 
     return () => {
@@ -72,7 +70,7 @@ export default function BrowsePage() {
 
   useEffect(() => {
     const obs = new ResizeObserver(pushBounds)
-    if (containerRef.current) obs.observe(containerRef.current)
+    if (browserPaneRef.current) obs.observe(browserPaneRef.current)
     return () => obs.disconnect()
   }, [pushBounds])
 
@@ -125,12 +123,10 @@ export default function BrowsePage() {
   const reload    = () => api?.reload()
 
   const isAnalyzing = panelPhase === "analyzing"
+  const showPlaceholder = browserReady && !nav.url
 
   return (
-    <div
-      ref={containerRef}
-      className="flex flex-col w-full h-full bg-[var(--f-bg)] overflow-hidden"
-    >
+    <div className="flex flex-col w-full h-full bg-[var(--f-bg)] overflow-hidden">
       {/* ── Toolbar ────────────────────────────────────────────────── */}
       <Toolbar
         nav={nav}
@@ -142,10 +138,12 @@ export default function BrowsePage() {
         urlbarRef={urlbarRef}
       />
 
-      {/* ── Browser pane + panel ───────────────────────────────────── */}
-      <div className="flex flex-1 min-h-0 relative">
+      {/* ── Browser pane + panel — ref goes HERE so bounds exclude toolbar ── */}
+      <div ref={browserPaneRef} className="flex flex-1 min-h-0 relative">
         {/* Transparent placeholder for the WebContentsView (sized via bounds) */}
-        <div className="flex-1 min-w-0" />
+        <div className="flex-1 min-w-0 relative">
+          {showPlaceholder && <StartPlaceholder onNavigate={navigate} />}
+        </div>
 
         {/* Slide-in panel */}
         {panelOpen && (
@@ -157,6 +155,30 @@ export default function BrowsePage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function StartPlaceholder({ onNavigate }: { onNavigate: (url: string) => void }) {
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center px-6 pointer-events-none select-none">
+      <div
+        className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[var(--accent)]"
+        style={{ boxShadow: "0 2px 8px var(--accent-border)" }}
+      >
+        <svg width="20" height="20" viewBox="0 0 14 14" fill="none" aria-hidden>
+          <path d="M7 1L3 8h4l-1 5 5-7H7l1-5z" fill="white" strokeWidth="0"/>
+        </svg>
+      </div>
+      <div>
+        <p className="text-[13px] font-medium text-[var(--f-t1)]">Navigate to any listing</p>
+        <p className="mt-1 text-[12px] text-[var(--f-t3)]">
+          Zillow, Redfin, Realtor.com, LoopNet, and more
+        </p>
+      </div>
+      <p className="text-[11px] text-[var(--f-t4)]">
+        RealVerdict will automatically analyze listings as you browse
+      </p>
     </div>
   )
 }

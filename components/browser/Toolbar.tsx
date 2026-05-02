@@ -122,43 +122,49 @@ export default function Toolbar({
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 h-10 bg-[var(--f-toolbar)] border-b border-[var(--f-border)] shrink-0 select-none"
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      className="flex items-center h-10 bg-[var(--f-toolbar)] border-b border-[var(--f-border)] shrink-0 select-none"
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
-      {/* Back / Forward / Reload */}
-      <NavBtn onClick={onBack}    disabled={!nav.canGoBack}    title="Back">    <BackIcon />    </NavBtn>
-      <NavBtn onClick={onForward} disabled={!nav.canGoForward} title="Forward"> <ForwardIcon /> </NavBtn>
-      <NavBtn onClick={onReload}  title="Reload">
-        <ReloadIcon spinning={nav.loading} />
-      </NavBtn>
+      {/* Interactive controls — no-drag so clicks register; pl-20 clears macOS traffic lights */}
+      <div
+        className="flex items-center gap-1.5 flex-1 pl-20 pr-2"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
+        {/* Back / Forward / Reload */}
+        <NavBtn onClick={onBack}    disabled={!nav.canGoBack}    title="Back">    <BackIcon />    </NavBtn>
+        <NavBtn onClick={onForward} disabled={!nav.canGoForward} title="Forward"> <ForwardIcon /> </NavBtn>
+        <NavBtn onClick={onReload}  title="Reload">
+          <ReloadIcon spinning={nav.loading} />
+        </NavBtn>
 
-      {/* URL bar */}
-      <div className="flex-1 flex items-center relative mx-1">
-        <div
-          className="w-full h-7 flex items-center rounded-lg bg-[var(--f-bg)] border border-[var(--f-border)]
-                     px-3 gap-1.5 cursor-text transition-colors hover:border-[var(--f-t3)]"
-          onClick={startEdit}
-        >
-          {editing ? (
-            <input
-              ref={resolvedRef as React.RefObject<HTMLInputElement>}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleKey}
-              onBlur={() => setEditing(false)}
-              className="flex-1 bg-transparent border-none outline-none text-[12px] text-[var(--f-t1)]
-                         font-mono truncate"
-              spellCheck={false}
-              autoComplete="off"
-            />
-          ) : (
-            <>
-              <span className="flex-1 text-[12px] text-[var(--f-t2)] truncate leading-none">
-                {displayUrl || "Type a URL…"}
-              </span>
-              {isAnalyzing && <AnalyzingDots />}
-            </>
-          )}
+        {/* URL bar */}
+        <div className="flex-1 flex items-center relative mx-1">
+          <div
+            className="w-full h-7 flex items-center rounded-lg bg-[var(--f-bg)] border border-[var(--f-border)]
+                       px-3 gap-1.5 cursor-text transition-colors hover:border-[var(--f-t3)]"
+            onClick={startEdit}
+          >
+            {editing ? (
+              <input
+                ref={resolvedRef as React.RefObject<HTMLInputElement>}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={handleKey}
+                onBlur={() => setEditing(false)}
+                className="flex-1 bg-transparent border-none outline-none text-[12px] text-[var(--f-t1)]
+                           font-mono truncate"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            ) : (
+              <>
+                <span className="flex-1 text-[12px] text-[var(--f-t2)] truncate leading-none">
+                  {displayUrl || "Type a URL…"}
+                </span>
+                {isAnalyzing && <AnalyzingDots />}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
