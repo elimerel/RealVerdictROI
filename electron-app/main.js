@@ -466,6 +466,8 @@ function createAppWindow() {
     // tick from getContentBounds() + cached sidebar/panel state. This
     // skips the shell's DOM ResizeObserver + IPC roundtrip, keeping the
     // embedded views glued to the window edge without a frame of lag.
+    // Window resize cancels any sidebar toggle tween in flight.
+    cancelLayoutAnim()
     applyLayout()
     persistMainBounds()
   })
@@ -700,21 +702,82 @@ function computeNextViewBounds() {
 // nextView, taking the full area minus the toolbar at the top and the
 // analysis panel on the right.
 function applyLayout() {
+  applyLayoutWithSb(sidebarOpen ? sidebarWidth : 0)
+}
+
+// Apply layout with an explicit "effective sidebar width" — used both by
+// applyLayout (steady-state) and the animation tween below (interpolated
+// values during sidebar-toggle transitions).
+function applyLayoutWithSb(sb) {
   if (!appWindow || appWindow.isDestroyed()) return
-  const b = computeNextViewBounds()
-  if (b) {
-    nextViewBounds = b
-    if (nextView && !nextView.webContents.isDestroyed()) nextView.setBounds(b)
+  const c = appWindow.getContentBounds()
+  const nv = {
+    x:      Math.round(sb),
+    y:      0,
+    width:  Math.max(100, c.width - sb),
+    height: c.height,
   }
+  nextViewBounds = nv
+  if (nextView && !nextView.webContents.isDestroyed()) nextView.setBounds(nv)
   if (!browserView) return
   if (browserViewHidden) return
-  const nv = nextViewBounds
-  if (!nv) return
   const x      = Math.round(nv.x)
   const y      = Math.round(nv.y + TOOLBAR_H)
   const width  = Math.max(200, Math.round(nv.width  - viewLayout.panelWidth))
   const height = Math.max(0,   Math.round(nv.height - TOOLBAR_H))
   browserView.setBounds({ x, y, width, height })
+}
+
+// Sidebar transition tween — runs nextView + browserView in lockstep with
+// the shell's CSS sidebar width transition (220ms, Apple spring curve).
+// Without this, nextView would jump to its target instantly while the
+// shell-DOM sidebar quietly animates behind it (invisible to the user).
+//
+// requestAnimationFrame is not available in the Electron main process,
+// so we drive the tween off setTimeout at ~60 Hz (16ms). performance.now
+// gives us fractional-ms timing for the easing math.
+const { performance: perfNow } = require("node:perf_hooks")
+let layoutAnim = null
+
+function cancelLayoutAnim() {
+  if (layoutAnim && layoutAnim.timer != null) {
+    clearTimeout(layoutAnim.timer)
+  }
+  layoutAnim = null
+}
+
+function animateLayoutTo(targetSb, duration = 220) {
+  const fromSb = nextViewBounds?.x ?? (sidebarOpen ? sidebarWidth : 0)
+  cancelLayoutAnim()
+  if (Math.abs(targetSb - fromSb) < 1) {
+    applyLayoutWithSb(targetSb)
+    broadcast("sidebar:width", Math.round(targetSb))
+    return
+  }
+  layoutAnim = {
+    fromSb, targetSb,
+    startTime: perfNow.now(),
+    duration,
+    timer: null,
+  }
+  layoutAnimStep()
+}
+
+function layoutAnimStep() {
+  if (!layoutAnim) return
+  const t = Math.min(1, (perfNow.now() - layoutAnim.startTime) / layoutAnim.duration)
+  // Apple spring approximation of cubic-bezier(0.32, 0.72, 0, 1)
+  const eased = 1 - Math.pow(1 - t, 4)
+  const sb = layoutAnim.fromSb + (layoutAnim.targetSb - layoutAnim.fromSb) * eased
+  applyLayoutWithSb(sb)
+  broadcast("sidebar:width", Math.round(sb))
+  if (t < 1) {
+    layoutAnim.timer = setTimeout(layoutAnimStep, 16)
+  } else {
+    applyLayoutWithSb(layoutAnim.targetSb)
+    broadcast("sidebar:width", Math.round(layoutAnim.targetSb))
+    layoutAnim = null
+  }
 }
 
 function createBrowserView() {
@@ -1623,10 +1686,12 @@ ipcMain.handle("shell:content-bounds", (_e, _bounds) => {
 // Sidebar drag handle pushes its width here on every mousemove tick + on
 // release. Main re-computes nextView and browserView bounds in one pass
 // and broadcasts the live width to the React toolbar so it can keep its
-// own traffic-light clearance padding in sync.
+// own traffic-light clearance padding in sync. Cancels any in-flight
+// toggle animation — drag overrides the tween.
 ipcMain.handle("shell:sidebar-width", (_e, w) => {
   if (typeof w === "number" && Number.isFinite(w)) {
     sidebarWidth = Math.max(0, Math.round(w))
+    cancelLayoutAnim()
     broadcast("sidebar:width", sidebarOpen ? sidebarWidth : 0)
     applyLayout()
   }
@@ -1650,7 +1715,10 @@ let sidebarOpen = true
 
 function broadcastSidebarState() {
   broadcast("sidebar:state", sidebarOpen)
-  broadcast("sidebar:width", sidebarOpen ? sidebarWidth : 0)
+  // Width is NOT broadcast here — when the state flips, animateLayoutTo
+  // broadcasts per-frame interpolated widths so the toolbar's padding
+  // tracks the tween smoothly. Broadcasting target width here would cause
+  // a one-frame flash to the final padding before the animation begins.
 }
 
 ipcMain.handle("sidebar:get-state", () => {
@@ -1663,15 +1731,23 @@ ipcMain.handle("sidebar:toggle", () => {
   sidebarOpen = !sidebarOpen
   console.log("[main] sidebar:toggle → broadcasting", sidebarOpen)
   broadcastSidebarState()
-  applyLayout()
+  animateLayoutTo(sidebarOpen ? sidebarWidth : 0)
   return sidebarOpen
 })
 
 ipcMain.handle("sidebar:set", (_e, open) => {
   console.log("[main] sidebar:set received:", open)
+  const wasOpen = sidebarOpen
   sidebarOpen = !!open
   broadcastSidebarState()
-  applyLayout()
+  // Drag-release calls setSidebar(true) even when already open — skip the
+  // animation in that case (we want the live drag width to stay put, not
+  // animate from current to itself).
+  if (sidebarOpen !== wasOpen) {
+    animateLayoutTo(sidebarOpen ? sidebarWidth : 0)
+  } else {
+    applyLayout()
+  }
   return sidebarOpen
 })
 
@@ -1679,12 +1755,14 @@ ipcMain.handle("sidebar:set", (_e, open) => {
 ipcMain.handle("shell:toggle-sidebar", () => {
   sidebarOpen = !sidebarOpen
   broadcastSidebarState()
-  applyLayout()
+  animateLayoutTo(sidebarOpen ? sidebarWidth : 0)
 })
 ipcMain.handle("shell:sidebar-state", (_e, open) => {
+  const wasOpen = sidebarOpen
   sidebarOpen = !!open
   broadcastSidebarState()
-  applyLayout()
+  if (sidebarOpen !== wasOpen) animateLayoutTo(sidebarOpen ? sidebarWidth : 0)
+  else                          applyLayout()
 })
 
 // ---------------------------------------------------------------------------

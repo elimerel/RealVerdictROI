@@ -13,11 +13,15 @@ const SPLITTER_W      = 4
 export default function BrowsePage() {
   const urlbarRef = useRef<HTMLInputElement>(null)
 
-  const [nav,          setNav]          = useState<NavUpdate>({})
-  const [panelOpen,    setPanelOpen]    = useState(false)
-  const [panelContent, setPanelContent] = useState<PanelContentState>({ phase: "analyzing" })
-  const [panelW,       setPanelW]       = useState(PANEL_W_DEFAULT)
-  const [browserReady, setBrowserReady] = useState(false)
+  const [nav,           setNav]           = useState<NavUpdate>({})
+  const [panelOpen,     setPanelOpen]     = useState(false)
+  const [panelContent,  setPanelContent]  = useState<PanelContentState>({ phase: "analyzing" })
+  const [panelW,        setPanelW]        = useState(PANEL_W_DEFAULT)
+  const [browserReady,  setBrowserReady]  = useState(false)
+  // Live sidebar width — used to keep the StartScreen visually centered
+  // to the WINDOW (not just nextView) by translating its content left
+  // by half the sidebar width.
+  const [sidebarOffset, setSidebarOffset] = useState(0)
 
   const api = typeof window !== "undefined" ? window.electronAPI : undefined
 
@@ -59,7 +63,8 @@ export default function BrowsePage() {
       setPanelOpen(true)
     })
     const offFocus = api.onFocusUrlbar(() => { urlbarRef.current?.focus(); urlbarRef.current?.select() })
-    return () => { offNav(); offAnalyzing(); offReady(); offHide(); offError(); offFocus() }
+    const offWidth = window.shellAPI?.onSidebarWidth?.((w) => setSidebarOffset(w)) ?? (() => {})
+    return () => { offNav(); offAnalyzing(); offReady(); offHide(); offError(); offFocus(); offWidth() }
   }, [api])
 
   // ── Splitter drag ──────────────────────────────────────────────────────────
@@ -111,7 +116,7 @@ export default function BrowsePage() {
           frosted-glass feel as the rest of the shell chrome. */}
       <div className="flex flex-1 min-h-0 relative">
         <div className="flex-1 min-w-0 relative">
-          {showPlaceholder && <StartScreen onNavigate={navigate} />}
+          {showPlaceholder && <StartScreen onNavigate={navigate} sidebarOffset={sidebarOffset} />}
         </div>
 
         {panelOpen && (
@@ -272,12 +277,23 @@ function TypingSubhead({ text, className }: { text: string; className?: string }
   )
 }
 
-function StartScreen({ onNavigate }: { onNavigate: (url: string) => void }) {
+function StartScreen({
+  onNavigate,
+  sidebarOffset = 0,
+}: {
+  onNavigate: (url: string) => void
+  sidebarOffset?: number
+}) {
   // Compute once at mount — day/time-aware text shouldn't flicker on resize.
   // useMemo ensures these don't re-evaluate when React re-renders during
   // window-resize bound updates.
   const greet = useMemoOnce(() => greeting())
   const sub   = useMemoOnce(() => subhead())
+
+  // Shift content left by half the sidebar width so it reads as
+  // window-centered, not nextView-centered. Without this, the greeting +
+  // grid + glow drift right whenever the sidebar widens.
+  const contentShift = -sidebarOffset / 2
 
   return (
     <div
@@ -288,16 +304,21 @@ function StartScreen({ onNavigate }: { onNavigate: (url: string) => void }) {
       className="absolute inset-0 flex flex-col items-center justify-center px-8 select-none rv-start-fade"
       style={{ willChange: "transform" }}
     >
-      {/* Soft radial glow from the forest-green accent */}
+      {/* Soft radial glow from the forest-green accent — also shifted so it
+          stays anchored to the same window position as the content. */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
             "radial-gradient(ellipse 60% 42% at 50% 40%, rgba(48,164,108,0.06) 0%, transparent 72%)",
+          transform: `translateX(${contentShift}px)`,
         }}
       />
 
-      <div className="relative flex flex-col items-center">
+      <div
+        className="relative flex flex-col items-center"
+        style={{ transform: `translateX(${contentShift}px)` }}
+      >
         {/* Greeting — animates in */}
         <h1
           className="rv-greeting text-[34px] font-semibold tracking-[-0.030em] text-center"

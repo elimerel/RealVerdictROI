@@ -97,12 +97,13 @@ export default function Toolbar({
 
   const effectiveSidebarWidth = sidebarOpen ? sidebarWidth : 0
   // Toolbar lives inside nextView which sits at x=effectiveSidebarWidth in
-  // window coords. Padding the toolbar by (84 - effectiveSidebarWidth) puts
-  // the leftmost button at window x=84 — clear of the traffic lights and
-  // at the same window position whenever the sidebar is narrow or hidden.
-  // When the sidebar is wide, the natural left edge is already past x=84,
-  // so we drop to a small visual padding (8px).
-  const TRAFFIC_LIGHT_CLEARANCE = 84
+  // window coords. Padding the toolbar by (88 - effectiveSidebarWidth) puts
+  // the leftmost button at window x=88 — past the macOS traffic lights
+  // (which end around x=74) and at the SAME window position across icons-
+  // only mode (sidebar=80) and hidden mode (sidebar=0). When the sidebar
+  // is wide, the natural left edge is already past x=88, so we drop to a
+  // small visual padding (8px).
+  const TRAFFIC_LIGHT_CLEARANCE = 88
   const toolbarPadL = Math.max(8, TRAFFIC_LIGHT_CLEARANCE - effectiveSidebarWidth)
 
   const displayUrl = nav.url ?? ""

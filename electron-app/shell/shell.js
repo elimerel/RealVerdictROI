@@ -20,9 +20,15 @@
   const SIDEBAR_DEFAULT_W = 200
   const SIDEBAR_MIN_W     = 140   // full mode minimum (icons + readable label)
   const SIDEBAR_MAX_W     = 260
-  const SIDEBAR_ICONS_W   = 60    // icons-only mode width
+  // Icons-only width must clear macOS traffic lights (which span x=16..74
+  // given trafficLightPosition: { x: 16 }) so the sidebar's right edge
+  // doesn't appear to "cut" through the green/max button. 80 = 74 + 6px
+  // breathing room. Combined with TRAFFIC_LIGHT_CLEARANCE = 88 in the
+  // React Toolbar, the toggle button lands at exactly window x=88 across
+  // both icons-only and hidden states.
+  const SIDEBAR_ICONS_W   = 80
   const SNAP_HIDE         = 35    // drag below this on release → hidden
-  const SNAP_ICONS        = 110   // drag below this (above SNAP_HIDE) → icons-only
+  const SNAP_ICONS        = 120   // drag below this (above SNAP_HIDE) → icons-only
 
   let openMirror    = true
   let expandedWidth = SIDEBAR_DEFAULT_W
@@ -166,14 +172,20 @@
     const dx = e.clientX - dragStartX
     const target = dragStartWidth + dx
 
-    // 3-state snap on release: hidden / icons-only / full
+    // 3-state snap on release: hidden / icons-only / full.
+    // toggleWidth tracks the user's last *manual* size (icons or full)
+    // so the toggle button reopens at whatever they most recently chose.
+    // Hidden doesn't update toggleWidth — opening from hidden returns
+    // to whichever icons/full size was last selected.
     if (target < SNAP_HIDE) {
       window.shellAPI?.setSidebar?.(false)
     } else if (target < SNAP_ICONS) {
       setIconsExpandedWidth()
+      toggleWidth = SIDEBAR_ICONS_W
       window.shellAPI?.setSidebar?.(true)
     } else {
       setFullExpandedWidth(target)
+      toggleWidth = expandedWidth
       window.shellAPI?.setSidebar?.(true)
     }
   })
