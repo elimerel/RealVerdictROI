@@ -1621,10 +1621,13 @@ ipcMain.handle("shell:content-bounds", (_e, _bounds) => {
 })
 
 // Sidebar drag handle pushes its width here on every mousemove tick + on
-// release. Main re-computes nextView and browserView bounds in one pass.
+// release. Main re-computes nextView and browserView bounds in one pass
+// and broadcasts the live width to the React toolbar so it can keep its
+// own traffic-light clearance padding in sync.
 ipcMain.handle("shell:sidebar-width", (_e, w) => {
   if (typeof w === "number" && Number.isFinite(w)) {
     sidebarWidth = Math.max(0, Math.round(w))
+    broadcast("sidebar:width", sidebarOpen ? sidebarWidth : 0)
     applyLayout()
   }
 })
@@ -1647,6 +1650,7 @@ let sidebarOpen = true
 
 function broadcastSidebarState() {
   broadcast("sidebar:state", sidebarOpen)
+  broadcast("sidebar:width", sidebarOpen ? sidebarWidth : 0)
 }
 
 ipcMain.handle("sidebar:get-state", () => {

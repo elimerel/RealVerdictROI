@@ -106,4 +106,9 @@ contextBridge.exposeInMainWorld("shellAPI", {
     ipcRenderer.on("sidebar:state", h)
     return () => ipcRenderer.removeListener("sidebar:state", h)
   },
+  onSidebarWidth: (cb) => {
+    const h = (_e, w) => cb(w)
+    ipcRenderer.on("sidebar:width", h)
+    return () => ipcRenderer.removeListener("sidebar:width", h)
+  },
 })

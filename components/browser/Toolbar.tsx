@@ -79,15 +79,31 @@ export default function Toolbar({
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarWidth, setSidebarWidth] = useState(200)
   const inputRef = useRef<HTMLInputElement>(null)
   const resolvedRef = urlbarRef ?? inputRef
 
-  // Subscribe to shell sidebar state — when sidebar closes, we need to clear
-  // the macOS traffic-light zone (84px) AND show our own toggle button.
+  // Subscribe to shell sidebar state + live width. The toolbar's left
+  // padding is computed to keep the leftmost button always at window
+  // x≥84 — past the macOS traffic lights (which sit at x=14-72) — across
+  // all sidebar states (full / icons-only / hidden). Without the width
+  // subscription, in icons-only mode the toggle would land at x=68 and
+  // overlap the traffic lights.
   useEffect(() => {
-    const off = window.shellAPI?.onSidebarState?.((open) => setSidebarOpen(open))
-    return () => { off?.() }
+    const offState = window.shellAPI?.onSidebarState?.((open) => setSidebarOpen(open))
+    const offWidth = window.shellAPI?.onSidebarWidth?.((w) => setSidebarWidth(w))
+    return () => { offState?.(); offWidth?.() }
   }, [])
+
+  const effectiveSidebarWidth = sidebarOpen ? sidebarWidth : 0
+  // Toolbar lives inside nextView which sits at x=effectiveSidebarWidth in
+  // window coords. Padding the toolbar by (84 - effectiveSidebarWidth) puts
+  // the leftmost button at window x=84 — clear of the traffic lights and
+  // at the same window position whenever the sidebar is narrow or hidden.
+  // When the sidebar is wide, the natural left edge is already past x=84,
+  // so we drop to a small visual padding (8px).
+  const TRAFFIC_LIGHT_CLEARANCE = 84
+  const toolbarPadL = Math.max(8, TRAFFIC_LIGHT_CLEARANCE - effectiveSidebarWidth)
 
   const displayUrl = nav.url ?? ""
 
@@ -143,11 +159,7 @@ export default function Toolbar({
         height:          52,
         WebkitAppRegion: "drag",
         background:      "transparent",
-        // When sidebar is HIDDEN, the toolbar reaches the window's left
-        // edge — pad past macOS traffic lights (x:14 → ~72) so they don't
-        // overlap the toggle. When OPEN, traffic lights live over the
-        // sidebar's drag region, so no extra padding needed.
-        paddingLeft:     sidebarOpen ? 8 : 80,
+        paddingLeft:     toolbarPadL,
       } as React.CSSProperties}
     >
       {/* Inner wrapper stays a DRAG region for window-move; each button

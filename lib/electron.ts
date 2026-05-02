@@ -176,6 +176,7 @@ export interface ShellAPI {
   getSidebarState:  () => Promise<boolean>
   onActiveRoute:    (cb: (route: string) => void) => () => void
   onSidebarState:   (cb: (open: boolean) => void) => () => void
+  onSidebarWidth:   (cb: (w: number) => void) => () => void
 }
 
 declare global {
