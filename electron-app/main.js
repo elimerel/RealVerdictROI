@@ -442,13 +442,14 @@ function createAppWindow() {
   }
 
   appWindow.on("resize", () => {
-    // The shell will re-push content-pane bounds via ResizeObserver on its
-    // own; nothing to do here for nextView.  But the embedded browserView
-    // sits within nextView so its pendingBounds may need a refresh.
-    syncBrowserViewBounds()
+    // The shell pushes new content-pane bounds via ResizeObserver, which
+    // will call applyLayout from the shell:content-bounds handler. Calling
+    // it here too is a fallback for the rare frame where the shell hasn't
+    // ticked yet — we re-apply against the latest nextViewBounds we know.
+    applyLayout()
     persistMainBounds()
   })
-  appWindow.on("move", () => { syncBrowserViewBounds(); persistMainBounds() })
+  appWindow.on("move", () => { persistMainBounds() })
   appWindow.on("close", () => {
     // Final, immediate write before tear-down — the debounced write may
     // not have fired if the user resized then immediately quit.
@@ -620,21 +621,35 @@ function shrinkToLogin() {
 // WebContentsView
 // ---------------------------------------------------------------------------
 
-let pendingBounds = null
+// Toolbar height in CSS pixels — must match `h-10` (40px) on the React
+// Toolbar component inside nextView.  Hardcoded here so the main process
+// can position browserView without an IPC roundtrip on every resize tick.
+const TOOLBAR_H = 40
 
-// Bounds from the Next.js renderer are relative to ITS viewport (the
-// nextView's contents).  To position browserView in the actual window we
-// translate by the nextView's offset.
-function syncBrowserViewBounds() {
-  if (!browserView || !pendingBounds) return
-  const offX = nextViewBounds?.x ?? 0
-  const offY = nextViewBounds?.y ?? 0
-  browserView.setBounds({
-    x:      Math.round(pendingBounds.x + offX),
-    y:      Math.round(pendingBounds.y + offY),
-    width:  Math.round(pendingBounds.width),
-    height: Math.round(pendingBounds.height),
-  })
+// Renderer-controlled layout. The Next.js renderer pushes panelWidth via
+// `browser:set-layout` whenever the analysis panel opens, closes, or is
+// resized.  Main computes browserView bounds against the *current*
+// nextViewBounds — so window-edge drag-resize and sidebar collapse stay
+// glued to the embedded browser without IPC roundtrips per frame.
+let viewLayout = { panelWidth: 0 }
+
+// Track whether the embedded browser is parked off-screen (hideBrowserView).
+// While parked, applyLayout() must be a no-op so a stray window resize
+// doesn't unpark it.
+let browserViewHidden = false
+
+// Position browserView WITHIN nextView, taking up the full nextView area
+// minus the toolbar at the top and the analysis panel on the right.
+function applyLayout() {
+  if (!browserView || !appWindow || appWindow.isDestroyed()) return
+  if (browserViewHidden) return
+  const nv = nextViewBounds
+  if (!nv) return
+  const x      = Math.round(nv.x)
+  const y      = Math.round(nv.y + TOOLBAR_H)
+  const width  = Math.max(200, Math.round(nv.width  - viewLayout.panelWidth))
+  const height = Math.max(0,   Math.round(nv.height - TOOLBAR_H))
+  browserView.setBounds({ x, y, width, height })
 }
 
 function createBrowserView() {
@@ -710,33 +725,42 @@ function destroyBrowserView() {
   }
   try { browserView.webContents.close() } catch { /* already closed */ }
   browserView = null
-  pendingBounds = null
+  browserViewHidden = false
+  viewLayout = { panelWidth: 0 }
 }
 
 function hideBrowserView() {
   if (!browserView) return
+  browserViewHidden = true
   browserView.setBounds({ x: 0, y: 0, width: 1, height: 1 })
 }
 
 function showBrowserView() {
-  if (!browserView || !pendingBounds) return
-  syncBrowserViewBounds()
+  if (!browserView) return
+  browserViewHidden = false
+  applyLayout()
 }
 
 // ---------------------------------------------------------------------------
 // IPC — browser panel
 // ---------------------------------------------------------------------------
 
-ipcMain.handle("browser:create", (_e, bounds) => {
-  if (browserView) { pendingBounds = bounds; syncBrowserViewBounds(); return { reused: true } }
-  createBrowserView(); pendingBounds = bounds; syncBrowserViewBounds()
+ipcMain.handle("browser:create", (_e, layout) => {
+  if (layout && typeof layout.panelWidth === "number") {
+    viewLayout.panelWidth = Math.max(0, layout.panelWidth)
+  }
+  if (browserView) { applyLayout(); return { reused: true } }
+  createBrowserView(); applyLayout()
   return { reused: false }
 })
 ipcMain.handle("browser:destroy",      () => destroyBrowserView())
 ipcMain.handle("browser:hide",         () => hideBrowserView())
-ipcMain.handle("browser:show", (_e, bounds) => {
+ipcMain.handle("browser:show", (_e, layout) => {
   if (!browserView) return { exists: false }
-  pendingBounds = bounds; showBrowserView()
+  if (layout && typeof layout.panelWidth === "number") {
+    viewLayout.panelWidth = Math.max(0, layout.panelWidth)
+  }
+  showBrowserView()
   const url = browserView.webContents.getURL()
   return {
     exists: true,
@@ -763,7 +787,12 @@ ipcMain.handle("browser:navigate",     (_e, url) => browserView?.webContents.loa
 ipcMain.handle("browser:back",         () => { if (browserView?.webContents.canGoBack())    browserView.webContents.goBack()    })
 ipcMain.handle("browser:forward",      () => { if (browserView?.webContents.canGoForward()) browserView.webContents.goForward() })
 ipcMain.handle("browser:reload",       () => browserView?.webContents.reload())
-ipcMain.handle("browser:bounds-update", (_e, bounds) => { pendingBounds = bounds; syncBrowserViewBounds() })
+ipcMain.handle("browser:set-layout", (_e, layout) => {
+  if (layout && typeof layout.panelWidth === "number") {
+    viewLayout.panelWidth = Math.max(0, layout.panelWidth)
+  }
+  applyLayout()
+})
 
 ipcMain.handle("browser:extract-dom", async () => {
   if (!browserView) return null
@@ -1520,7 +1549,7 @@ ipcMain.handle("shell:content-bounds", (_e, bounds) => {
     createNextView("/browse")
   } else {
     nextView.setBounds(bounds)
-    syncBrowserViewBounds()  // keep the embedded browserView aligned too
+    applyLayout()  // keep the embedded browserView aligned too
   }
 })
 

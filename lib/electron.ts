@@ -8,6 +8,14 @@ export interface ElectronBounds {
   height: number
 }
 
+// Layout descriptor sent from renderer → main. Main computes the actual
+// browserView bounds against the current nextViewBounds, so window
+// drag-resize and sidebar collapse are real-time without IPC roundtrips
+// on every tick.
+export interface BrowserLayout {
+  panelWidth: number
+}
+
 export interface NavUpdate {
   url?: string
   title?: string
@@ -117,10 +125,10 @@ export interface DataProvenance {
 
 export interface ElectronAPI {
   // Browser panel lifecycle
-  createBrowser:   (bounds: ElectronBounds) => Promise<{ reused: boolean }>
+  createBrowser:   (layout: BrowserLayout) => Promise<{ reused: boolean }>
   destroyBrowser:  () => Promise<void>
   hideBrowser:     () => Promise<void>
-  showBrowser:     (bounds: ElectronBounds) => Promise<BrowserState>
+  showBrowser:     (layout: BrowserLayout) => Promise<BrowserState>
   getState:        () => Promise<BrowserState>
 
   // Navigation
@@ -128,7 +136,7 @@ export interface ElectronAPI {
   back:            () => Promise<void>
   forward:         () => Promise<void>
   reload:          () => Promise<void>
-  updateBounds:    (bounds: ElectronBounds) => Promise<void>
+  setLayout:       (layout: BrowserLayout) => Promise<void>
 
   // Extraction (manual trigger, fallback)
   extractDom:      () => Promise<DomPayload | null>

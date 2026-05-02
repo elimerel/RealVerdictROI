@@ -8,18 +8,20 @@ if (typeof document !== "undefined" && document.documentElement) {
 
 contextBridge.exposeInMainWorld("electronAPI", {
   // ── Browser panel lifecycle ───────────────────────────────────────────────
-  createBrowser:  (bounds) => ipcRenderer.invoke("browser:create", bounds),
-  destroyBrowser: ()        => ipcRenderer.invoke("browser:destroy"),
-  hideBrowser:    ()        => ipcRenderer.invoke("browser:hide"),
-  showBrowser:    (bounds)  => ipcRenderer.invoke("browser:show", bounds),
-  getState:       ()        => ipcRenderer.invoke("browser:get-state"),
+  // Layout descriptor: `{ panelWidth }`. Toolbar height is hardcoded on
+  // main (TOOLBAR_H=40) so the renderer doesn't have to plumb it through.
+  createBrowser:  (layout) => ipcRenderer.invoke("browser:create", layout),
+  destroyBrowser: ()       => ipcRenderer.invoke("browser:destroy"),
+  hideBrowser:    ()       => ipcRenderer.invoke("browser:hide"),
+  showBrowser:    (layout) => ipcRenderer.invoke("browser:show", layout),
+  getState:       ()       => ipcRenderer.invoke("browser:get-state"),
 
   // ── Navigation ────────────────────────────────────────────────────────────
   navigate:    (url) => ipcRenderer.invoke("browser:navigate", url),
   back:        ()    => ipcRenderer.invoke("browser:back"),
   forward:     ()    => ipcRenderer.invoke("browser:forward"),
   reload:      ()    => ipcRenderer.invoke("browser:reload"),
-  updateBounds:(bounds) => ipcRenderer.invoke("browser:bounds-update", bounds),
+  setLayout:   (layout) => ipcRenderer.invoke("browser:set-layout", layout),
 
   // ── Extraction ────────────────────────────────────────────────────────────
   extractDom:   () => ipcRenderer.invoke("browser:extract-dom"),

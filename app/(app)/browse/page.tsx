@@ -1,73 +1,88 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
-import type { NavUpdate, ElectronBounds } from "@/lib/electron"
+import type { NavUpdate, PanelPayload, PanelResult } from "@/lib/electron"
 import Toolbar from "@/components/browser/Toolbar"
-import Panel   from "@/components/panel"
+import Panel, { type PanelContentState } from "@/components/panel"
 
-const PANEL_WIDTH = 340
-
-type PanelPhase = "hidden" | "analyzing" | "ready" | "error"
+const PANEL_W_DEFAULT = 340
+const PANEL_W_MIN     = 280
+const PANEL_W_MAX     = 640
+const SPLITTER_W      = 4
 
 export default function BrowsePage() {
-  const browserPaneRef = useRef<HTMLDivElement>(null)
-  const urlbarRef      = useRef<HTMLInputElement>(null)
+  const urlbarRef = useRef<HTMLInputElement>(null)
 
   const [nav,          setNav]          = useState<NavUpdate>({})
-  const [panelPhase,   setPanelPhase]   = useState<PanelPhase>("hidden")
   const [panelOpen,    setPanelOpen]    = useState(false)
+  const [panelContent, setPanelContent] = useState<PanelContentState>({ phase: "analyzing" })
+  const [panelW,       setPanelW]       = useState(PANEL_W_DEFAULT)
   const [browserReady, setBrowserReady] = useState(false)
 
   const api = typeof window !== "undefined" ? window.electronAPI : undefined
 
-  const getBrowserBounds = useCallback((): ElectronBounds | null => {
-    if (!browserPaneRef.current) return null
-    const rect = browserPaneRef.current.getBoundingClientRect()
-    const panelW = panelOpen ? PANEL_WIDTH : 0
-    return {
-      x:      Math.round(rect.left),
-      y:      Math.round(rect.top),
-      width:  Math.max(200, Math.round(rect.width) - panelW),
-      height: Math.round(rect.height),
-    }
-  }, [panelOpen])
-
-  const pushBounds = useCallback(() => {
-    if (!api) return
-    const b = getBrowserBounds()
-    if (b) api.updateBounds(b)
-  }, [api, getBrowserBounds])
+  // Reserved right-edge strip = panel + splitter handle (when open). Main
+  // process uses this to compute the embedded browser's right edge against
+  // the current nextViewBounds — no per-frame IPC during window resize.
+  const reservedRight = panelOpen ? panelW + SPLITTER_W : 0
 
   useEffect(() => {
     if (!api || browserReady) return
-    const b = getBrowserBounds()
-    if (!b) return
-    api.createBrowser(b).then(() => setBrowserReady(true))
+    api.createBrowser({ panelWidth: reservedRight }).then(() => setBrowserReady(true))
     return () => { api.destroyBrowser() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api])
 
   useEffect(() => {
-    if (!browserReady) return
-    pushBounds()
-  }, [panelOpen, browserReady, pushBounds])
-
-  useEffect(() => {
-    const obs = new ResizeObserver(pushBounds)
-    if (browserPaneRef.current) obs.observe(browserPaneRef.current)
-    return () => obs.disconnect()
-  }, [pushBounds])
+    if (!browserReady || !api) return
+    api.setLayout({ panelWidth: reservedRight })
+  }, [api, browserReady, reservedRight])
 
   useEffect(() => {
     if (!api) return
-    const offNav      = api.onNavUpdate((p) => setNav(p))
-    const offAnalyzing = api.onPanelAnalyzing(() => { setPanelPhase("analyzing"); setPanelOpen(true) })
-    const offReady    = api.onPanelReady(() => { setPanelPhase("ready"); setPanelOpen(true) })
-    const offHide     = api.onPanelHide(() => { setPanelOpen(false); setTimeout(() => setPanelPhase("hidden"), 220) })
-    const offError    = api.onPanelError(() => setPanelPhase("error"))
-    const offFocus    = api.onFocusUrlbar(() => { urlbarRef.current?.focus(); urlbarRef.current?.select() })
+    const offNav       = api.onNavUpdate((p) => setNav(p))
+    const offAnalyzing = api.onPanelAnalyzing(() => {
+      setPanelContent({ phase: "analyzing" })
+      setPanelOpen(true)
+    })
+    const offReady = api.onPanelReady((payload: PanelPayload) => {
+      if (payload.ok) {
+        setPanelContent({ phase: "ready", result: payload as PanelResult })
+      } else {
+        setPanelContent({ phase: "error", message: (payload as { message: string }).message })
+      }
+      setPanelOpen(true)
+    })
+    const offHide  = api.onPanelHide(()   => setPanelOpen(false))
+    const offError = api.onPanelError((message: string) => {
+      setPanelContent({ phase: "error", message })
+      setPanelOpen(true)
+    })
+    const offFocus = api.onFocusUrlbar(() => { urlbarRef.current?.focus(); urlbarRef.current?.select() })
     return () => { offNav(); offAnalyzing(); offReady(); offHide(); offError(); offFocus() }
   }, [api])
+
+  // ── Splitter drag ──────────────────────────────────────────────────────────
+  const draggingRef = useRef(false)
+  const splitterRef = useRef<HTMLDivElement>(null)
+
+  const startDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    draggingRef.current = true
+    e.currentTarget.setPointerCapture(e.pointerId)
+    document.body.style.cursor = "col-resize"
+  }, [])
+  const moveDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return
+    const w = window.innerWidth - e.clientX - SPLITTER_W / 2
+    setPanelW(Math.max(PANEL_W_MIN, Math.min(PANEL_W_MAX, Math.round(w))))
+  }, [])
+  const endDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* already released */ }
+    document.body.style.cursor = ""
+    if (splitterRef.current) splitterRef.current.style.background = "transparent"
+  }, [])
 
   const navigate  = (url: string) => api?.navigate(url)
   const goBack    = () => api?.back()
@@ -82,7 +97,7 @@ export default function BrowsePage() {
     <div className="flex flex-col w-full h-full overflow-hidden">
       <Toolbar
         nav={nav}
-        isAnalyzing={panelPhase === "analyzing"}
+        isAnalyzing={panelOpen && panelContent.phase === "analyzing"}
         onBack={goBack}
         onForward={goForward}
         onReload={reload}
@@ -93,7 +108,6 @@ export default function BrowsePage() {
       {/* Browser pane has SOLID dark bg — websites and StartScreen render on
           a real surface. Toolbar above stays transparent so vibrancy shows. */}
       <div
-        ref={browserPaneRef}
         className="flex flex-1 min-h-0 relative"
         style={{ background: "#0d0d0f" }}
       >
@@ -102,9 +116,25 @@ export default function BrowsePage() {
         </div>
 
         {panelOpen && (
-          <div style={{ width: PANEL_WIDTH, flexShrink: 0 }} className="h-full">
-            <Panel />
-          </div>
+          <>
+            <div
+              ref={splitterRef}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize panel"
+              onPointerDown={startDrag}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--rv-border-mid)")}
+              onMouseLeave={(e) => { if (!draggingRef.current) e.currentTarget.style.background = "transparent" }}
+              className="shrink-0 h-full select-none transition-colors duration-100"
+              style={{ width: SPLITTER_W, cursor: "col-resize", background: "transparent" }}
+            />
+            <div style={{ width: panelW, flexShrink: 0 }} className="h-full">
+              <Panel state={panelContent} onClose={() => setPanelOpen(false)} />
+            </div>
+          </>
         )}
       </div>
     </div>

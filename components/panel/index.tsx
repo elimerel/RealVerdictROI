@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import type { PanelPayload, PanelResult, SourceField } from "@/lib/electron"
+import { useState } from "react"
+import type { PanelResult, SourceField } from "@/lib/electron"
 
 // ── Source icons ──────────────────────────────────────────────────────────────
 
@@ -322,54 +322,20 @@ function ResultPane({ result }: { result: PanelResult }) {
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
-type PanelState =
-  | { phase: "hidden" }
+export type PanelContentState =
   | { phase: "analyzing" }
   | { phase: "ready"; result: PanelResult }
   | { phase: "error"; message: string }
 
-export default function Panel() {
-  const [state,   setState]   = useState<PanelState>({ phase: "hidden" })
-  const [visible, setVisible] = useState(false)
-  const [exiting, setExiting] = useState(false)
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+interface PanelProps {
+  state: PanelContentState
+  onClose?: () => void
+}
 
-  const show = () => {
-    if (hideTimer.current) clearTimeout(hideTimer.current)
-    setExiting(false)
-    setVisible(true)
-  }
-
-  const hide = () => {
-    setExiting(true)
-    hideTimer.current = setTimeout(() => {
-      setVisible(false)
-      setExiting(false)
-      setState({ phase: "hidden" })
-    }, 200)
-  }
-
-  useEffect(() => {
-    const api = window.electronAPI
-    if (!api) return
-
-    const offAnalyzing = api.onPanelAnalyzing(() => { setState({ phase: "analyzing" }); show() })
-    const offReady = api.onPanelReady((payload: PanelPayload) => {
-      if (payload.ok) setState({ phase: "ready", result: payload as PanelResult })
-      else setState({ phase: "error", message: (payload as any).message })
-      show()
-    })
-    const offHide  = api.onPanelHide(() => hide())
-    const offError = api.onPanelError((message: string) => { setState({ phase: "error", message }); show() })
-
-    return () => { offAnalyzing(); offReady(); offHide(); offError() }
-  }, [])
-
-  if (!visible) return null
-
+export default function Panel({ state, onClose }: PanelProps) {
   return (
     <div
-      className={`flex flex-col h-full overflow-hidden ${exiting ? "panel-exit" : "panel-enter"}`}
+      className="flex flex-col h-full overflow-hidden panel-enter"
       style={{
         /* Semi-dark tint so the panel reads as a distinct layer over the
            browser view, while still letting the underlying vibrancy give it
@@ -408,7 +374,7 @@ export default function Panel() {
           )}
         </div>
         <button
-          onClick={hide}
+          onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
           style={{ color: "var(--rv-t3)" }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "var(--rv-t1)")}
