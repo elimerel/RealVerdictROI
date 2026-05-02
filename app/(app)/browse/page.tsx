@@ -10,8 +10,8 @@ const PANEL_WIDTH = 340
 type PanelPhase = "hidden" | "analyzing" | "ready" | "error"
 
 export default function BrowsePage() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const urlbarRef    = useRef<HTMLInputElement>(null)
+  const browserPaneRef = useRef<HTMLDivElement>(null)   // the area BELOW the toolbar
+  const urlbarRef      = useRef<HTMLInputElement>(null)
 
   const [nav,         setNav]         = useState<NavUpdate>({})
   const [panelPhase,  setPanelPhase]  = useState<PanelPhase>("hidden")
@@ -23,18 +23,16 @@ export default function BrowsePage() {
   // ── Compute bounds for the WebContentsView ──────────────────────────────────
 
   const getBrowserBounds = useCallback((): ElectronBounds | null => {
-    if (!containerRef.current) return null
-    const el   = containerRef.current
-    const rect = el.getBoundingClientRect()
-    const dpr  = window.devicePixelRatio ?? 1
-
-    const panelPx = panelOpen ? Math.round(PANEL_WIDTH * dpr) : 0
-
+    if (!browserPaneRef.current) return null
+    const rect = browserPaneRef.current.getBoundingClientRect()
+    // Electron setBounds uses logical (CSS) pixels — no DPR multiplication needed.
+    // Subtract panel width so the embedded browser doesn't overlap the panel.
+    const panelW = panelOpen ? PANEL_WIDTH : 0
     return {
-      x:      Math.round(rect.left  * dpr),
-      y:      Math.round(rect.top   * dpr),
-      width:  Math.round(rect.width * dpr) - panelPx,
-      height: Math.round(rect.height * dpr),
+      x:      Math.round(rect.left),
+      y:      Math.round(rect.top),
+      width:  Math.max(200, Math.round(rect.width) - panelW),
+      height: Math.round(rect.height),
     }
   }, [panelOpen])
 
@@ -72,7 +70,7 @@ export default function BrowsePage() {
 
   useEffect(() => {
     const obs = new ResizeObserver(pushBounds)
-    if (containerRef.current) obs.observe(containerRef.current)
+    if (browserPaneRef.current) obs.observe(browserPaneRef.current)
     return () => obs.disconnect()
   }, [pushBounds])
 
@@ -127,10 +125,7 @@ export default function BrowsePage() {
   const isAnalyzing = panelPhase === "analyzing"
 
   return (
-    <div
-      ref={containerRef}
-      className="flex flex-col w-full h-full bg-[var(--f-bg)] overflow-hidden"
-    >
+    <div className="flex flex-col w-full h-full bg-[var(--f-bg)] overflow-hidden">
       {/* ── Toolbar ────────────────────────────────────────────────── */}
       <Toolbar
         nav={nav}
@@ -142,8 +137,8 @@ export default function BrowsePage() {
         urlbarRef={urlbarRef}
       />
 
-      {/* ── Browser pane + panel ───────────────────────────────────── */}
-      <div className="flex flex-1 min-h-0 relative">
+      {/* ── Browser pane + panel — ref goes HERE so bounds exclude toolbar ── */}
+      <div ref={browserPaneRef} className="flex flex-1 min-h-0 relative">
         {/* Transparent placeholder for the WebContentsView (sized via bounds) */}
         <div className="flex-1 min-w-0" />
 
