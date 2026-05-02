@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { MarketingHeader } from "../_components/MarketingHeader";
-import { MarketingFooter } from "../_components/MarketingFooter";
 
 // LAST_REVISED — bump when material terms change. We surface this date
 // at the top of the rendered page so users know which version they
@@ -18,7 +16,6 @@ export const metadata: Metadata = {
 export default function TermsPage() {
   return (
     <div className="flex flex-1 flex-col bg-gradient-to-b from-zinc-50 via-white to-zinc-50 dark:from-zinc-950 dark:via-black dark:to-zinc-950">
-      <MarketingHeader />
 
       <main className="flex-1">
         <article className="legal-doc mx-auto w-full max-w-2xl px-6 py-16 sm:py-20 text-[15px] leading-relaxed text-zinc-700 dark:text-zinc-300">
@@ -209,7 +206,6 @@ export default function TermsPage() {
         </article>
       </main>
 
-      <MarketingFooter />
     </div>
   );
 }

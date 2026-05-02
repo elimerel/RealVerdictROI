@@ -419,10 +419,6 @@ function createAppWindow() {
 
   appWindow.loadURL(`${BASE_URL}/login?source=electron`)
 
-  // Install the pageComps interceptor so structured-extraction comps flow
-  // through to the /results URL after the user clicks "Full report".
-  installPageCompsInterceptor()
-
   const persistMainBounds = () => {
     if (!appWindow || appWindow.isDestroyed() || !isMainMode) return
     writeMainBoundsDebounced(appWindow.getBounds())
@@ -490,9 +486,9 @@ function expandToMainApp() {
     if (now - lastExpandNavMs > EXPAND_NAV_COOLDOWN_MS) {
       try {
         const pathname = new URL(appWindow.webContents.getURL()).pathname
-        if (pathname !== "/research") {
+        if (pathname !== "/browse") {
           lastExpandNavMs = now
-          appWindow.loadURL(`${BASE_URL}/research`)
+          appWindow.loadURL(`${BASE_URL}/browse`)
         }
       } catch { /* ignore unparseable URL */ }
     }
@@ -510,7 +506,7 @@ function expandToMainApp() {
   // `true` = animated resize on macOS — the window smoothly expands while
   // the page loads in the background rather than snapping.
   appWindow.setBounds(readMainBounds(), true)
-  appWindow.loadURL(`${BASE_URL}/research`)
+  appWindow.loadURL(`${BASE_URL}/browse`)
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
 }
@@ -583,7 +579,10 @@ function createBrowserView() {
   browserView.webContents.on("did-start-loading", () => {
     appWindow?.webContents.send("browser:nav-update", { loading: true })
   })
-  browserView.webContents.on("did-stop-loading",     () => sendNav(true))
+  browserView.webContents.on("did-stop-loading", () => {
+    sendNav(true)
+    autoAnalyze()
+  })
   browserView.webContents.setWindowOpenHandler(({ url }) => {
     browserView?.webContents.loadURL(url)
     return { action: "deny" }
@@ -885,9 +884,116 @@ async function callAnthropicHaiku(apiKey, dom) {
   }
 }
 
-// Module-level store for page comps from the most recent analyze call.
-// Used by the will-navigate intercept to add pagecomps to the /results URL.
-let pendingPageComps = null
+// Prevents concurrent auto-analysis runs (one at a time)
+let autoAnalyzing = false
+
+// ---------------------------------------------------------------------------
+// Auto-analysis — fires on every did-stop-loading.
+//
+// Flow:
+//   1. If URL doesn't look like a listing → send panel:hide
+//   2. Send panel:analyzing (panel slides in with loading state)
+//   3. Extract DOM → Haiku extraction → POST /api/analyze
+//   4. Send panel:ready with full PanelResult, or panel:error on failure
+// ---------------------------------------------------------------------------
+
+async function autoAnalyze() {
+  if (!browserView || !appWindow || autoAnalyzing) return
+
+  const url = browserView.webContents.getURL()
+  if (!shouldAutoExtract(url)) {
+    appWindow.webContents.send("panel:hide")
+    return
+  }
+
+  autoAnalyzing = true
+  appWindow.webContents.send("panel:analyzing")
+  lastExtractDebug = { stage: "started", at: new Date().toISOString() }
+
+  try {
+    // Wait for DOM to hydrate (SPAs fire did-stop-loading early)
+    const POLL_TARGET_LEN = 1200
+    const POLL_DEADLINE_MS = 18_000
+    const pollStart = Date.now()
+    let dom = null
+    let highWater = 0
+
+    while (Date.now() - pollStart < POLL_DEADLINE_MS) {
+      try {
+        dom = await browserView.webContents.executeJavaScript(`
+          (() => {
+            const clone = document.body.cloneNode(true)
+            clone.querySelectorAll('nav,header,footer,script,style,[aria-hidden="true"]').forEach(el => el.remove())
+            return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,25000) }
+          })()
+        `)
+      } catch { dom = null }
+      const len = dom?.text?.length ?? 0
+      if (len > highWater) highWater = len
+      if (len >= POLL_TARGET_LEN) break
+      await new Promise((r) => setTimeout(r, 750))
+    }
+
+    if (!dom || (dom.text?.length ?? 0) < 200) {
+      appWindow.webContents.send("panel:error", "Couldn't read enough page content. Try refreshing the listing.")
+      return
+    }
+
+    if (looksLikeCaptcha(dom.title, dom.text)) {
+      appWindow.webContents.send("panel:error", "Verify you're not a robot, then the panel will populate.")
+      return
+    }
+
+    const sig = scanSignals(dom.text, dom.url)
+    if (sig.looksLikeSearchResults || !sig.looksLikeListing) {
+      appWindow.webContents.send("panel:hide")
+      return
+    }
+
+    const config = readConfig()
+    const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.", "") } catch { return "listing" } })()
+
+    let extracted = null
+    if (config.anthropicApiKey) {
+      extracted = await callAnthropicHaiku(config.anthropicApiKey, dom)
+    }
+
+    if (!extracted) {
+      appWindow.webContents.send("panel:error", "Add an Anthropic key in Settings to enable auto-analysis.")
+      return
+    }
+
+    const extractResult = postProcess(extracted, hostname, "anthropic")
+    if (!extractResult?.ok) {
+      appWindow.webContents.send("panel:error", extractResult?.message ?? "Couldn't read this listing.")
+      return
+    }
+
+    // POST to /api/analyze — runs FRED + HUD FMR enrichment + calculations
+    const analyzeRes = await fetch(`${BASE_URL}/api/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ extraction: extractResult }),
+      signal: AbortSignal.timeout(30_000),
+    })
+
+    if (!analyzeRes.ok) {
+      const body = await analyzeRes.json().catch(() => ({}))
+      appWindow.webContents.send("panel:error", body?.message ?? "Analysis failed. Please try again.")
+      return
+    }
+
+    const panelResult = await analyzeRes.json()
+    appWindow.webContents.send("panel:ready", panelResult)
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error("[autoAnalyze] error:", msg)
+    appWindow.webContents.send("panel:error", "Something went wrong. Try refreshing the page.")
+  } finally {
+    autoAnalyzing = false
+  }
+}
 
 // ---------------------------------------------------------------------------
 // IPC — browser:analyze
@@ -1041,7 +1147,6 @@ ipcMain.handle("browser:analyze", async () => {
   if (!browserView) {
     return { ok: false, errorCode: "unknown", message: userMessageFor("unknown") }
   }
-  pendingPageComps = null
   lastExtractDebug = { stage: "started", at: new Date().toISOString() }
 
   // Wait for the page to finish loading. Zillow / Redfin etc. fire
@@ -1307,39 +1412,6 @@ function postProcess(raw, hostname, modelUsed) {
   }
 
   return { ok: true, kind, confidence, facts, meta, take, modelUsed }
-}
-
-// ---------------------------------------------------------------------------
-// Intercept navigation to /results in the main window and append pagecomps
-// when a structured extraction just produced them.  This threads page-extracted
-// sale comps to the results page without modifying research/page.tsx.
-// ---------------------------------------------------------------------------
-
-function installPageCompsInterceptor() {
-  if (!appWindow) return
-  appWindow.webContents.on("will-navigate", (event, navigationUrl) => {
-    if (!pendingPageComps || pendingPageComps.length === 0) return
-    try {
-      const u = new URL(navigationUrl)
-      // Only intercept /results navigations on our own host
-      const isOurHost = DEV
-        ? (u.hostname === "127.0.0.1" || u.hostname === "localhost")
-        : PRODUCTION_APP_HOSTS.has(u.hostname)
-      if (!isOurHost || !u.pathname.startsWith("/results")) return
-
-      const comps = pendingPageComps
-      pendingPageComps = null
-
-      // base64-encode the comps array so it survives URL encoding cleanly
-      const encoded = Buffer.from(JSON.stringify(comps)).toString("base64")
-      u.searchParams.set("pagecomps", encoded)
-
-      event.preventDefault()
-      appWindow.webContents.loadURL(u.toString())
-    } catch {
-      // navigation proceeds unmodified
-    }
-  })
 }
 
 // ---------------------------------------------------------------------------

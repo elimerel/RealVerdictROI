@@ -1,876 +1,238 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter);
-  /* The local mono font in app/layout.tsx registers under --rv-font-mono
-     to avoid colliding with this Tailwind theme token name. The previous
-     pointer at --font-geist-mono was a stale leftover from Geist_Mono. */
-  --font-mono: var(--rv-font-mono);
-  --font-heading: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-}
-
-body {
-  font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", sans-serif;
-  font-variant-numeric: tabular-nums;
-}
-
 /* ─────────────────────────────────────────────────────────────────────────────
-   RealVerdict Design Tokens
-   Financial-terminal typography & brand color system.
-   ──────────────────────────────────────────────────────────────────────────── */
-
-:root {
-  /* Light-mode surface tiers — Mercury layering. Page background is a
-     warm system gray; cards / sidebar / dossier panel sit ON TOP of it
-     in pure white so they visibly lift. surface-2 is a mid tint used by
-     in-card inputs (filter field, assumption inputs).
-     Values are intentionally directional: surface-bg is the darkest,
-     surface-1 is the lightest, surface-2 sits between them. */
-  --rv-surface-bg: oklch(1 0 0);            /* page / content — pure white */
-  --rv-surface-1: oklch(1 0 0);             /* card / dossier — pure white */
-  --rv-surface-2: oklch(0.965 0.003 80);    /* in-card input tint */
-  /* Brand accent — deep forest green. Unifies the logo mark, landing
-     CTA, active nav states, and the "good deal" signal into one identity.
-     oklch hue 155, chroma 0.18 = rich forest green; dark enough to sit
-     on white as a foreground color without going neon. */
-  --rv-accent: oklch(0.44 0.18 155);
-  --rv-accent-subtle: oklch(0.44 0.18 155 / 8%);
-  --rv-accent-border: oklch(0.44 0.18 155 / 20%);
-  /* Canonical brand alias — use where you need the raw green value
-     outside of the accent semantic (marketing callouts, logo fills). */
-  --rv-brand: oklch(0.44 0.18 155);
-  /* Live indicator — warm amber. High enough chroma to read on both surfaces. */
-  --rv-live: oklch(0.62 0.16 60);
-
-  /* Ink fills — theme-aware translucent layers used by .rv-input,
-     .rv-pill, .rv-row, scrollbars, etc. On light surfaces these are
-     translucent black ("ink"); on dark surfaces they invert to
-     translucent white. The previous code hardcoded
-     oklch(1 0 0 / X%) (translucent white) everywhere, which made every
-     interactive surface invisible against the white light-mode page.
-     Each .rv-fill-N maps to a distinct UI role:
-       1 = idle background tint (cards, inputs at rest)
-       2 = hover background tint
-       3 = focus / selected background tint
-       border = 1px hairline dividers between sibling chrome
-       border-strong = 1px hairline that needs to read in busier areas */
-  --rv-fill-1: oklch(0 0 0 / 3%);
-  --rv-fill-2: oklch(0 0 0 / 5%);
-  --rv-fill-3: oklch(0 0 0 / 8%);
-  --rv-fill-border: oklch(0 0 0 / 8%);
-  --rv-fill-border-strong: oklch(0 0 0 / 14%);
-
-  /* Light-mode signal palette — punched up from the dark-mode tones
-     because the soft pastel reds/ambers/greens get washed out against
-     pure white. Sub fills also bumped to 14% so the colored tile reads
-     as deliberately negative, not "subtle hint of negative". */
-  --rv-bad:  oklch(0.50 0.20 25);
-  --rv-bad-sub: oklch(0.50 0.20 25 / 11%);
-  --rv-warn: oklch(0.62 0.18 70);
-  --rv-warn-sub: oklch(0.62 0.18 70 / 11%);
-  /* Good signal = brand green. A strong deal metric is the same
-     color as the brand — intentional, not incidental. */
-  --rv-good: oklch(0.44 0.18 155);
-  --rv-good-sub: oklch(0.44 0.18 155 / 10%);
-
-  /* Legacy aliases — kept for any verdict component that hasn't been
-     touched yet. New code should use --rv-bad/warn/good. */
-  --rv-buy:      var(--rv-good);
-  --rv-buy-sub:  var(--rv-good-sub);
-  --rv-caution:  var(--rv-warn);
-  --rv-caution-sub: var(--rv-warn-sub);
-  --rv-avoid:    var(--rv-bad);
-  --rv-avoid-sub: var(--rv-bad-sub);
-
-  /* Typography scale — financial density */
-  --rv-size-display: clamp(2.75rem, 6vw, 4rem);
-  --rv-size-xl:      1.5rem;
-  --rv-size-lg:      1.125rem;
-  --rv-size-base:    0.875rem;
-  --rv-size-sm:      0.8125rem;
-  --rv-size-xs:      0.75rem;
-  --rv-size-2xs:     0.6875rem;
-
-  /* Letter-spacing for financial labels */
-  --rv-tracking-label: 0.08em;
-  --rv-tracking-tight: -0.022em;
-
-  /* Timing — every animation under 200ms */
-  --rv-dur-fast: 100ms;
-  --rv-dur-base: 150ms;
-  --rv-dur-slow: 200ms;
-
-  /* Easing curves — Linear's smooth deceleration on entry, sharp
-     acceleration on exit. Native apps animate exits faster than entries. */
-  --rv-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --rv-ease-in:  cubic-bezier(0.7, 0, 0.84, 0);
-
-  /* Compatibility alias — chart components reference --font-mono directly
-     in inline SVG fontFamily attributes. The local font (JetBrainsMono) is
-     registered under --rv-font-mono to avoid colliding with the Tailwind
-     @theme token name; this alias keeps the old name resolving for those
-     direct references. */
-  --font-mono: var(--rv-font-mono);
-
-  /* Text hierarchy — explicit tiers so components don't reach for
-     muted-foreground/55 hacks that collapse into unreadable mid-gray.
-     Light-mode values (dark overrides below in .dark). */
-  --rv-t1: oklch(0.15 0 0);     /* Primary: near-black */
-  --rv-t2: oklch(0.46 0 0);     /* Secondary: medium gray */
-  --rv-t3: oklch(0.60 0 0);     /* Tertiary: light gray */
-  --rv-t4: oklch(0.72 0 0);     /* Disabled / placeholder */
-}
-
-/* Hide the ugly default spinners on number inputs — we lay the form out ourselves. */
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-input[type="number"] {
-  -moz-appearance: textfield;
-}
-
-/* Hide horizontal scrollbar on the sticky tab bar — keep the swipe affordance
-   without the visual noise. */
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   shadcn theme tokens
-   ──────────────────────────────────────────────────────────────────────────── */
-
-:root {
-  /* Mercury / Linear pattern: SIDEBAR + page-header strip are the warm
-     gray "toolbar" chrome and CONTENT (page background, cards, dossier)
-     is pure white. The whole top of the window — 28px traffic-light
-     strip + sidebar header + page header — reads as one continuous
-     gray toolbar, with the white content area below it.
-     We expose a dedicated --rv-toolbar token so any header in the app
-     can opt in via bg-[var(--rv-toolbar)] without coupling to
-     bg-sidebar. */
-  --rv-toolbar: oklch(0.93 0.004 80);            /* warm system gray (Mercury-style chrome strip) */
-  --background: oklch(1 0 0);                    /* content area — pure white */
-  --foreground: oklch(0.18 0.005 250);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.005 250);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.005 250);
-  --primary: oklch(0.18 0.005 250);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.96 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.96 0 0);
-  --muted-foreground: oklch(0.46 0 0);
-  --accent: oklch(0.96 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.55 0.20 27.325);
-  --border: oklch(0.88 0.005 250);              /* dividers visible against white */
-  --input: oklch(0.92 0 0);
-  --ring: oklch(0.7 0 0);
-  --chart-1: oklch(0.78 0 0);
-  --chart-2: oklch(0.5 0 0);
-  --chart-3: oklch(0.4 0 0);
-  --chart-4: oklch(0.34 0 0);
-  --chart-5: oklch(0.24 0 0);
-  --radius: 0.625rem;
-  --sidebar: var(--rv-toolbar);                  /* sidebar IS the toolbar */
-  --sidebar-foreground: oklch(0.18 0.005 250);
-  --sidebar-primary: oklch(0.18 0.005 250);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.92 0.003 80);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.88 0.005 250);
-  --sidebar-ring: oklch(0.7 0 0);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   Paper theme — warm cream surfaces, brown ink text. Reads as a quiet
-   notebook / index-card aesthetic, not a flashlight-on-paper light theme.
-   Surfaces use a *very* subtle layered tone (no harsh whites) and a
-   barely-visible diagonal grain via repeating-linear-gradient. The
-   palette is tuned so the existing red/amber/green signal colors and the
-   warm cream accent still read correctly without re-tokenizing every
-   component.
-   ──────────────────────────────────────────────────────────────────────────── */
-.paper {
-  /* Paper layering — content area is the brighter cream (index card),
-     toolbar/sidebar is darker cream (board you pin the cards onto).
-     Same Mercury pattern as light mode, just with cream tones. */
-  --rv-surface-bg: oklch(0.97 0.018 80);   /* page / content (cream paper) */
-  --rv-surface-1: oklch(0.97 0.018 80);    /* card surface — flat on page */
-  --rv-surface-2: oklch(0.95 0.020 80);    /* in-card input tint */
-
-  /* Brown-black ink text instead of pure black — sits naturally on cream
-     and avoids the "stark printout" look. */
-  --rv-t1: oklch(0.20 0.030 60);
-  --rv-t2: oklch(0.40 0.030 60);
-  --rv-t3: oklch(0.55 0.025 60);
-  --rv-t4: oklch(0.70 0.020 60);
-
-  /* shadcn token bridge */
-  --background: var(--rv-surface-bg);    /* content area = index card cream */
-  --foreground: var(--rv-t1);
-  --card: var(--rv-surface-1);
-  --card-foreground: var(--rv-t1);
-  --popover: var(--rv-surface-1);
-  --popover-foreground: var(--rv-t1);
-  --primary: oklch(0.30 0.030 60);
-  --primary-foreground: var(--rv-surface-bg);
-  --secondary: var(--rv-surface-2);
-  --secondary-foreground: var(--rv-t1);
-  --muted: var(--rv-surface-2);
-  --muted-foreground: var(--rv-t2);
-  --accent: var(--rv-surface-2);
-  --accent-foreground: var(--rv-t1);
-  /* Punch the red harder in paper mode — the previous tone got lost
-     against cream and made negative cash-flow numbers feel optional. */
-  --destructive: oklch(0.50 0.20 25);
-  --border: oklch(0.20 0.030 60 / 12%);
-  --input: oklch(0.20 0.030 60 / 8%);
-  --ring: oklch(0.55 0.10 60 / 35%);
-
-  --chart-1: #4fb28f;
-  --chart-2: #d9a341;
-  --chart-3: #d85b5b;
-  --chart-4: oklch(0.55 0.10 60);
-  --chart-5: oklch(0.40 0.030 60);
-
-  /* Paper toolbar — slightly darker cream than the cards so the
-     chrome strip + sidebar read as the same surface. */
-  --rv-toolbar: oklch(0.92 0.025 80);
-  --sidebar: var(--rv-toolbar);
-  --sidebar-foreground: var(--rv-t1);
-  --sidebar-primary: oklch(0.30 0.030 60);
-  --sidebar-primary-foreground: var(--rv-surface-bg);
-  --sidebar-accent: var(--rv-surface-2);
-  --sidebar-accent-foreground: var(--rv-t1);
-  --sidebar-border: oklch(0 0 0 / 7%);
-  --sidebar-ring: oklch(0.55 0.10 60 / 35%);
-
-  /* Paper accent — same forest green slightly muted for cream surfaces.
-     Chroma pulled back a touch so it reads warm against the paper tone. */
-  --rv-accent: oklch(0.44 0.16 155);
-  --rv-accent-subtle: oklch(0.44 0.16 155 / 10%);
-  --rv-accent-border: oklch(0.44 0.16 155 / 22%);
-  --rv-brand: oklch(0.44 0.16 155);
-  --rv-live: oklch(0.62 0.16 60);
-
-  /* Paper-mode ink fills — translucent brown/black so chrome reads
-     against the cream surfaces without going harsh. */
-  --rv-fill-1: oklch(0.20 0.030 60 / 4%);
-  --rv-fill-2: oklch(0.20 0.030 60 / 7%);
-  --rv-fill-3: oklch(0.20 0.030 60 / 12%);
-  --rv-fill-border: oklch(0.20 0.030 60 / 9%);
-  --rv-fill-border-strong: oklch(0.20 0.030 60 / 16%);
-
-  /* Punchier signal palette for cream — the dark-mode tones get washed
-     out against paper. Saturation +0.05, lightness -0.05 across the
-     board so the worst-offending number on a card carries real weight. */
-  --rv-bad:  oklch(0.50 0.20 25);
-  --rv-bad-sub: oklch(0.50 0.20 25 / 12%);
-  --rv-warn: oklch(0.62 0.18 70);
-  --rv-warn-sub: oklch(0.62 0.18 70 / 12%);
-  --rv-good: oklch(0.44 0.16 155);
-  --rv-good-sub: oklch(0.44 0.16 155 / 12%);
-}
-
-/* Paper grain — diffuse fiber noise, not graph-paper grid.
-   Uses an SVG turbulence filter rendered to a small tile and repeated
-   across every paper surface. The previous version (two crossed
-   repeating-linear-gradients) read as graph paper or weave; the user
-   asked for "regular paper" — like the texture in a notes app or
-   index card. SVG turbulence delivers that organic, irregular grain
-   without per-pixel JS work.
-
-   The data URI:
-     - feTurbulence baseFrequency=0.9 → fine grain (~1px features)
-     - numOctaves=2 → adds a hint of variation without going noisy
-     - feColorMatrix flattens to grayscale at very low opacity
-     - 160x160 tile is large enough to avoid visible repetition at
-       arm's length but small enough to GPU-cache cheaply
-   The whole thing weighs <500 bytes and renders once per surface. */
-.paper body,
-.paper [data-slot="sidebar-inset"],
-.paper [data-slot="sidebar"],
-.paper .rv-toolbar-strip,
-.paper .rv-surface-1,
-.paper .rv-surface-2 {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-  background-repeat: repeat;
-  background-size: 160px 160px;
-}
-
-.dark {
-  --rv-surface-bg: #0a0a0b;
-  --rv-surface-1: #101014;
-  --rv-surface-2: #16161b;
-  /* Dark-mode accent — lighter green so it reads as a bright highlight
-     against the near-black surface. Same hue 155, much higher lightness. */
-  --rv-accent: oklch(0.70 0.20 155);
-  --rv-accent-subtle: oklch(0.70 0.20 155 / 12%);
-  --rv-accent-border: oklch(0.70 0.20 155 / 28%);
-  --rv-brand: oklch(0.70 0.20 155);
-  --rv-live: oklch(0.78 0.14 78);
-  /* Dark-mode ink fills — invert to translucent WHITE so all the
-     interactive surfaces (inputs, pills, rows, scrollbars) read as
-     soft highlights against the dark page. */
-  --rv-fill-1: oklch(1 0 0 / 4%);
-  --rv-fill-2: oklch(1 0 0 / 6%);
-  --rv-fill-3: oklch(1 0 0 / 14%);
-  --rv-fill-border: oklch(1 0 0 / 7%);
-  --rv-fill-border-strong: oklch(1 0 0 / 14%);
-
-  /* Dark-mode signal palette — restored from the original phase-1 polish
-     pass. These muted tones are calibrated for dark backgrounds; the
-     punchier tones we use in light/paper would be too neon here. */
-  --rv-bad:      #d85b5b;
-  --rv-bad-sub:  rgba(216, 91, 91, 0.12);
-  --rv-warn:     #d9a341;
-  --rv-warn-sub: rgba(217, 163, 65, 0.10);
-  --rv-good:     oklch(0.70 0.20 155);
-  --rv-good-sub: oklch(0.70 0.20 155 / 12%);
-
-  /* Dark-mode toolbar — slightly LIFTED off the page so the chrome
-     reads as a tone-on-tone toolbar (Mercury / Linear dark-mode). The
-     content area below is the deep page background. */
-  --rv-toolbar: oklch(0.13 0.012 252);
-  /* Deep cool near-black — hue 250° (blue-slate), chroma just enough to read as intentional */
-  --background: oklch(0.088 0.014 252);
-  --foreground: oklch(0.96 0.005 250);
-  --card: oklch(0.125 0.013 252);
-  --card-foreground: oklch(0.96 0.005 250);
-  --popover: oklch(0.125 0.013 252);
-  --popover-foreground: oklch(0.96 0.005 250);
-  --primary: oklch(0.92 0.005 250);
-  --primary-foreground: oklch(0.10 0.014 252);
-  --secondary: oklch(0.175 0.012 252);
-  --secondary-foreground: oklch(0.96 0.005 250);
-  --muted: oklch(0.175 0.012 252);
-  --muted-foreground: oklch(0.52 0.009 252);
-  --accent: oklch(0.175 0.012 252);
-  --accent-foreground: oklch(0.96 0.005 250);
-  /* Muted destructive — used by shadcn alert/badge components. Same hue
-     as --rv-bad so error UI matches the rest of the polish pass. */
-  --destructive: oklch(0.62 0.155 22);
-  --border: oklch(1 0 0 / 7%);
-  --input: oklch(1 0 0 / 9%);
-  --ring: oklch(0.94 0.012 80 / 35%);
-  /* Chart colors — green matches brand/good signal for positive bars */
-  --chart-1: oklch(0.70 0.20 155);
-  --chart-2: #d9a341;
-  --chart-3: #d85b5b;
-  --chart-4: oklch(0.70 0.20 155 / 60%);
-  --chart-5: oklch(0.55 0.012 252);
-  --sidebar: var(--rv-toolbar);
-  --sidebar-foreground: oklch(0.96 0.005 250);
-  --sidebar-primary: oklch(0.70 0.20 155);
-  --sidebar-primary-foreground: oklch(0.10 0.014 252);
-  --sidebar-accent: oklch(0.155 0.012 252);
-  --sidebar-accent-foreground: oklch(0.96 0.005 250);
-  --sidebar-border: oklch(1 0 0 / 6%);
-  --sidebar-ring: oklch(0.70 0.20 155 / 40%);
-
-  /* Text hierarchy — dark-mode values.
-     Primary (#F5F5F5) · Secondary (#A0A0A8) · Tertiary (#6A6A72) · Disabled (#48484F) */
-  --rv-t1: oklch(0.97 0.004 250);
-  --rv-t2: oklch(0.68 0.007 252);
-  --rv-t3: oklch(0.49 0.007 252);
-  --rv-t4: oklch(0.38 0.007 252);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   RealVerdict Animations
-   ──────────────────────────────────────────────────────────────────────────── */
-
-@keyframes rv-verdict-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes rv-number-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes rv-bar-grow {
-  from { transform: scaleX(0); }
-  to   { transform: scaleX(1); }
-}
-
-@keyframes rv-pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 currentColor; }
-  50%       { box-shadow: 0 0 0 4px currentColor; }
-}
-
-@keyframes rv-number-pulse {
-  0%   { opacity: 0.7; transform: scale(0.985); }
-  100% { opacity: 1;   transform: scale(1); }
-}
-
-.rv-number-pulse {
-  animation: rv-number-pulse 150ms var(--rv-ease-out) both;
-}
-
-.rv-verdict-in {
-  animation: rv-verdict-in var(--rv-dur-slow) var(--rv-ease-out) both;
-}
-
-.rv-number-in {
-  animation: rv-number-in var(--rv-dur-base) var(--rv-ease-out) both;
-}
-
-.rv-bar-grow {
-  transform-origin: left;
-  animation: rv-bar-grow var(--rv-dur-slow) var(--rv-ease-out) both;
-}
-
-/* Stagger helpers */
-.rv-delay-1 { animation-delay: 60ms; }
-.rv-delay-2 { animation-delay: 120ms; }
-.rv-delay-3 { animation-delay: 180ms; }
-.rv-delay-4 { animation-delay: 240ms; }
-.rv-delay-5 { animation-delay: 300ms; }
+   RealVerdict Design System
+   Two visual layers:
+     --p-*  Panel tokens  — always dark, overlays the bright listing page
+     --f-*  Frame tokens  — follows system light/dark for the app chrome
+   ───────────────────────────────────────────────────────────────────────── */
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+  :root {
+    /* ── Panel (always dark) ─────────────────────────────────────────────── */
+    --p-bg:          oklch(0.100 0.012 258);
+    --p-surface:     oklch(0.148 0.010 258);
+    --p-raised:      oklch(0.185 0.009 258);
+    --p-border:      oklch(0.230 0.008 258);
+    --p-border-sub:  oklch(0.190 0.006 258);
+    --p-t1:          oklch(0.970 0.000   0);
+    --p-t2:          oklch(0.720 0.000   0);
+    --p-t3:          oklch(0.490 0.000   0);
+    --p-t4:          oklch(0.320 0.000   0);
+
+    /* ── Frame (light default) ───────────────────────────────────────────── */
+    --f-bg:          oklch(0.978 0.003 258);
+    --f-toolbar:     oklch(0.948 0.004 258);
+    --f-border:      oklch(0.880 0.005 258);
+    --f-t1:          oklch(0.140 0.008 258);
+    --f-t2:          oklch(0.400 0.006 258);
+    --f-t3:          oklch(0.580 0.005 258);
+
+    /* ── Accent (forest green) ───────────────────────────────────────────── */
+    --accent:        oklch(0.600 0.180 155);
+    --accent-dim:    oklch(0.600 0.180 155 / 12%);
+    --accent-border: oklch(0.600 0.180 155 / 32%);
+    --accent-text:   oklch(0.680 0.160 155);
+
+    /* ── Signal colours ──────────────────────────────────────────────────── */
+    --good:          oklch(0.700 0.170 145);
+    --good-bg:       oklch(0.700 0.170 145 / 14%);
+    --warn:          oklch(0.780 0.160  75);
+    --warn-bg:       oklch(0.780 0.160  75 / 14%);
+    --bad:           oklch(0.640 0.220  22);
+    --bad-bg:        oklch(0.640 0.220  22 / 14%);
+
+    /* ── Source-chip confidence ──────────────────────────────────────────── */
+    --src-hi-bg:     oklch(0.700 0.170 145 / 16%);
+    --src-hi-fg:     oklch(0.700 0.170 145);
+    --src-md-bg:     oklch(0.780 0.160  75 / 16%);
+    --src-md-fg:     oklch(0.780 0.160  75);
+    --src-lo-bg:     oklch(0.580 0.080 258 / 20%);
+    --src-lo-fg:     oklch(0.680 0.000   0);
+
+    /* ── Motion ──────────────────────────────────────────────────────────── */
+    --ease-spring:   cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-out:      cubic-bezier(0.0,  0, 0.2, 1);
+    --ease-in:       cubic-bezier(0.4,  0, 1.0, 1);
+    --dur-panel:     280ms;
+    --dur-normal:    200ms;
+    --dur-fast:      120ms;
   }
-  body {
-    @apply bg-background text-foreground;
+
+  .dark {
+    --f-bg:          oklch(0.110 0.012 258);
+    --f-toolbar:     oklch(0.090 0.010 258);
+    --f-border:      oklch(0.210 0.008 258);
+    --f-t1:          oklch(0.960 0.000   0);
+    --f-t2:          oklch(0.700 0.000   0);
+    --f-t3:          oklch(0.490 0.000   0);
   }
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after { box-sizing: border-box; }
+
   html {
-    @apply font-sans;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+      "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--f-bg);
+    color: var(--f-t1);
+    margin: 0;
+  }
+
+  .electron body { user-select: none; }
+  .electron input,
+  .electron textarea,
+  .electron [data-selectable] { user-select: text; }
+
+  ::-webkit-scrollbar        { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  {
+    background: oklch(0 0 0 / 16%);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: oklch(0 0 0 / 28%); }
+  .panel-scroll::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 12%);
+  }
+  .panel-scroll::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 22%);
   }
 }
 
-/* Native-feeling scrollbars.
-   --------------------------------------------------------------------
-   Earlier this file used `width: 0` by default and `width: 8px` on
-   hover. That caused EVERY scrollable surface to reflow by 8px the
-   moment the cursor entered it. The pipeline grid in particular kept
-   shifting the rows left/right as the user hovered, which the user
-   explicitly called out as "rearranging weirdly".
+@layer utilities {
+  .font-mono-nums {
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
 
-   IMPORTANT: scrollbar-gutter is NOT applied universally — that
-   reserved a gutter on every box in the document and produced a
-   visible warm-gray strip down the right side of the inset (user
-   reported as "the bar is still stuck on the right side"). Now the
-   gutter is only reserved on the actual scroll containers via the
-   .rv-scroll utility, applied at the call site (Pipeline rows,
-   Dossier scroll area, Settings page). */
-
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-  background: transparent;
-}
-::-webkit-scrollbar-track     { background: transparent; }
-::-webkit-scrollbar-thumb     {
-  background: transparent;
-  border-radius: 9999px;
-  transition: background var(--rv-dur-fast) var(--rv-ease-out);
-}
-::-webkit-scrollbar-corner    { background: transparent; }
-
-/* Opt-in scroll container — fixes both layout shift on hover (gutter
-   reserved) and reveals a subtle thumb only when the area is
-   interacted with. Apply to the SAME element that owns
-   overflow-y/x:auto. */
-.rv-scroll { scrollbar-gutter: stable; }
-.rv-scroll:hover::-webkit-scrollbar-thumb,
-.rv-scroll:focus-within::-webkit-scrollbar-thumb {
-  background: var(--rv-fill-3);
-}
-.rv-scroll:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--rv-fill-border-strong);
-}
-/* Firefox — same effect, opt-in. */
-.rv-scroll { scrollbar-color: transparent transparent; scrollbar-width: thin; }
-.rv-scroll:hover, .rv-scroll:focus-within { scrollbar-color: var(--rv-fill-3) transparent; }
-
-/* Electron window chrome
-   -------------------------------------------------------------------
-   The 28px top strip is the native drag + traffic-light area.
-   Shifting body down by 28px keeps all content below it.
-   The strip itself shows the body background, which in every theme is
-   --background. We tinted that to a noticeable warm gray (light mode)
-   / cream (paper) / near-black (dark) so the strip + the page header
-   below it read as one continuous toolbar — Mercury / Linear style. */
-html.electron body {
-  padding-top: 28px;
-  /* The 28px strip shows the body background — paint it with the
-     toolbar tone so it merges seamlessly with the sidebar header and
-     page header below it. Together they read as one continuous
-     toolbar across the top of the window (Mercury / Linear). */
-  background: var(--rv-toolbar);
+  .panel-enter { animation: panelIn var(--dur-panel) var(--ease-spring) both; }
+  .panel-exit  { animation: panelOut var(--dur-normal) var(--ease-in) both; }
+  .dot-pulse   { animation: dotPulse 2s ease-in-out infinite; }
+  .ring-pulse  { animation: ringPulse 1.8s ease-in-out infinite; }
 }
 
-/* Lock the page to the viewport. Without this the SidebarProvider's
-   min-h-svh lets the layout grow past the viewport, which:
-     - lets the body itself scroll, so the Pipeline list "hits" some
-       upper limit and refuses to scroll further
-     - leaves a visible gap on the right of the window when content is
-       narrower than the wrapper
-     - makes the embedded WebContentsView clip in odd ways during
-       resize because its measured slot reflowed below the fold
-   With h-svh + overflow-hidden, only the explicitly-overflowing
-   children (Pipeline list, dossier, browser slot) own scrolling. */
-html, body { height: 100svh; overflow: hidden; }
-html.electron body { height: calc(100svh - 0px); } /* the 28px is padding inside */
-
-/* Page header chrome — opt-in via .rv-toolbar-strip. Use this on every
-   page-level h-14 header so it picks up the toolbar tone and a
-   visible 1px hairline against the white content below. */
-.rv-toolbar-strip {
-  background: var(--rv-toolbar);
-  box-shadow: 0 1px 0 0 var(--border);
+@keyframes panelIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes panelOut {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+@keyframes dotPulse {
+  0%, 100% { opacity: 1;   }
+  50%       { opacity: 0.3; }
+}
+@keyframes ringPulse {
+  0%   { box-shadow: 0 0 0 0   var(--accent-border); }
+  70%  { box-shadow: 0 0 0 5px oklch(0.600 0.180 155 / 0%); }
+  100% { box-shadow: 0 0 0 0   oklch(0.600 0.180 155 / 0%); }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position:  200% 0; }
 }
 
-/* Card elevation — subtle shadow system giving surfaces real depth.
-   Mirrors Mercury's approach: hairline border + very soft ambient shadow.
-   sm = panel header / chip rows, md = cards & panels, lg = popovers. */
-.rv-shadow-sm {
-  box-shadow: 0 1px 2px oklch(0 0 0 / 4%), 0 0 0 1px var(--rv-fill-border);
-}
-.rv-shadow-md {
-  box-shadow: 0 2px 8px oklch(0 0 0 / 6%), 0 1px 3px oklch(0 0 0 / 4%), 0 0 0 1px var(--rv-fill-border);
-}
-.rv-shadow-lg {
-  box-shadow: 0 8px 24px oklch(0 0 0 / 8%), 0 2px 8px oklch(0 0 0 / 5%), 0 0 0 1px var(--rv-fill-border);
-}
-.dark .rv-shadow-sm {
-  box-shadow: 0 1px 2px oklch(0 0 0 / 30%), 0 0 0 1px var(--rv-fill-border);
-}
-.dark .rv-shadow-md {
-  box-shadow: 0 2px 8px oklch(0 0 0 / 40%), 0 1px 3px oklch(0 0 0 / 30%), 0 0 0 1px var(--rv-fill-border);
-}
-.dark .rv-shadow-lg {
-  box-shadow: 0 8px 24px oklch(0 0 0 / 50%), 0 2px 8px oklch(0 0 0 / 40%), 0 0 0 1px var(--rv-fill-border);
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--p-surface) 25%,
+    var(--p-raised)  50%,
+    var(--p-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
 }
 
-/* Named so any element can opt into being a drag handle */
-.drag-region {
-  -webkit-app-region: drag;
-}
-.no-drag-region {
-  -webkit-app-region: no-drag;
+/* ── Legacy rv-* token aliases (used by LoginForm) ────────────────────────────
+   Maps the old design token names to the current panel / frame tokens.
+   Electron login window is always rendered with .electron on <html>,
+   so --p-* resolves correctly there. Frame pages use --f-* equivalents.    */
+
+@layer base {
+  :root {
+    --rv-accent:        var(--accent);
+    --rv-accent-subtle: var(--accent-dim);
+    --rv-accent-border: var(--accent-border);
+
+    --rv-surface-bg:    var(--f-bg);
+    --rv-surface-1:     var(--f-toolbar);
+    --rv-fill-1:        oklch(0.930 0.003 258);
+    --rv-fill-2:        oklch(0.900 0.004 258);
+    --rv-fill-border:   var(--f-border);
+
+    --rv-t1: var(--f-t1);
+    --rv-t2: var(--f-t2);
+    --rv-t3: var(--f-t3);
+    --rv-t4: oklch(0.680 0.003 258);
+
+    --rv-bad:     var(--bad);
+    --rv-bad-sub: var(--bad-bg);
+  }
+
+  .dark, .electron {
+    --rv-surface-bg:  var(--p-bg);
+    --rv-surface-1:   var(--p-surface);
+    --rv-fill-1:      var(--p-surface);
+    --rv-fill-2:      var(--p-raised);
+    --rv-fill-border: var(--p-border);
+
+    --rv-t1: var(--p-t1);
+    --rv-t2: var(--p-t2);
+    --rv-t3: var(--p-t3);
+    --rv-t4: var(--p-t4);
+  }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   Phase 1 polish — severity tones, native input, Mercury pill, filter chip
-   ──────────────────────────────────────────────────────────────────────────── */
-
-/* Text hierarchy utilities — use instead of text-muted-foreground/NN hacks.
-   Primary = bright, secondary = gray, tertiary = dim, disabled = ghost. */
+/* rv-* utility classes */
 .rv-t1 { color: var(--rv-t1); }
 .rv-t2 { color: var(--rv-t2); }
 .rv-t3 { color: var(--rv-t3); }
 .rv-t4 { color: var(--rv-t4); }
 
-/* Severity tones — muted reds/ambers/greens used by hero numbers, tables,
-   and any metric tile. Always apply via the helper in lib/severity.ts so
-   only the worst-offending metric per card carries color. */
-.rv-tone-bad     { color: var(--rv-bad); }
-.rv-tone-warn    { color: var(--rv-warn); }
-.rv-tone-good    { color: var(--rv-good); }
-.rv-tone-neutral { color: var(--foreground); }
-
-/* Tabular-nums everywhere a number is displayed via mono font. The body
-   already has font-variant-numeric: tabular-nums but this is a belt-and-
-   suspenders for ad-hoc spans that override the body font. */
-.rv-num {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum", "ss01", "cv11";
-}
-
-/* Native-feeling input wrapper.
-
-   Replaces the SaaS web input look (1px hard border, bright blue focus
-   ring) with a Mac-native treatment: no visible border by default, slight
-   surface lift, and a calm 1px inset shadow on focus. Apply to the wrapper
-   element that holds an <input>, then add `outline-none` to the input
-   itself. Numerics inside automatically use tabular-nums. */
 .rv-input {
+  width: 100%;
+  border-radius: 8px;
   background: var(--rv-fill-1);
-  border: 1px solid transparent;
-  border-radius: 0.5rem;
-  transition: background var(--rv-dur-fast) var(--rv-ease-out),
-              box-shadow var(--rv-dur-fast) var(--rv-ease-out);
-}
-.rv-input:hover  { background: var(--rv-fill-2); }
-.rv-input:focus-within {
-  background: var(--rv-fill-2);
-  box-shadow: inset 0 0 0 1px var(--rv-fill-border-strong);
-}
-.rv-input input,
-.rv-input textarea {
+  border: 1px solid var(--rv-fill-border);
   outline: none;
-  font-variant-numeric: tabular-nums;
+  transition: border-color 120ms;
+}
+.rv-input:focus-within {
+  border-color: var(--accent);
 }
 
-/* Primary CTA — Mercury-style.
-   In dark mode this is a near-white pill on dark. In light mode it
-   inverts to a near-black pill on light so contrast is preserved.
-   Both rely on the shadcn --primary / --primary-foreground tokens that
-   already flip with the theme. */
 .rv-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
   width: 100%;
-  height: 40px;
-  padding: 0 1rem;
-  border-radius: 9999px;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  padding: 10px 16px;
+  border-radius: 10px;
   font-size: 13px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  border: 1px solid transparent;
-  transition: background var(--rv-dur-fast) var(--rv-ease-out),
-              transform var(--rv-dur-fast) var(--rv-ease-out),
-              opacity var(--rv-dur-fast) var(--rv-ease-out);
-}
-.rv-pill:hover  { opacity: 0.92; }
-.rv-pill:active { transform: scale(0.985); }
-.rv-pill:disabled,
-.rv-pill[aria-disabled="true"] {
-  cursor: default;
-  opacity: 0.85;
-}
-
-/* Saved / secondary state — sits next to the pill at lower visual weight. */
-.rv-pill-saved {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  height: 40px;
-  padding: 0 1rem;
-  border-radius: 9999px;
-  background: transparent;
-  border: 1px solid var(--rv-fill-border-strong);
-  color: var(--rv-t2);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: default;
-}
-
-/* Filter chip — restrained active state.
-
-   The previous active-state ("All" filled foreground / inverted text) was
-   too high-contrast and pulled attention away from the metrics it was
-   filtering. New treatment is a faint surface lift + slightly brighter
-   border, so the active chip reads as "selected" without shouting. */
-.rv-chip {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: 9999px;
-  border: 1px solid var(--rv-fill-border);
-  background: transparent;
-  color: var(--rv-t3);
-  /* 50ms — sub-threshold, feels instant on click */
-  transition: background 50ms ease, border-color 50ms ease, color 50ms ease;
-}
-.rv-chip:hover {
-  border-color: var(--rv-fill-border-strong);
-  color: var(--rv-t2);
-}
-.rv-chip[data-state="active"] {
-  background: var(--rv-fill-3);
-  border-color: var(--rv-fill-border-strong);
-  color: var(--rv-t1);
-}
-
-/* Severity dot — small marker placed next to the worst-offender metric in
-   compact UIs (compare view, hero strip) when the full color would be too
-   much. 6px circle in the same hue as the tone class. */
-.rv-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  background: currentColor;
-  vertical-align: middle;
-}
-
-.rv-surface-bg { background: var(--rv-surface-bg); }
-.rv-surface-1  { background: var(--rv-surface-1); }
-.rv-surface-2  { background: var(--rv-surface-2); }
-
-/* Pipeline row treatment.
-   --------------------------------------------------------------------
-   Replaces the "cheap-looking square on the left edge" with a clean,
-   full-row Surface 2 background shift on hover, and a single 2px
-   accent stripe (via box-shadow inset) on the selected row. Using
-   box-shadow inset for the stripe avoids the 2px content reflow that
-   border-style toggles cause on <tr> elements. The 1px row separator
-   below the row is rendered as another inset shadow so it's tied to
-   the row state and never appears doubled with the table's own
-   border-b utility. */
-.rv-row {
-  background: transparent;
-  box-shadow: inset 0 -1px 0 0 var(--rv-fill-border);
-  transition: background 100ms ease, box-shadow 100ms ease;
-}
-.rv-row:hover {
-  /* Subtle, noticeable hover that doesn't compete with the selected
-     state — about 1/3 the visual weight of the selection tint so the
-     two are immediately distinguishable. */
-  background: var(--rv-fill-1);
-}
-.rv-row--selected,
-.rv-row--selected:hover {
-  /* Selection: warmer surface tint + a 3px accent stripe on the leading
-     edge. Uses --rv-fill-3 so it reads in both light and dark
-     surfaces without inverting (translucent black on light page,
-     translucent white on dark page). */
-  background: var(--rv-fill-3);
-  box-shadow: inset 3px 0 0 0 var(--rv-accent),
-              inset 0 -1px 0 0 var(--rv-fill-border);
-}
-
-/* Hairline divider used between dossier modules. */
-.rv-hairline {
-  border-bottom: 1px solid var(--rv-fill-border);
-}
-
-/* Section label — proper small caps, used by every settings/module title. */
-.rv-section-label {
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.2;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--rv-t2);
-}
-
-/* ────────────────────────────────────────────────────────────────────
-   Legal-doc typography (Terms, Privacy).
-   Cheap, dependency-free alternative to @tailwindcss/typography for the
-   handful of long-form static pages we have. Scoped to .legal-doc so it
-   never leaks into product surfaces.
-   ──────────────────────────────────────────────────────────────────── */
-.legal-doc h2 {
-  margin-top: 2.5rem;
-  font-size: 1.25rem;
-  line-height: 1.3;
   font-weight: 600;
-  letter-spacing: -0.005em;
-  color: var(--foreground);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 120ms;
+  letter-spacing: -0.01em;
 }
-.legal-doc h3 {
-  margin-top: 1.5rem;
-  font-size: 1rem;
-  line-height: 1.35;
-  font-weight: 600;
-  color: var(--foreground);
-}
-.legal-doc p {
-  margin-top: 1rem;
-}
-.legal-doc ul {
-  margin-top: 1rem;
-  margin-bottom: 0.25rem;
-  padding-left: 1.25rem;
-  list-style: disc;
-}
-.legal-doc li {
-  margin-top: 0.4rem;
-}
-.legal-doc a {
-  color: var(--foreground);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.legal-doc a:hover {
-  opacity: 0.85;
-}
-.legal-doc strong {
-  font-weight: 600;
-  color: var(--foreground);
-}
-.legal-doc table {
-  margin-top: 1rem;
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-.legal-doc th,
-.legal-doc td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--rv-fill-border, rgba(0,0,0,0.08));
-  vertical-align: top;
-}
-.legal-doc th {
-  font-weight: 600;
-  color: var(--foreground);
+.rv-pill:hover { opacity: 0.9; }
+
+.rv-shadow-md {
+  box-shadow: 0 4px 24px oklch(0 0 0 / 8%), 0 1px 4px oklch(0 0 0 / 6%);
 }

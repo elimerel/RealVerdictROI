@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { MarketingHeader } from "../_components/MarketingHeader";
-import { MarketingFooter } from "../_components/MarketingFooter";
 import { ReportConcernForm } from "./ReportConcernForm";
 
 export const metadata: Metadata = {
@@ -13,7 +11,6 @@ export const metadata: Metadata = {
 export default function ReportConcernPage() {
   return (
     <div className="flex flex-1 flex-col bg-gradient-to-b from-zinc-50 via-white to-zinc-50 dark:from-zinc-950 dark:via-black dark:to-zinc-950">
-      <MarketingHeader />
 
       <main className="flex-1">
         <article className="mx-auto w-full max-w-xl px-6 py-16 sm:py-20">
@@ -49,7 +46,6 @@ export default function ReportConcernPage() {
         </article>
       </main>
 
-      <MarketingFooter />
     </div>
   );
 }
