@@ -127,18 +127,13 @@ function StartScreen({ onNavigate }: { onNavigate: (url: string) => void }) {
       className="absolute inset-0 flex flex-col items-center justify-center px-8 select-none"
       style={{ background: "var(--rv-bg)" }}
     >
-      {/* Logo mark */}
-      <div
-        className="flex h-11 w-11 items-center justify-center rounded-[11px] mb-6"
-        style={{
-          background: "var(--rv-accent)",
-          boxShadow: "0 0 0 1px var(--rv-accent-border), 0 4px 16px var(--rv-accent-dim)",
-        }}
+      {/* Wordmark */}
+      <p
+        className="text-[13px] font-semibold tracking-tight mb-5"
+        style={{ color: "var(--rv-accent)" }}
       >
-        <svg width="22" height="22" viewBox="0 0 14 14" fill="none" aria-hidden>
-          <path d="M7 1L3 8h4l-1 5 5-7H7l1-5z" fill="white"/>
-        </svg>
-      </div>
+        RealVerdict
+      </p>
 
       {/* Greeting */}
       <h1

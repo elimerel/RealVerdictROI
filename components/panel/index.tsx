@@ -386,14 +386,6 @@ export default function Panel() {
         } as React.CSSProperties}
       >
         <div className="flex items-center gap-2">
-          <div
-            className="flex h-5 w-5 items-center justify-center rounded-[5px]"
-            style={{ background: "var(--rv-accent)" }}
-          >
-            <svg width="10" height="10" viewBox="0 0 14 14" fill="none" aria-hidden>
-              <path d="M7 1L3 8h4l-1 5 5-7H7l1-5z" fill="white"/>
-            </svg>
-          </div>
           <span className="text-[12px] font-semibold tracking-tight" style={{ color: "var(--rv-t1)" }}>
             RealVerdict
           </span>

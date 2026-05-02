@@ -127,9 +127,9 @@ export default function Toolbar({
         borderColor: "var(--rv-border)",
       } as React.CSSProperties}
     >
-      {/* Inner no-drag zone: pl-20 clears macOS traffic lights */}
+      {/* Inner no-drag zone — sidebar handles traffic light clearance */}
       <div
-        className="flex items-center gap-1 flex-1 pl-20 pr-2"
+        className="flex items-center gap-1 flex-1 pl-2 pr-2"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         {/* Nav buttons */}
