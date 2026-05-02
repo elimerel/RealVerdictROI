@@ -76,3 +76,31 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setAnthropicKey: (key) => ipcRenderer.invoke("config:set-anthropic-key", key),
   hasAnthropicKey: () => ipcRenderer.invoke("config:has-anthropic-key"),
 })
+
+// ── Shell API ────────────────────────────────────────────────────────────────
+// Exposed only to the SHELL HTML (electron-app/shell/index.html) — the Next.js
+// app uses electronAPI above instead.  Both APIs share a single preload so the
+// appWindow's webContents can serve both /login (Next.js) and shell.html
+// without recreating the window.
+contextBridge.exposeInMainWorld("shellAPI", {
+  navigate:         (route)  => ipcRenderer.invoke("shell:navigate", route),
+  setContentBounds: (bounds) => ipcRenderer.invoke("shell:content-bounds", bounds),
+
+  // Sidebar state is owned by main process — both the shell HTML and the
+  // Next.js Toolbar read/write through these.  Main broadcasts changes to
+  // both via "sidebar:state".
+  toggleSidebar:    ()       => ipcRenderer.invoke("sidebar:toggle"),
+  setSidebar:       (open)   => ipcRenderer.invoke("sidebar:set", open),
+  getSidebarState:  ()       => ipcRenderer.invoke("sidebar:get-state"),
+
+  onActiveRoute: (cb) => {
+    const h = (_e, route) => cb(route)
+    ipcRenderer.on("shell:active-route", h)
+    return () => ipcRenderer.removeListener("shell:active-route", h)
+  },
+  onSidebarState: (cb) => {
+    const h = (_e, open) => cb(open)
+    ipcRenderer.on("sidebar:state", h)
+    return () => ipcRenderer.removeListener("sidebar:state", h)
+  },
+})

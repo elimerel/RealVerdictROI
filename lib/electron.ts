@@ -156,8 +156,20 @@ export interface ElectronAPI {
   hasAnthropicKey: () => Promise<boolean>
 }
 
+// ── Shell API ────────────────────────────────────────────────────────────────
+// Available to BOTH the shell HTML AND the Next.js app loaded in nextView.
+// Used to coordinate sidebar state and route between the shell and React.
+export interface ShellAPI {
+  navigate:         (route: string) => Promise<void>
+  setContentBounds: (bounds: ElectronBounds) => Promise<void>
+  toggleSidebar:    () => Promise<void>
+  onActiveRoute:    (cb: (route: string) => void) => () => void
+  onSidebarState:   (cb: (open: boolean) => void) => () => void
+}
+
 declare global {
   interface Window {
     electronAPI?: ElectronAPI
+    shellAPI?:    ShellAPI
   }
 }

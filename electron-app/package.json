@@ -15,7 +15,15 @@
     "copyright": "Copyright © 2025",
     "mac": {
       "category": "public.app-category.finance",
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -25,10 +33,21 @@
     "dmg": {
       "title": "RealVerdict",
       "background": "build/dmg-background.png",
-      "window": { "width": 540, "height": 380 },
+      "window": {
+        "width": 540,
+        "height": 380
+      },
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "files": [
@@ -40,5 +59,8 @@
   "devDependencies": {
     "electron": "^41.5.0",
     "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-liquid-glass": "^1.1.1"
   }
 }

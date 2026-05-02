@@ -1,20 +1,11 @@
-import type { Metadata } from "next"
-import Sidebar from "@/components/sidebar"
-
-export const metadata: Metadata = {
-  title: "RealVerdict",
-}
+// Sidebar lives in the Electron shell.  Show-sidebar button also lives in
+// the shell (electron-app/shell/index.html — #globalShowBtn) — we don't
+// render any sidebar-related UI in Next.js anymore.
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    // Solid background covers the whole window — no desktop bleed-through.
-    // Individual glass elements (sidebar, toolbar, panel) use semi-transparent
-    // backgrounds on top of this, letting the vibrancy show through locally.
-    <div className="flex w-screen h-screen overflow-hidden" style={{ background: "#0d0d0f" }}>
-      <Sidebar />
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {children}
-      </div>
+    <div className="w-screen h-screen overflow-hidden" style={{ background: "#0a0a0c" }}>
+      {children}
     </div>
   )
 }

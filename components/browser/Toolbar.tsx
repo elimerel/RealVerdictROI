@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, KeyboardEvent } from "react"
+import { useState, useRef, useEffect, KeyboardEvent } from "react"
 import type { NavUpdate } from "@/lib/electron"
 
 function BackIcon() {
@@ -30,6 +30,15 @@ function ReloadIcon({ spinning }: { spinning?: boolean }) {
         d="M11.5 7A4.5 4.5 0 1 1 9.2 3.2M11.5 2v3h-3"
         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
       />
+    </svg>
+  )
+}
+
+function SidebarIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+      <line x1="6" y1="3" x2="6" y2="13" stroke="currentColor" strokeWidth="1.4"/>
     </svg>
   )
 }
@@ -69,8 +78,16 @@ export default function Toolbar({
 }: ToolbarProps) {
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState("")
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
   const resolvedRef = urlbarRef ?? inputRef
+
+  // Subscribe to shell sidebar state — when sidebar closes, we need to clear
+  // the macOS traffic-light zone (84px) AND show our own toggle button.
+  useEffect(() => {
+    const off = window.shellAPI?.onSidebarState?.((open) => setSidebarOpen(open))
+    return () => { off?.() }
+  }, [])
 
   const displayUrl = nav.url ?? ""
 
@@ -109,8 +126,9 @@ export default function Toolbar({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-100
-                 text-[var(--rv-t3)] hover:text-[var(--rv-t1)] hover:bg-white/[0.06]
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-all duration-100
+                 text-[rgba(245,245,247,0.42)] hover:text-[rgba(245,245,247,0.95)] hover:bg-white/[0.07]
                  disabled:opacity-25 disabled:pointer-events-none"
     >
       {children}
@@ -118,21 +136,25 @@ export default function Toolbar({
   )
 
   return (
-    /* Outer div is drag region — window draggable by grabbing the toolbar */
+    /* Whole toolbar is a drag region (no-drag set on interactive children) */
     <div
-      className="flex items-center h-10 border-b shrink-0 select-none"
+      className="flex items-center shrink-0 select-none"
       style={{
+        height:          52,
         WebkitAppRegion: "drag",
-        background: "var(--rv-glass)",
-        borderColor: "var(--rv-border)",
+        background:      "transparent",
+        // Toolbar lives inside nextView which is shifted right by 120px
+        // by the shell when sidebar is hidden, so traffic lights + the
+        // unified toggle button always sit in shell territory — no need
+        // for the toolbar to pad past them.
+        paddingLeft:     8,
       } as React.CSSProperties}
     >
-      {/* Inner no-drag zone — sidebar handles traffic light clearance */}
-      <div
-        className="flex items-center gap-1 flex-1 pl-2 pr-2"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
-        {/* Nav buttons */}
+      {/* Inner wrapper stays a DRAG region for window-move; each button
+          opts out via `no-drag`. The sidebar toggle lives in the SHELL
+          (electron-app/shell) at a fixed position — not in the toolbar. */}
+      <div className="flex items-center gap-1 flex-1 pr-2">
+        {/* Browser nav */}
         <NavBtn onClick={onBack}    disabled={!nav.canGoBack}    title="Back">    <BackIcon />    </NavBtn>
         <NavBtn onClick={onForward} disabled={!nav.canGoForward} title="Forward"> <ForwardIcon /> </NavBtn>
         <NavBtn onClick={onReload}  title="Reload">
@@ -142,12 +164,13 @@ export default function Toolbar({
         {/* URL bar */}
         <div className="flex-1 mx-1.5">
           <div
-            className="w-full h-[26px] flex items-center gap-2 rounded-[7px] px-3 cursor-text
+            className="w-full h-[28px] flex items-center gap-2 rounded-[7px] px-3 cursor-text
                        transition-all duration-150"
             style={{
-              background: editing ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.05)",
-              border: `1px solid ${editing ? "var(--rv-border-mid)" : "var(--rv-border)"}`,
-            }}
+              background:      editing ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.05)",
+              border:          "none",
+              WebkitAppRegion: "no-drag",
+            } as React.CSSProperties}
             onClick={startEdit}
           >
             {editing ? (
@@ -157,16 +180,16 @@ export default function Toolbar({
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKey}
                 onBlur={() => setEditing(false)}
-                className="flex-1 bg-transparent border-none outline-none text-[11.5px] leading-none font-mono"
-                style={{ color: "var(--rv-t1)" }}
+                className="flex-1 bg-transparent border-none outline-none text-[12px] leading-none"
+                style={{ color: "rgba(245,245,247,0.95)" }}
                 spellCheck={false}
                 autoComplete="off"
               />
             ) : (
               <>
                 <span
-                  className="flex-1 text-[11.5px] truncate leading-none"
-                  style={{ color: displayUrl ? "var(--rv-t2)" : "var(--rv-t4)" }}
+                  className="flex-1 text-[12px] truncate leading-none"
+                  style={{ color: displayUrl ? "rgba(245,245,247,0.75)" : "rgba(245,245,247,0.30)" }}
                 >
                   {displayUrl || "Navigate to any listing…"}
                 </span>

@@ -1,0 +1,538 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   RealVerdict shell — pure HTML/CSS/JS, no React.
+   This IS the Electron application chrome.  The Next.js app loads in a
+   WebContentsView positioned over the .content-pane div.
+
+   Three sidebar states:
+     1. Expanded — width is dynamic, defaults to 240px, drag-resizable
+     2. Mini    — 88px (just enough to contain traffic lights + icons)
+     3. Hidden  — 0px (peek-on-hover at left edge brings it back temporarily)
+
+   ── Apple HIG color tokens (dark mode) ─────────────────────────────────────
+   These match Apple's published Human Interface Guidelines color system
+   exactly — same values used by Finder, Mail, and Notes in dark mode. */
+:root {
+  /* Label colors — text on translucent surfaces */
+  --hig-label-primary:    rgba(255, 255, 255, 1.00);
+  --hig-label-secondary:  rgba(235, 235, 245, 0.60);
+  --hig-label-tertiary:   rgba(235, 235, 245, 0.30);
+  --hig-label-quaternary: rgba(235, 235, 245, 0.18);
+
+  /* Fill colors — backgrounds for chips, hover states, selections */
+  --hig-fill-primary:     rgba(120, 120, 128, 0.36);
+  --hig-fill-secondary:   rgba(120, 120, 128, 0.32);
+  --hig-fill-tertiary:    rgba(118, 118, 128, 0.24);
+  --hig-fill-quaternary:  rgba(118, 118, 128, 0.18);
+
+  /* Separator hairlines */
+  --hig-separator:        rgba(84, 84, 88, 0.65);
+
+  /* System green (used for active-route indicator) */
+  /* Forest green — the accent we settled on (Radix forest green).  All
+     active-state indicators, account avatar, etc. should use this. */
+  --hig-system-green:     #30a46c;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+html, body {
+  /* Transparent — lets the BrowserWindow's vibrancy:"sidebar" material
+     render through.  This is the actual macOS frosted-glass effect. */
+  background: transparent;
+}
+
+body {
+  color: rgba(245, 245, 247, 0.95);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+               "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  display: flex;
+  position: relative;
+  /* Solid dark background — when the sidebar is hidden and the content pane
+     shifts right by 120px, the gap on the left needs a clean dark surface
+     instead of exposing the (transparent) body and showing the OS material
+     mid-transition. */
+  background: #0a0a0c;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────── */
+.sidebar {
+  flex-shrink: 0;
+  width: var(--sidebar-w, 240px);
+  height: 100%;
+  /* Slight white tint over the macOS sidebar vibrancy material.  The OS
+     vibrancy is doing 90% of the work; this just makes the sidebar read as
+     a distinct surface even on dark wallpapers. */
+  background: rgba(255, 255, 255, 0.045);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  transition: width 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* While actively dragging, kill the transition so the sidebar tracks the
+   cursor in real time without lag */
+#app.resizing .sidebar { transition: none; }
+
+/* Hidden state */
+#app.sidebar-hidden .sidebar {
+  width: 0 !important;
+}
+
+/* Inner CONTENT clamps min-width so labels don't reflow during the width
+   transition.  Excludes the resize-handle which is a 3px overlay — that
+   element must NOT be 180px wide or it'd capture col-resize cursor across
+   most of the sidebar. */
+.sidebar > .sidebar-top,
+.sidebar > .nav,
+.sidebar > .sidebar-bottom {
+  min-width: 180px;
+}
+
+/* Sidebar header — drag region for window movement, contains hide button
+   on the RIGHT so it tracks the panel's right edge */
+.sidebar-top {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding-right: 8px;
+  -webkit-app-region: drag;
+}
+
+/* ── Hide / show button — Apple HIG label + fill colors ────────────────── */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--hig-label-tertiary);
+  cursor: default;
+  -webkit-app-region: no-drag;
+  transition: color 100ms cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 100ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.icon-btn:hover {
+  color: var(--hig-label-primary);
+  background: var(--hig-fill-quaternary);
+}
+
+.icon-btn:active {
+  background: var(--hig-fill-tertiary);
+}
+
+/* ── Nav ───────────────────────────────────────────────────────────────── */
+.nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 8px;
+  -webkit-app-region: no-drag;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar-bottom {
+  flex-shrink: 0;
+  padding: 8px;
+  border-top: 0.5px solid var(--hig-fill-quaternary);
+  -webkit-app-region: no-drag;
+}
+
+/* ── Account row (bottom of sidebar) ──────────────────────────────────── */
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 40px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  cursor: default;
+  text-align: left;
+  transition: background-color 100ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.account-row:hover {
+  background: var(--hig-fill-quaternary);
+}
+
+.account-avatar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hig-system-green);
+  color: rgba(0, 0, 0, 0.85);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.account-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.account-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--hig-label-primary);
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-email {
+  font-size: 11px;
+  color: var(--hig-label-tertiary);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  /* Apple HIG: secondary label for inactive sidebar items */
+  color: var(--hig-label-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  text-align: left;
+  white-space: nowrap;
+  border-radius: 7px;
+  cursor: default;
+  transition: color 100ms cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 100ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+
+.nav-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 120ms ease;
+}
+
+.nav-item:hover {
+  color: var(--hig-label-primary);
+  background: var(--hig-fill-quaternary);
+}
+
+.nav-item[data-active] {
+  color: var(--hig-label-primary);
+  background: var(--hig-fill-tertiary);
+  font-weight: 500;
+}
+
+.nav-item[data-active]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.5px;
+  height: 14px;
+  /* Apple's systemGreen for the active-route accent */
+  background: var(--hig-system-green);
+  border-radius: 0 2px 2px 0;
+}
+
+
+/* ── Drag-to-resize handle ─────────────────────────────────────────────────
+   Lives INSIDE the sidebar pinned to the right edge (right:0).  Glued to
+   the panel automatically — as the sidebar resizes the handle moves with
+   it.  Hit area is the inside-right 3px of the sidebar; the pill renders
+   right at the edge so it tracks 1:1. */
+.resize-handle {
+  position: absolute;
+  /* Skip top 52px so the macOS drag region owns that zone */
+  top: 52px;
+  right: 0;
+  width: 3px;
+  height: calc(100% - 52px);
+  cursor: col-resize;
+  z-index: 50;
+}
+
+#app.sidebar-hidden .resize-handle {
+  display: none;
+}
+
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%) scaleY(0.65);
+  width: 2px;
+  height: 26px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.32);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.12);
+  opacity: 0;
+  transition: opacity 140ms ease-out,
+              transform 220ms cubic-bezier(0.32, 0.72, 0, 1),
+              box-shadow 180ms ease-out,
+              background-color 140ms ease-out;
+}
+
+.resize-handle:hover::after,
+#app.resizing .resize-handle::after {
+  opacity: 1;
+  transform: translateY(-50%) scaleY(1);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.30),
+              0 0 22px rgba(255, 255, 255, 0.08);
+}
+
+#app.resizing .resize-handle::after {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Content pane ──────────────────────────────────────────────────────── */
+.content-pane {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  background: #0a0a0c;
+  transition: margin-left 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* When sidebar is hidden, shift the content-pane right by 120px to leave
+   shell territory visible for the unified toggle button.  WebContentsView
+   follows automatically via pushBounds. */
+#app.sidebar-hidden .content-pane {
+  margin-left: 120px;
+}
+
+/* ── Unified sidebar toggle button ─────────────────────────────────────────
+   Fixed at top:12 left:84 — exact same position whether sidebar is open or
+   hidden.  When sidebar is OPEN, the button is over the sidebar's left area.
+   When HIDDEN, it's in the 120px shell strip.  Stays put either way. */
+.sidebar-toggle {
+  position: fixed;
+  top: 12px;
+  left: 84px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(245, 245, 247, 0.42);
+  cursor: default;
+  z-index: 1000;
+  -webkit-app-region: no-drag;
+  transition: color 100ms cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 100ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-toggle:hover {
+  color: rgba(245, 245, 247, 0.95);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Native StartScreen ────────────────────────────────────────────────────
+   Rendered directly by the shell HTML.  No React, no WebContentsView re-
+   render on resize — pure native HTML/CSS/JS.  This is the right "work
+   buddy" entry surface. */
+.start-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 32px;
+  overflow: hidden;
+}
+
+.start-screen[hidden] { display: none; }
+
+/* Soft radial glow from the forest-green accent */
+.start-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 60% 42% at 50% 40%,
+              rgba(48, 164, 108, 0.06) 0%, transparent 72%);
+}
+
+.start-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.start-greeting {
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.030em;
+  line-height: 1.05;
+  color: var(--hig-label-primary);
+  margin: 0;
+  /* Staggered fade-in on enter */
+  animation: rv-rise 540ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation-delay: 0ms;
+}
+
+.start-subhead {
+  margin: 12px 0 48px;
+  font-size: 13.5px;
+  letter-spacing: -0.005em;
+  color: var(--hig-label-secondary);
+  text-align: center;
+  min-height: 1.4em;
+  animation: rv-rise 540ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation-delay: 80ms;
+}
+
+.start-cursor {
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.13em;
+  background: var(--hig-label-secondary);
+  animation: rv-cursor-blink 1.05s steps(1, end) infinite;
+}
+
+.start-cursor.fading {
+  opacity: 0;
+  transition: opacity 350ms ease-out;
+  animation: none;
+}
+
+@keyframes rv-cursor-blink {
+  0%, 50%      { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+@keyframes rv-rise {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* Site shortcut grid */
+.start-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  width: 100%;
+  max-width: 340px;
+  animation: rv-rise 540ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation-delay: 160ms;
+}
+
+.start-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  text-align: left;
+  cursor: default;
+  transition: background-color 100ms cubic-bezier(0.4, 0, 0.2, 1),
+              transform 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.start-card:hover {
+  background: rgba(255, 255, 255, 0.09);
+  transform: translateY(-1px);
+}
+
+.start-card-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--hig-label-primary);
+}
+
+.start-card-desc {
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--hig-label-tertiary);
+}
+
+.start-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 36px 0 0;
+  font-size: 11px;
+  color: var(--hig-label-tertiary);
+  animation: rv-rise 540ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation-delay: 240ms;
+}
+
+.start-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--hig-label-secondary);
+  font-size: 10px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+

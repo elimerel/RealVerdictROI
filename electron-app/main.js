@@ -4,6 +4,11 @@ const { app, BrowserWindow, WebContentsView, ipcMain, screen, session, Menu, nat
 const path = require("path")
 const fs = require("fs")
 
+// electron-liquid-glass attempted and abandoned — the package's addView API
+// adds NSGlassEffectView on top of WebContentsView in z-order with no exposed
+// way to push it behind, which breaks all click events.  Sticking with native
+// `vibrancy:"sidebar"` which is well-supported in Electron and does its job.
+
 // Pinned to the Chromium version inside the current Electron build so the
 // embedded browser presents a clean, indistinguishable Chrome user-agent
 // to Zillow / Redfin / etc. Computed once at module load so we don't pay
@@ -254,6 +259,19 @@ let appWindow = null
 /** @type {WebContentsView | null} */
 let browserView = null
 
+/** @type {WebContentsView | null}
+ *
+ * The Next.js content view — holds the actual web app (Browse / Pipeline /
+ * Settings).  Sits behind the embedded `browserView` (which renders external
+ * listing sites).  Positioned by the shell (electron-app/shell/index.html)
+ * via the IPC channel "shell:content-bounds". */
+let nextView = null
+
+/** Last bounds reported by the shell for the content pane area.  Cached so
+ *  we can re-apply when nextView is created or window is resized. */
+let nextViewBounds = null
+
+
 let isMainMode = false   // tracks whether window is currently in main-app mode
 
 // ---------------------------------------------------------------------------
@@ -346,11 +364,11 @@ function createAppWindow() {
     show: false,
     // transparent + vibrancy gives us real macOS glass on the toolbar/panel.
     // backgroundColor must be absent (or fully transparent) for vibrancy to show.
-    backgroundColor: "#0d0d0f",
+    backgroundColor: "#0a0a0c",
     vibrancy: "sidebar",
     visualEffectState: "active",
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 14, y: 10 },
+    trafficLightPosition: { x: 16, y: 18 },
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -423,8 +441,14 @@ function createAppWindow() {
     writeMainBoundsDebounced(appWindow.getBounds())
   }
 
-  appWindow.on("resize", () => { syncBrowserViewBounds(); persistMainBounds() })
-  appWindow.on("move",   () => { syncBrowserViewBounds(); persistMainBounds() })
+  appWindow.on("resize", () => {
+    // The shell will re-push content-pane bounds via ResizeObserver on its
+    // own; nothing to do here for nextView.  But the embedded browserView
+    // sits within nextView so its pendingBounds may need a refresh.
+    syncBrowserViewBounds()
+    persistMainBounds()
+  })
+  appWindow.on("move", () => { syncBrowserViewBounds(); persistMainBounds() })
   appWindow.on("close", () => {
     // Final, immediate write before tear-down — the debounced write may
     // not have fired if the user resized then immediately quit.
@@ -474,40 +498,98 @@ const EXPAND_NAV_COOLDOWN_MS = 4000
 function expandToMainApp() {
   if (!appWindow || appWindow.isDestroyed()) return
 
+  // Already in main mode — just focus.  No re-navigation, no re-loading.
+  // The shell stays put; nextView holds whatever route the user was on.
   if (isMainMode) {
     appWindow.focus()
-    // Guard against:
-    //   (a) hot-reload: renderer restarts on /deals while main never quit
-    //   (b) macOS activate: window focused on /deals from last session
-    // Use a cooldown so the re-entrant ElectronExpand mount on /research
-    // doesn't trigger another loadURL and create an infinite loop.
-    const now = Date.now()
-    if (now - lastExpandNavMs > EXPAND_NAV_COOLDOWN_MS) {
-      try {
-        const pathname = new URL(appWindow.webContents.getURL()).pathname
-        if (pathname !== "/browse") {
-          lastExpandNavMs = now
-          appWindow.loadURL(`${BASE_URL}/browse`)
-        }
-      } catch { /* ignore unparseable URL */ }
-    }
     return
   }
 
   isMainMode = true
-  lastExpandNavMs = Date.now()  // suppress the re-entrant ElectronExpand call
 
   appWindow.setResizable(true)
   appWindow.setMinimumSize(MAIN_MIN_W, MAIN_MIN_H)
-  // Restore the user's last window size + position. If they've never opened
-  // the app before, or the saved bounds are off-screen (unplugged monitor),
-  // readMainBounds() falls back to a centered default.
-  // `true` = animated resize on macOS — the window smoothly expands while
-  // the page loads in the background rather than snapping.
   appWindow.setBounds(readMainBounds(), true)
-  appWindow.loadURL(`${BASE_URL}/browse`)
+
+  // Load the SHELL HTML — pure HTML/CSS/JS rendered by Electron itself.
+  // The sidebar lives here; the Next.js app loads in a WebContentsView
+  // that gets positioned over the shell's `.content-pane` div.
+  appWindow.loadFile(path.join(__dirname, "shell/index.html"))
+
+  // Wait for the shell to finish rendering before creating the Next.js
+  // WebContentsView.  The shell pushes content-pane bounds via IPC after
+  // its first paint, and we react to that by creating + sizing nextView.
+  // (See ipcMain.handle("shell:content-bounds", ...) below.)
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
+}
+
+// ─── Next.js content view (the actual web app) ───────────────────────────────
+//
+// Lives INSIDE the appWindow but is its own WebContentsView so:
+//   1. It can be positioned/sized independently of the shell
+//   2. The shell's sidebar never reloads when the user navigates routes
+//   3. The browser view (for Zillow etc) overlays nextView cleanly
+//
+function createNextView(initialRoute = "/browse") {
+  if (nextView || !appWindow || appWindow.isDestroyed()) return
+
+  nextView = new WebContentsView({
+    webPreferences: {
+      preload:         path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration:  false,
+      sandbox:          false,
+    },
+  })
+
+  // Stamp our internal-request marker the same way appWindow does — so
+  // /api/* routes can tell this is the desktop app.
+  try {
+    const ses = nextView.webContents.session
+    ses.webRequest.onBeforeSendHeaders((details, callback) => {
+      const url = details.url || ""
+      const isOwnHost =
+        url.startsWith(BASE_URL) ||
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/)/.test(url) ||
+        /^https?:\/\/([a-z0-9-]+\.)*realverdict\.(app|com)(:|\/)/i.test(url)
+      const headers = { ...details.requestHeaders }
+      if (isOwnHost) headers["X-RealVerdict-Desktop"] = "1"
+      callback({ requestHeaders: headers })
+    })
+  } catch { /* best-effort */ }
+
+  appWindow.contentView.addChildView(nextView)
+  if (nextViewBounds) nextView.setBounds(nextViewBounds)
+
+  // Forward route changes back to the shell so the sidebar's active item
+  // stays in sync (e.g. when the user uses keyboard shortcuts inside the app).
+  nextView.webContents.on("did-navigate", (_e, url) => {
+    try {
+      const path = new URL(url).pathname
+      appWindow?.webContents.send("shell:active-route", path)
+    } catch { /* ignore */ }
+  })
+
+  nextView.webContents.loadURL(`${BASE_URL}${initialRoute}`)
+
+  // Open nextView's DevTools in dev mode — this is a SEPARATE devtools
+  // window from the shell's, with its own console showing logs from the
+  // Next.js app (incl. the show-sidebar button click handler).
+  if (DEV) {
+    setTimeout(() => {
+      try { nextView?.webContents.openDevTools({ mode: "detach" }) } catch {}
+    }, 1500)
+  }
+}
+
+function destroyNextView() {
+  if (!nextView) return
+  if (appWindow && !appWindow.isDestroyed()) {
+    appWindow.contentView.removeChildView(nextView)
+  }
+  try { nextView.webContents.close() } catch { /* already closed */ }
+  nextView = null
 }
 
 /**
@@ -517,6 +599,7 @@ function expandToMainApp() {
 function shrinkToLogin() {
   if (!appWindow || appWindow.isDestroyed()) return
   destroyBrowserView()
+  destroyNextView()
   isMainMode = false
 
   // Clear the minimum size before shrinking, then lock resizing.
@@ -539,9 +622,19 @@ function shrinkToLogin() {
 
 let pendingBounds = null
 
+// Bounds from the Next.js renderer are relative to ITS viewport (the
+// nextView's contents).  To position browserView in the actual window we
+// translate by the nextView's offset.
 function syncBrowserViewBounds() {
   if (!browserView || !pendingBounds) return
-  browserView.setBounds(pendingBounds)
+  const offX = nextViewBounds?.x ?? 0
+  const offY = nextViewBounds?.y ?? 0
+  browserView.setBounds({
+    x:      Math.round(pendingBounds.x + offX),
+    y:      Math.round(pendingBounds.y + offY),
+    width:  Math.round(pendingBounds.width),
+    height: Math.round(pendingBounds.height),
+  })
 }
 
 function createBrowserView() {
@@ -1414,6 +1507,79 @@ function postProcess(raw, hostname, modelUsed) {
 }
 
 // ---------------------------------------------------------------------------
+// IPC — shell (sidebar lives in shell/index.html, talks to main via shellAPI)
+// ---------------------------------------------------------------------------
+
+// The shell reports the bounds of its `.content-pane` div whenever the layout
+// changes (sidebar collapse, window resize, etc.).  Main re-positions the
+// Next.js WebContentsView accordingly.  Also: the FIRST time bounds arrive,
+// create nextView — this guarantees we don't try to position an unloaded view.
+ipcMain.handle("shell:content-bounds", (_e, bounds) => {
+  nextViewBounds = bounds
+  if (!nextView) {
+    createNextView("/browse")
+  } else {
+    nextView.setBounds(bounds)
+    syncBrowserViewBounds()  // keep the embedded browserView aligned too
+  }
+})
+
+// Sidebar nav click — load the requested route in the Next.js view.
+ipcMain.handle("shell:navigate", (_e, route) => {
+  if (!nextView) return
+  try {
+    nextView.webContents.loadURL(`${BASE_URL}${route}`)
+  } catch (err) {
+    console.error("[shell:navigate]", err?.message ?? err)
+  }
+})
+
+// ── Sidebar state (single source of truth in main process) ─────────────────
+// Both the shell HTML AND the Next.js Toolbar (in nextView) read/write this
+// via the IPC channels below.  Main broadcasts every change to BOTH so they
+// stay in sync regardless of which side initiated the change.
+let sidebarOpen = true
+
+function broadcastSidebarState() {
+  if (appWindow && !appWindow.isDestroyed()) {
+    appWindow.webContents.send("sidebar:state", sidebarOpen)
+  }
+  if (nextView && !nextView.webContents.isDestroyed()) {
+    nextView.webContents.send("sidebar:state", sidebarOpen)
+  }
+}
+
+ipcMain.handle("sidebar:get-state", () => {
+  console.log("[main] sidebar:get-state →", sidebarOpen)
+  return sidebarOpen
+})
+
+ipcMain.handle("sidebar:toggle", () => {
+  console.log("[main] sidebar:toggle received, was:", sidebarOpen)
+  sidebarOpen = !sidebarOpen
+  console.log("[main] sidebar:toggle → broadcasting", sidebarOpen)
+  broadcastSidebarState()
+  return sidebarOpen
+})
+
+ipcMain.handle("sidebar:set", (_e, open) => {
+  console.log("[main] sidebar:set received:", open)
+  sidebarOpen = !!open
+  broadcastSidebarState()
+  return sidebarOpen
+})
+
+// Legacy IPC kept as no-op shims to avoid runtime errors during transition.
+ipcMain.handle("shell:toggle-sidebar", () => {
+  sidebarOpen = !sidebarOpen
+  broadcastSidebarState()
+})
+ipcMain.handle("shell:sidebar-state", (_e, open) => {
+  sidebarOpen = !!open
+  broadcastSidebarState()
+})
+
+// ---------------------------------------------------------------------------
 // IPC — auth
 // ---------------------------------------------------------------------------
 
@@ -1552,17 +1718,12 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createAppWindow()
     } else if (appWindow && !appWindow.isDestroyed() && isMainMode) {
-      // macOS: user clicked the dock icon while the window was in the background.
-      // Always surface /research so investors land at their analysis tool,
-      // not wherever they happened to navigate last session.
+      // macOS: user clicked the dock icon while the window was in the
+      // background.  Just refocus — DO NOT force-navigate.  Forcing a
+      // navigation here was causing 404s because the user could be on any
+      // valid app route (/browse, /pipeline, /settings) and we'd reset them
+      // back to a hard-coded path that didn't always exist.
       appWindow.focus()
-      try {
-        const pathname = new URL(appWindow.webContents.getURL()).pathname
-        if (pathname !== "/research") {
-          lastExpandNavMs = Date.now()
-          appWindow.loadURL(`${BASE_URL}/research`)
-        }
-      } catch { /* ignore */ }
     }
   })
 })

@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
+  // Kill the floating Next.js dev indicator — it overlaps the Electron sidebar
+  devIndicators: false,
   // When building for Electron we need the self-contained standalone server.
   // ELECTRON_BUILD=1 is set by electron-app/package.json's build:next script.
   output: "standalone",

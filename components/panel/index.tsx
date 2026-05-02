@@ -371,8 +371,14 @@ export default function Panel() {
     <div
       className={`flex flex-col h-full overflow-hidden ${exiting ? "panel-exit" : "panel-enter"}`}
       style={{
-        background: "var(--rv-glass)",
-        borderLeft: "1px solid var(--rv-border)",
+        /* Semi-dark tint so the panel reads as a distinct layer over the
+           browser view, while still letting the underlying vibrancy give it
+           depth on macOS.  backdrop-filter is a web fallback; in Electron the
+           real OS compositor handles it. */
+        background: "rgba(13, 13, 15, 0.82)",
+        backdropFilter: "blur(20px) saturate(150%)",
+        WebkitBackdropFilter: "blur(20px) saturate(150%)",
+        borderLeft: "0.5px solid var(--rv-border-mid)",
         minWidth: 0,
       }}
     >

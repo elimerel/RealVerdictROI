@@ -149,13 +149,14 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply outline-ring/50;
     /* macOS uses arrow cursor for all UI — pointer is only for external links */
     cursor: default;
     /* No text selection on UI chrome */
     user-select: none;
-    /* 0.5px hairline borders — the macOS signature look */
-    border-width: 0.5px;
+    /* Reset border — components opt IN to borders, not opt out */
+    border: none;
+    box-sizing: border-box;
   }
 
   /* Re-enable text selection for actual content */
@@ -181,8 +182,22 @@
     font-size: 13px;
   }
 
-  /* Electron body stays opaque — vibrancy shows through transparent
-     HTML elements (sidebar, toolbar) directly via the OS compositor */
+  /* ── Electron vibrancy unlock ───────────────────────────────────────────────
+     In Electron, the preload.js stamps <html class="electron"> before first
+     paint. We strip the opaque body background so the ancestor chain from
+     sidebar/toolbar all the way to <html> is fully transparent.
+     macOS then composites the vibrancy material (sidebar material) through
+     every transparent HTML element — giving the sidebar and toolbar the same
+     frosted-glass look as Claude Desktop and Cursor.
+
+     The BrowserWindow's own backgroundColor:"#0d0d0f" acts as the fallback
+     color where no vibrancy applies, so there is NO desktop bleed-through
+     even though body is transparent here.
+
+     Web builds: html.electron is never added, so body keeps bg-background. */
+  html.electron body {
+    background: transparent;
+  }
 }
 
 /* ── Panel slide animations ───────────────────────────────────────────────── */
@@ -218,4 +233,31 @@
 .panel-scroll::-webkit-scrollbar-thumb {
   background: var(--rv-border-mid);
   border-radius: 2px;
+}
+
+/* ── StartScreen entrance animations ─────────────────────────────────────────
+   Staggered fade + lift on mount — each line eases in slightly later than
+   the one above, matching macOS / Linear's "fresh load" feel.
+   Apple-style spring curve cubic-bezier(0.32, 0.72, 0, 1). */
+@keyframes rv-rise {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0,    0); }
+}
+
+@keyframes rv-glow {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.rv-start-fade { animation: rv-glow 600ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+
+.rv-greeting   { animation: rv-rise 540ms cubic-bezier(0.32, 0.72, 0, 1) both; animation-delay:   0ms; }
+.rv-subhead    { animation: rv-rise 540ms cubic-bezier(0.32, 0.72, 0, 1) both; animation-delay:  80ms; }
+.rv-grid       { animation: rv-rise 540ms cubic-bezier(0.32, 0.72, 0, 1) both; animation-delay: 160ms; }
+.rv-hint       { animation: rv-rise 540ms cubic-bezier(0.32, 0.72, 0, 1) both; animation-delay: 240ms; }
+
+/* Subtle blinking cursor for the type-on subtitle */
+@keyframes rv-cursor-blink {
+  0%, 50%   { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
 }
