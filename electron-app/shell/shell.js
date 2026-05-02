@@ -18,28 +18,33 @@
 
   const STORAGE_W = "rv-sidebar-width-v3"
   const SIDEBAR_DEFAULT_W = 200
-  const SIDEBAR_MIN_W     = 100   // allow dragging much narrower before snapping
+  const SIDEBAR_MIN_W     = 140   // full mode minimum (icons + readable label)
   const SIDEBAR_MAX_W     = 260
-  const SNAP_TO_HIDE      = 70    // only snap to hidden when dragged tiny
+  const SIDEBAR_ICONS_W   = 60    // icons-only mode width
+  const SNAP_HIDE         = 35    // drag below this on release → hidden
+  const SNAP_ICONS        = 110   // drag below this (above SNAP_HIDE) → icons-only
 
   let openMirror    = true
   let expandedWidth = SIDEBAR_DEFAULT_W
 
-  // Width to restore the sidebar to whenever the toggle re-opens it.
-  // Frozen at app launch from localStorage so a session's drag-resize
-  // doesn't change what "toggle on" goes back to — only the next
-  // launch picks up the new persisted width.
+  // Width to restore the sidebar to whenever the toggle button re-opens
+  // it. Frozen at app launch from localStorage so a session's drag-resize
+  // doesn't change what "toggle on" goes back to — only the next launch
+  // picks up the new persisted width.
   let toggleWidth = SIDEBAR_DEFAULT_W
+
+  function setIconsOnlyClass(iconsOnly) {
+    if (iconsOnly) app.classList.add("icons-only")
+    else           app.classList.remove("icons-only")
+  }
 
   // ── Apply state to DOM ──────────────────────────────────────────────────
   // Set inline width explicitly to the target so the CSS transition always
   // fires from the current (possibly drag-updated) width to the target.
   function applyState(open) {
     if (open) {
-      // Toggle-on always reverts to the launch-time width — drag is
-      // session-temporary; preferred width persists across launches.
-      expandedWidth = toggleWidth
       document.documentElement.style.setProperty("--sidebar-w", `${expandedWidth}px`)
+      setIconsOnlyClass(expandedWidth < SNAP_ICONS)
       app.classList.remove("sidebar-hidden")
       sidebar.style.width = `${expandedWidth}px`
       window.shellAPI?.setSidebarWidth?.(expandedWidth)
@@ -47,39 +52,56 @@
       app.classList.add("sidebar-hidden")
       sidebar.style.width = "0px"
     }
-    animateBounds(220)  // matches the new transition duration
   }
 
-  function animateBounds(_duration) {
-    // No-op now: main owns layout and recomputes synchronously on every
-    // window-resize tick, sidebar toggle, and sidebar-drag mousemove.
-    // The CSS transition on .sidebar visually animates width on its own.
-  }
-
-  function setExpandedWidth(w, { persist = true } = {}) {
+  function setFullExpandedWidth(w, { persist = true } = {}) {
     expandedWidth = Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, w))
     document.documentElement.style.setProperty("--sidebar-w", `${expandedWidth}px`)
+    setIconsOnlyClass(false)
+    sidebar.style.width = `${expandedWidth}px`
     if (persist) localStorage.setItem(STORAGE_W, String(expandedWidth))
     window.shellAPI?.setSidebarWidth?.(expandedWidth)
   }
 
+  function setIconsExpandedWidth({ persist = true } = {}) {
+    expandedWidth = SIDEBAR_ICONS_W
+    document.documentElement.style.setProperty("--sidebar-w", `${SIDEBAR_ICONS_W}px`)
+    setIconsOnlyClass(true)
+    sidebar.style.width = `${SIDEBAR_ICONS_W}px`
+    if (persist) localStorage.setItem(STORAGE_W, String(SIDEBAR_ICONS_W))
+    window.shellAPI?.setSidebarWidth?.(SIDEBAR_ICONS_W)
+  }
+
   // Restore persisted width — sets both the current expanded width AND
-  // the toggle-restore width from localStorage at launch.
+  // the toggle-restore width from localStorage at launch. Width can be
+  // either icons (60) or full (140-260); we infer the mode from value.
   ;(() => {
     const savedW = parseInt(localStorage.getItem(STORAGE_W) || "", 10)
     if (Number.isFinite(savedW)) {
-      const clamped = Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, savedW))
+      const isIcons = savedW < SNAP_ICONS
+      const clamped = isIcons
+        ? SIDEBAR_ICONS_W
+        : Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, savedW))
       expandedWidth = clamped
       toggleWidth   = clamped
       document.documentElement.style.setProperty("--sidebar-w", `${clamped}px`)
+      setIconsOnlyClass(isIcons)
     }
   })()
 
   // ── Subscribe to sidebar state from main ────────────────────────────────
+  // Only reset expandedWidth to toggleWidth on a CLOSED → OPEN transition
+  // (i.e. user clicked the toggle button). Drag-release also broadcasts
+  // sidebar:state(true) but openMirror was already true — preserve the
+  // dragged width in that case.
   if (window.shellAPI?.onSidebarState) {
     window.shellAPI.onSidebarState((open) => {
       console.log("[shell] received sidebar:state =", open)
+      const wasOpen = openMirror
       openMirror = open
+      if (open && !wasOpen) {
+        expandedWidth = toggleWidth
+      }
       applyState(open)
     })
   } else {
@@ -122,12 +144,15 @@
     const dx = e.clientX - dragStartX
     const target = dragStartWidth + dx
 
-    // Always track the cursor — don't preview-snap to 0 below the threshold.
-    // This lets the release animate from the actual dragged width down to 0
-    // (or up to the clamped expanded width) using the CSS transition.
+    // Sidebar tracks the cursor cleanly — clamped only to [0, MAX].
+    // On release the mouseup handler will snap to the nearest of three
+    // targets (hidden / icons-only / full).
     const w = Math.max(0, Math.min(SIDEBAR_MAX_W, target))
     sidebar.style.width = `${w}px`
-    document.documentElement.style.setProperty("--sidebar-w", `${Math.max(SIDEBAR_MIN_W, w)}px`)
+    document.documentElement.style.setProperty("--sidebar-w", `${Math.max(SIDEBAR_ICONS_W, w)}px`)
+    // Live class toggle so labels collapse/reappear at the threshold —
+    // gives the user a visual preview of where the snap will land.
+    setIconsOnlyClass(w >= SNAP_HIDE && w < SNAP_ICONS)
     // Tell main the live width so nextView/browserView reflow per tick.
     window.shellAPI?.setSidebarWidth?.(w)
   })
@@ -141,11 +166,14 @@
     const dx = e.clientX - dragStartX
     const target = dragStartWidth + dx
 
-    if (target < SNAP_TO_HIDE) {
+    // 3-state snap on release: hidden / icons-only / full
+    if (target < SNAP_HIDE) {
       window.shellAPI?.setSidebar?.(false)
+    } else if (target < SNAP_ICONS) {
+      setIconsExpandedWidth()
+      window.shellAPI?.setSidebar?.(true)
     } else {
-      const w = Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, target))
-      setExpandedWidth(w)
+      setFullExpandedWidth(target)
       window.shellAPI?.setSidebar?.(true)
     }
   })

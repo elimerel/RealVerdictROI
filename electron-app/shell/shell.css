@@ -98,6 +98,29 @@ body {
   width: 0 !important;
 }
 
+/* ── Icons-only mode ─────────────────────────────────────────────────────
+   Drag the sidebar narrower than ~110 px and it snaps to a compact
+   icons-only rail (~60 px). Labels and account text collapse out, icons
+   center within the narrowed sidebar. The resize handle stays draggable
+   so the user can pull it back out to full mode. */
+#app.icons-only .nav-label,
+#app.icons-only .account-info {
+  display: none;
+}
+#app.icons-only .nav-item,
+#app.icons-only .account-row {
+  justify-content: center;
+  padding: 0;
+}
+#app.icons-only .nav {
+  padding-left:  4px;
+  padding-right: 4px;
+}
+#app.icons-only .sidebar-bottom {
+  padding-left:  4px;
+  padding-right: 4px;
+}
+
 /* No min-width clamp on inner content — labels and avatars truncate
    gracefully via the ellipsis rules below as the sidebar narrows. The
    nav icons stay fixed-width, and the labels fade out cleanly when
