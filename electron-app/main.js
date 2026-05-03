@@ -1,6 +1,6 @@
 "use strict"
 
-const { app, BrowserWindow, WebContentsView, ipcMain, screen, session, Menu, nativeTheme } = require("electron")
+const { app, BrowserWindow, WebContentsView, ipcMain, screen, session, Menu, nativeTheme, clipboard, shell } = require("electron")
 const path = require("path")
 const fs = require("fs")
 
@@ -21,6 +21,15 @@ const CHROME_DESKTOP_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
   "AppleWebKit/537.36 (KHTML, like Gecko) " +
   `Chrome/${CHROMIUM_MAJOR}.0.0.0 Safari/537.36`
+
+// Anti-fingerprint: disable the AutomationControlled blink feature so
+// `navigator.webdriver` doesn't get flipped to true by Chromium itself,
+// and so Cloudflare Turnstile / similar bot-detection systems stop
+// flagging the embedded WebContentsView on first paint. Combined with
+// the embed-preload that hard-defines navigator.webdriver = undefined,
+// this keeps the embed's surface roughly indistinguishable from a real
+// Chrome user-agent. Must run BEFORE app.whenReady() to take effect.
+app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled")
 
 // Load .env.local from the repo root in dev so the Anthropic / OpenAI keys
 // reach the main process. Without this, only the Next.js renderer sees env
@@ -115,6 +124,11 @@ function buildAppMenu() {
           accelerator: "CmdOrCtrl+L",
           click: () => broadcast("browser:focus-urlbar"),
         },
+        {
+          label: "Command Palette",
+          accelerator: "CmdOrCtrl+K",
+          click: () => broadcast("shortcut:open-palette"),
+        },
         { type: "separator" },
         {
           label: "Developer Tools",
@@ -125,6 +139,68 @@ function buildAppMenu() {
           label: "Developer Tools (Browser Panel)",
           click: () => browserView?.webContents.openDevTools({ mode: "detach" }),
           visible: DEV,
+        },
+      ],
+    },
+    // ── Go menu — route navigation + sidebar toggle. Menu accelerators are
+    // OS-level so they fire even when the embedded browserView has focus
+    // (which is most of the time once the user is on a listing).
+    {
+      label: "Go",
+      submenu: [
+        { label: "Browse",   accelerator: "CmdOrCtrl+1", click: () => broadcast("shortcut:navigate", "/browse")   },
+        { label: "Pipeline", accelerator: "CmdOrCtrl+2", click: () => broadcast("shortcut:navigate", "/pipeline") },
+        { label: "Settings", accelerator: "CmdOrCtrl+3", click: () => broadcast("shortcut:navigate", "/settings") },
+        { type: "separator" },
+        {
+          label: "Toggle Sidebar",
+          accelerator: "CmdOrCtrl+\\",
+          click: () => broadcast("shortcut:toggle-sidebar"),
+        },
+      ],
+    },
+    // ── Tab menu — multi-tab keyboard shortcuts. New / close are OS-level
+    // accelerators; next/prev fire even from inside a Zillow page.
+    {
+      label: "Tab",
+      submenu: [
+        {
+          label: "New Tab",
+          accelerator: "CmdOrCtrl+T",
+          click: () => createTab(undefined, { activate: true }),
+        },
+        {
+          label: "Close Tab",
+          accelerator: "CmdOrCtrl+W",
+          click: () => { if (activeTabId) closeTab(activeTabId) },
+        },
+        { type: "separator" },
+        {
+          label: "Next Tab",
+          accelerator: "Ctrl+Tab",
+          click: () => stepActiveTab(+1),
+        },
+        {
+          label: "Previous Tab",
+          accelerator: "Ctrl+Shift+Tab",
+          click: () => stepActiveTab(-1),
+        },
+      ],
+    },
+    // ── Deal menu — pipeline-related shortcuts. Save flows through here so
+    // it works even when focus is inside the embedded browser.
+    {
+      label: "Deal",
+      submenu: [
+        {
+          label: "Save Current Listing",
+          accelerator: "CmdOrCtrl+S",
+          click: () => broadcast("shortcut:save-listing"),
+        },
+        {
+          label: "Re-analyze",
+          accelerator: "Shift+CmdOrCtrl+R",
+          click: () => broadcast("shortcut:reanalyze"),
         },
       ],
     },
@@ -198,18 +274,37 @@ const BASE_URL = DEV ? "http://localhost:3000" : PRODUCTION_APP_URL
 // — the AI does the actual classification after reading the rendered DOM.
 // We're permissive here so custom MLS / IDX / broker pages still trigger.
 // Hosts on NEVER_HOSTS get a hard no.
-const KNOWN_LISTING_HOSTS = /(?:^|\.)(zillow|redfin|realtor|homes|trulia|movoto|loopnet|compass)\.com$/i
-const LISTING_PATH_HINTS = /\/(homedetails|home|property|listing|for-sale|for-rent|realestateandhomes-detail|idx|mls|properties)\/[a-z0-9-]/i
-const NEVER_HOSTS = /(?:^|\.)(google|bing|duckduckgo|twitter|x|facebook|instagram|linkedin|youtube|reddit|nytimes|wikipedia|github|stackoverflow|apple|microsoft)\.[a-z.]+$/i
+const NEVER_HOSTS     = /(?:^|\.)(google|bing|duckduckgo|twitter|x|facebook|instagram|linkedin|youtube|reddit|nytimes|wikipedia|github|stackoverflow|apple|microsoft)\.[a-z.]+$/i
 const AUTH_SUBDOMAINS = /^(identity|auth|accounts|login|sso|oauth|secure|signin|signup)\./i
+
+// Listing-DETAIL URL patterns — each entry requires an ID-shaped tail
+// so search/agent/region/map/saved pages can't slip through. The old
+// "host is on a known site → auto-analyze" rule made the panel flicker
+// on Zillow city pages, Redfin map views, Realtor agent profiles, etc.,
+// because the heuristic accepted ANY URL on those hosts. The new rule
+// is structural: a real listing has an ID in the URL, anything else is
+// some other surface on the same site.
+const LISTING_DETAIL_URL = new RegExp([
+  // Zillow:    /homedetails/<slug>/<id>_zpid/
+  String.raw`/homedetails/.+/\d+_zpid\b`,
+  // Redfin:    /<state>/<city>/<address>/home/<id>
+  String.raw`/home/\d+\b`,
+  // Realtor:   /realestateandhomes-detail/<slug>_M<id>
+  String.raw`/realestateandhomes-detail/.*M\d+`,
+  // Trulia:    /p/<state>/<city>/<id>
+  String.raw`/p/[A-Za-z]{2}/[A-Za-z0-9-]+/\d+`,
+  // LoopNet:   /Listing/<id>/<slug>
+  String.raw`/Listing/\d+`,
+  // Generic / custom MLS / broker IDX
+  String.raw`/(?:listing|property|properties|idx|mls)/[A-Za-z0-9-]+`,
+].join("|"), "i")
 
 function shouldAutoExtract(url) {
   try {
     const u = new URL(url)
     if (NEVER_HOSTS.test(u.hostname)) return false
     if (AUTH_SUBDOMAINS.test(u.hostname)) return false
-    if (KNOWN_LISTING_HOSTS.test(u.hostname)) return true
-    return LISTING_PATH_HINTS.test(u.pathname)
+    return LISTING_DETAIL_URL.test(u.pathname)
   } catch { return false }
 }
 
@@ -246,6 +341,98 @@ function writeConfig(data) {
 }
 
 // ---------------------------------------------------------------------------
+// Theme
+//
+// Five user-pickable themes (System / Dark / Warm Charcoal / Cinema /
+// Light) — each maps to a distinct combination of vibrancy material,
+// nativeTheme.themeSource, and BrowserWindow backgroundColor.
+//
+// "system" is special: it follows macOS appearance preferences via
+// nativeTheme.shouldUseDarkColors, and re-resolves whenever the OS
+// flips. The persisted choice is stored in config.json under `theme`.
+// The resolved (concrete) variant gets broadcast to the renderer as
+// `theme:changed` so the React tree can flip its <html> class to
+// match the new token set.
+// ---------------------------------------------------------------------------
+
+const THEME_OPTIONS = ["system", "dark", "charcoal-warm", "light"]
+const DEFAULT_THEME = "dark"
+
+/** macOS vibrancy material per resolved theme. */
+function vibrancyForTheme(resolved) {
+  if (resolved === "light") return "light"
+  return "sidebar"
+}
+
+/** Window backgroundColor fallback (visible only when vibrancy is briefly
+ *  unavailable, e.g. during resize). Matches each theme's bg token. */
+function backgroundForTheme(resolved) {
+  switch (resolved) {
+    case "light":            return "#f5f5f7"
+    case "charcoal-warm":    return "#16120e"
+    case "dark":
+    default:                 return "#0a0a0c"
+  }
+}
+
+/** "system" resolves to "dark" or "light" based on the OS preference;
+ *  every other option resolves to itself. */
+function resolveTheme(picked) {
+  if (picked === "system") {
+    return nativeTheme.shouldUseDarkColors ? "dark" : "light"
+  }
+  if (THEME_OPTIONS.includes(picked) && picked !== "system") return picked
+  return DEFAULT_THEME
+}
+
+let _systemListenerAttached = false
+function ensureSystemThemeListener() {
+  if (_systemListenerAttached) return
+  _systemListenerAttached = true
+  nativeTheme.on("updated", () => {
+    const cfg = readConfig()
+    if (cfg.theme !== "system") return
+    applyTheme("system", { broadcastOnly: true })
+  })
+}
+
+/** Apply a theme natively. Updates vibrancy, backgroundColor,
+ *  nativeTheme.themeSource. Optionally persists to config and
+ *  broadcasts the resolved value to the renderer. */
+function applyTheme(picked, opts = {}) {
+  const resolved = resolveTheme(picked)
+  if (appWindow && !appWindow.isDestroyed()) {
+    try { appWindow.setVibrancy(vibrancyForTheme(resolved)) } catch (err) {
+      console.warn("[theme] setVibrancy failed:", err?.message ?? err)
+    }
+    try { appWindow.setBackgroundColor(backgroundForTheme(resolved)) } catch {}
+  }
+  nativeTheme.themeSource = resolved === "light" ? "light" : "dark"
+
+  if (!opts.broadcastOnly) {
+    const cfg = readConfig()
+    cfg.theme = THEME_OPTIONS.includes(picked) ? picked : DEFAULT_THEME
+    writeConfig(cfg)
+    if (picked === "system") ensureSystemThemeListener()
+  }
+
+  broadcast("theme:changed", { picked, resolved })
+}
+
+ipcMain.handle("theme:get", () => {
+  const cfg = readConfig()
+  const picked = THEME_OPTIONS.includes(cfg.theme) ? cfg.theme : DEFAULT_THEME
+  return { picked, resolved: resolveTheme(picked) }
+})
+
+ipcMain.handle("theme:set", (_e, payload) => {
+  const picked = (payload && typeof payload.theme === "string") ? payload.theme : DEFAULT_THEME
+  console.log("[theme] set:", picked, "→ resolved:", resolveTheme(picked))
+  applyTheme(picked)
+  return { ok: true, resolved: resolveTheme(picked) }
+})
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
@@ -259,38 +446,16 @@ let appWindow = null
 /** @type {WebContentsView | null} */
 let browserView = null
 
-/** @type {WebContentsView | null}
- *
- * The Next.js content view — holds the actual web app (Browse / Pipeline /
- * Settings).  Sits behind the embedded `browserView` (which renders external
- * listing sites).  Positioned by the shell (electron-app/shell/index.html)
- * via the IPC channel "shell:content-bounds". */
-let nextView = null
-
-/** Last bounds reported by the shell for the content pane area.  Cached so
- *  we can re-apply when nextView is created or window is resized. */
-let nextViewBounds = null
-
-
 let isMainMode = false   // tracks whether window is currently in main-app mode
 
 // ---------------------------------------------------------------------------
-// IPC fan-out
+// IPC send helper
 // ---------------------------------------------------------------------------
-//
-// The shell HTML (loaded into appWindow.webContents) and the Next.js app
-// (loaded into nextView.webContents) are SEPARATE webContents.  An IPC
-// message sent to one is invisible to the other.  Most app events
-// (browser:nav-update, panel:*) need to reach the React side inside
-// nextView, so a bare `appWindow.webContents.send(...)` silently swallows
-// them.  This helper fans out to whichever contexts are alive — sending
-// to a context with no listener is harmless.
+// Single-renderer model: appWindow.webContents IS the React app. No fan-out
+// needed — kept as a helper so call sites stay short.
 function broadcast(channel, ...args) {
   if (appWindow && !appWindow.isDestroyed()) {
     appWindow.webContents.send(channel, ...args)
-  }
-  if (nextView && !nextView.webContents.isDestroyed()) {
-    nextView.webContents.send(channel, ...args)
   }
 }
 
@@ -467,8 +632,8 @@ function createAppWindow() {
     // skips the shell's DOM ResizeObserver + IPC roundtrip, keeping the
     // embedded views glued to the window edge without a frame of lag.
     // Window resize cancels any sidebar toggle tween in flight.
-    cancelLayoutAnim()
-    applyLayout()
+    cancelBvAnim()
+    applyBrowserViewLayout()
     persistMainBounds()
   })
   appWindow.on("move", () => { persistMainBounds() })
@@ -510,19 +675,13 @@ function createAppWindow() {
 
 /**
  * Expand the window into full main-app mode after a successful sign-in.
- * Resizes to 1400×900 then navigates to /deals.
+ * Resizes to 1400×900 then navigates to /browse (unless already there).
  */
-// Timestamp of the last loadURL("/research") triggered by expandToMainApp.
-// Used to suppress the re-entrant call that fires when ElectronExpand mounts
-// on the freshly loaded /research page (isMainMode is already true by then).
-let lastExpandNavMs = 0
-const EXPAND_NAV_COOLDOWN_MS = 4000
-
 function expandToMainApp() {
   if (!appWindow || appWindow.isDestroyed()) return
 
-  // Already in main mode — just focus.  No re-navigation, no re-loading.
-  // The shell stays put; nextView holds whatever route the user was on.
+  // Already in main mode — just focus. The Next.js app holds whatever
+  // route the user was on (sidebar nav uses Next router).
   if (isMainMode) {
     appWindow.focus()
     return
@@ -534,101 +693,20 @@ function expandToMainApp() {
   appWindow.setMinimumSize(MAIN_MIN_W, MAIN_MIN_H)
   appWindow.setBounds(readMainBounds(), true)
 
-  // Load the SHELL HTML — pure HTML/CSS/JS rendered by Electron itself.
-  // The sidebar lives here; the Next.js app loads in a WebContentsView
-  // that gets positioned over the shell's `.content-pane` div.
-  appWindow.loadFile(path.join(__dirname, "shell/index.html"))
-
-  // Wait for the shell to finish rendering before creating the Next.js
-  // WebContentsView.  The shell pushes content-pane bounds via IPC after
-  // its first paint, and we react to that by creating + sizing nextView.
-  // (See ipcMain.handle("shell:content-bounds", ...) below.)
+  // Skip the loadURL when the window already navigated to /browse via a
+  // server-side redirect from /login (existing session). Only trigger a
+  // fresh load when expansion was prompted by an explicit sign-in IPC.
+  let alreadyOnApp = false
+  try {
+    const u = new URL(appWindow.webContents.getURL())
+    alreadyOnApp =
+      !u.pathname.startsWith("/login") && !u.pathname.startsWith("/auth")
+  } catch { /* ignore */ }
+  if (!alreadyOnApp) {
+    appWindow.loadURL(`${BASE_URL}/browse`)
+  }
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
-}
-
-// ─── Next.js content view (the actual web app) ───────────────────────────────
-//
-// Lives INSIDE the appWindow but is its own WebContentsView so:
-//   1. It can be positioned/sized independently of the shell
-//   2. The shell's sidebar never reloads when the user navigates routes
-//   3. The browser view (for Zillow etc) overlays nextView cleanly
-//
-function createNextView(initialRoute = "/browse") {
-  if (nextView || !appWindow || appWindow.isDestroyed()) return
-
-  nextView = new WebContentsView({
-    webPreferences: {
-      preload:         path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration:  false,
-      sandbox:          false,
-    },
-  })
-
-  // Transparent compositor backdrop — combined with `html.electron body
-  // { background: transparent }` in globals.css, this lets the macOS
-  // sidebar vibrancy material show through wherever a page doesn't
-  // explicitly paint an opaque background. Pages that need an opaque
-  // surface (Pipeline, Settings) set their own bg; Browse leaves the
-  // start-screen area transparent so vibrancy reads as native chrome.
-  try { nextView.webContents.setBackgroundColor("#00000000") } catch { /* best-effort */ }
-
-  // Stamp our internal-request marker the same way appWindow does — so
-  // /api/* routes can tell this is the desktop app.
-  try {
-    const ses = nextView.webContents.session
-    ses.webRequest.onBeforeSendHeaders((details, callback) => {
-      const url = details.url || ""
-      const isOwnHost =
-        url.startsWith(BASE_URL) ||
-        /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/)/.test(url) ||
-        /^https?:\/\/([a-z0-9-]+\.)*realverdict\.(app|com)(:|\/)/i.test(url)
-      const headers = { ...details.requestHeaders }
-      if (isOwnHost) headers["X-RealVerdict-Desktop"] = "1"
-      callback({ requestHeaders: headers })
-    })
-  } catch { /* best-effort */ }
-
-  appWindow.contentView.addChildView(nextView)
-  if (nextViewBounds) nextView.setBounds(nextViewBounds)
-
-  // Forward route changes back to the shell so the sidebar's active item
-  // stays in sync (e.g. when the user uses keyboard shortcuts inside the app).
-  // Also gates the embedded browserView: it's only relevant on /browse, so
-  // we park it off-screen on other routes — otherwise it'd float over the
-  // Pipeline / Settings views (hard navigation tears down the React JS
-  // context, so the renderer's destroyBrowser cleanup never fires).
-  nextView.webContents.on("did-navigate", (_e, url) => {
-    try {
-      const path = new URL(url).pathname
-      broadcast("shell:active-route", path)
-      if (browserView) {
-        if (path === "/browse") showBrowserView()
-        else                    hideBrowserView()
-      }
-    } catch { /* ignore */ }
-  })
-
-  nextView.webContents.loadURL(`${BASE_URL}${initialRoute}`)
-
-  // Open nextView's DevTools in dev mode — this is a SEPARATE devtools
-  // window from the shell's, with its own console showing logs from the
-  // Next.js app (incl. the show-sidebar button click handler).
-  if (DEV) {
-    setTimeout(() => {
-      try { nextView?.webContents.openDevTools({ mode: "detach" }) } catch {}
-    }, 1500)
-  }
-}
-
-function destroyNextView() {
-  if (!nextView) return
-  if (appWindow && !appWindow.isDestroyed()) {
-    appWindow.contentView.removeChildView(nextView)
-  }
-  try { nextView.webContents.close() } catch { /* already closed */ }
-  nextView = null
 }
 
 /**
@@ -638,7 +716,6 @@ function destroyNextView() {
 function shrinkToLogin() {
   if (!appWindow || appWindow.isDestroyed()) return
   destroyBrowserView()
-  destroyNextView()
   isMainMode = false
 
   // Clear the minimum size before shrinking, then lock resizing.
@@ -662,232 +739,483 @@ function shrinkToLogin() {
 // Toolbar height in CSS pixels — must match the React Toolbar's height
 // (52px). If this drifts, browserView overlaps the bottom strip of the
 // toolbar and intercepts clicks meant for the URL bar / nav buttons.
-const TOOLBAR_H = 52
+const TOOLBAR_H   = 52
+const TAB_STRIP_H = 34
 
-// Sidebar geometry — main is the source of truth so window-resize and
-// sidebar-drag layouts can be computed without waiting on shell IPC.
-// Shell pushes any width change via `shell:sidebar-width`; sidebarOpen
-// flips through the existing sidebar:toggle / sidebar:set channels.
-let sidebarWidth = 200
+// Total chrome height above browserView. Mirrors the TabStrip render rule
+// in components/browser/TabStrip.tsx: hidden when there's no tab or only
+// one empty (no-URL) tab; otherwise visible at 34px.
+function activeChromeHeight() {
+  if (tabs.size <= 1) {
+    const t = activeTabId ? tabs.get(activeTabId) : null
+    if (!t || !t.navState.url) return TOOLBAR_H
+  }
+  return TOOLBAR_H + TAB_STRIP_H
+}
 
-// Renderer-controlled layout. The Next.js renderer pushes panelWidth via
-// `browser:set-layout` whenever the analysis panel opens, closes, or is
-// resized.  Main computes browserView bounds against the current window
-// + sidebar state — so window-edge drag-resize and sidebar collapse stay
-// glued to the embedded browser without IPC roundtrips per frame.
-let viewLayout = { panelWidth: 0 }
-
-// Track whether the embedded browser is parked off-screen (hideBrowserView).
-// While parked, applyLayout() must be a no-op so a stray window resize
-// doesn't unpark it.
+// Cached layout state. React (the renderer) pushes settled values via
+// `browser:set-layout`; main animates browserView's bounds to match.
+// These are the ONLY animation drivers in the system — sidebar/panel
+// animations themselves run as pure CSS in the React tree.
+let sidebarWidth = 220
+let panelWidth   = 0
 let browserViewHidden = false
 
-// Compute nextView's window-relative bounds from the current window size
-// and cached sidebar state. Single source of truth — eliminates the IPC
-// roundtrip-per-frame the shell's ResizeObserver used to do.
-function computeNextViewBounds() {
-  if (!appWindow || appWindow.isDestroyed()) return null
-  const c  = appWindow.getContentBounds()
-  const sb = sidebarOpen ? sidebarWidth : 0
-  return {
-    x:      sb,
-    y:      0,
-    width:  Math.max(100, c.width - sb),
-    height: c.height,
-  }
-}
+// Inset for the embedded BrowserView. Creates a thin RealVerdict-colored
+// frame between the embedded site (Zillow / Redfin / etc.) and the app
+// chrome around it. Without this, the Zillow page slams flush against
+// the sidebar/panel and the whole experience reads as "browser extension
+// fighting the host site for screen space" instead of "Zillow rendering
+// inside RealVerdict."
+//
+// Top stays at chromeH so the BrowserView meets the toolbar cleanly
+// (toolbar IS the chrome above). Left/right/bottom each pick up 6px of
+// dark frame, just visible enough to separate the surfaces.
+const BV_INSET_SIDES  = 6
+const BV_INSET_BOTTOM = 6
 
-// Position both nextView (the Next.js content view) and browserView (the
-// embedded site) in a single synchronous pass. browserView lives within
-// nextView, taking the full area minus the toolbar at the top and the
-// analysis panel on the right.
-function applyLayout() {
-  applyLayoutWithSb(sidebarOpen ? sidebarWidth : 0)
-}
-
-// Apply layout with an explicit "effective sidebar width" — used both by
-// applyLayout (steady-state) and the animation tween below (interpolated
-// values during sidebar-toggle transitions).
-function applyLayoutWithSb(sb) {
+// Compute browserView bounds from cached state + the live window size.
+// Called on every animation tick, on settled layout updates, and on
+// window resize.
+function applyBrowserViewLayout() {
   if (!appWindow || appWindow.isDestroyed()) return
+  if (!browserView || browserViewHidden) return
   const c = appWindow.getContentBounds()
-  const nv = {
-    x:      Math.round(sb),
-    y:      0,
-    width:  Math.max(100, c.width - sb),
-    height: c.height,
-  }
-  nextViewBounds = nv
-  if (nextView && !nextView.webContents.isDestroyed()) nextView.setBounds(nv)
-  if (!browserView) return
-  if (browserViewHidden) return
-  const x      = Math.round(nv.x)
-  const y      = Math.round(nv.y + TOOLBAR_H)
-  const width  = Math.max(200, Math.round(nv.width  - viewLayout.panelWidth))
-  const height = Math.max(0,   Math.round(nv.height - TOOLBAR_H))
+  const chromeH = activeChromeHeight()
+  const x      = Math.round(sidebarWidth + BV_INSET_SIDES)
+  const y      = chromeH
+  const width  = Math.max(200, Math.round(c.width  - sidebarWidth - panelWidth - BV_INSET_SIDES * 2))
+  const height = Math.max(0,   Math.round(c.height - chromeH - BV_INSET_BOTTOM))
   browserView.setBounds({ x, y, width, height })
 }
 
-// Sidebar transition tween — runs nextView + browserView in lockstep with
-// the shell's CSS sidebar width transition (220ms, Apple spring curve).
-// Without this, nextView would jump to its target instantly while the
-// shell-DOM sidebar quietly animates behind it (invisible to the user).
-//
-// requestAnimationFrame is not available in the Electron main process,
-// so we drive the tween off setTimeout at ~60 Hz (16ms). performance.now
-// gives us fractional-ms timing for the easing math.
-const { performance: perfNow } = require("node:perf_hooks")
-let layoutAnim = null
+// ── browserView bounds animation ──────────────────────────────────────────
+// Single animation driver in the whole system. Runs an Apple-spring
+// cubic-bezier tween that matches the React CSS sidebar transition
+// exactly (same 220ms, same curve), so the listing's left edge tracks
+// the sidebar's right edge in lockstep.
 
-function cancelLayoutAnim() {
-  if (layoutAnim && layoutAnim.timer != null) {
-    clearTimeout(layoutAnim.timer)
+const { performance: perfNow } = require("node:perf_hooks")
+
+function makeCubicBezier(p1x, p1y, p2x, p2y) {
+  const bx = (t) => 3 * (1 - t) * (1 - t) * t * p1x + 3 * (1 - t) * t * t * p2x + t * t * t
+  const by = (t) => 3 * (1 - t) * (1 - t) * t * p1y + 3 * (1 - t) * t * t * p2y + t * t * t
+  const dbx = (t) =>
+    3 * (1 - t) * (1 - t) * p1x +
+    6 * (1 - t) * t * (p2x - p1x) +
+    3 * t * t * (1 - p2x)
+  return (x) => {
+    if (x <= 0) return 0
+    if (x >= 1) return 1
+    let t = x
+    for (let i = 0; i < 8; i++) {
+      const xt = bx(t) - x
+      if (Math.abs(xt) < 1e-6) break
+      const d = dbx(t)
+      if (Math.abs(d) < 1e-6) break
+      t -= xt / d
+    }
+    return by(t)
   }
-  layoutAnim = null
+}
+const APPLE_SPRING = makeCubicBezier(0.32, 0.72, 0, 1)
+
+let bvAnim = null
+
+function cancelBvAnim() {
+  if (bvAnim && bvAnim.timer != null) clearTimeout(bvAnim.timer)
+  bvAnim = null
 }
 
-function animateLayoutTo(targetSb, duration = 220) {
-  const fromSb = nextViewBounds?.x ?? (sidebarOpen ? sidebarWidth : 0)
-  cancelLayoutAnim()
-  if (Math.abs(targetSb - fromSb) < 1) {
-    applyLayoutWithSb(targetSb)
-    broadcast("sidebar:width", Math.round(targetSb))
+function animateBrowserViewTo(targetSb, targetPanel, duration = 220) {
+  if (!browserView || browserViewHidden) {
+    sidebarWidth = targetSb
+    panelWidth   = targetPanel
     return
   }
-  layoutAnim = {
+  cancelBvAnim()
+  const fromSb    = sidebarWidth
+  const fromPanel = panelWidth
+  if (Math.abs(targetSb - fromSb) < 1 && Math.abs(targetPanel - fromPanel) < 1) {
+    sidebarWidth = targetSb
+    panelWidth   = targetPanel
+    applyBrowserViewLayout()
+    return
+  }
+  bvAnim = {
     fromSb, targetSb,
+    fromPanel, targetPanel,
     startTime: perfNow.now(),
     duration,
     timer: null,
   }
-  layoutAnimStep()
+  bvAnimStep()
 }
 
-function layoutAnimStep() {
-  if (!layoutAnim) return
-  const t = Math.min(1, (perfNow.now() - layoutAnim.startTime) / layoutAnim.duration)
-  // Apple spring approximation of cubic-bezier(0.32, 0.72, 0, 1)
-  const eased = 1 - Math.pow(1 - t, 4)
-  const sb = layoutAnim.fromSb + (layoutAnim.targetSb - layoutAnim.fromSb) * eased
-  applyLayoutWithSb(sb)
-  broadcast("sidebar:width", Math.round(sb))
+function bvAnimStep() {
+  if (!bvAnim) return
+  const t = Math.min(1, (perfNow.now() - bvAnim.startTime) / bvAnim.duration)
+  const eased = APPLE_SPRING(t)
+  sidebarWidth = bvAnim.fromSb    + (bvAnim.targetSb    - bvAnim.fromSb)    * eased
+  panelWidth   = bvAnim.fromPanel + (bvAnim.targetPanel - bvAnim.fromPanel) * eased
+  applyBrowserViewLayout()
   if (t < 1) {
-    layoutAnim.timer = setTimeout(layoutAnimStep, 16)
+    bvAnim.timer = setTimeout(bvAnimStep, 16)
   } else {
-    applyLayoutWithSb(layoutAnim.targetSb)
-    broadcast("sidebar:width", Math.round(layoutAnim.targetSb))
-    layoutAnim = null
+    sidebarWidth = bvAnim.targetSb
+    panelWidth   = bvAnim.targetPanel
+    applyBrowserViewLayout()
+    bvAnim = null
   }
 }
 
-function createBrowserView() {
-  if (browserView) return
-  browserView = new WebContentsView({
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-  })
-  // Clean Chrome UA pinned to the current Chromium major. Identical to
-  // what the user would send from a regular Chrome session — no Electron
-  // suffix, no product marker. Required so listings sites don't flag
-  // the WebContentsView as an embedded WebView.
-  browserView.webContents.setUserAgent(CHROME_DESKTOP_UA)
-  appWindow.contentView.addChildView(browserView)
+// ── Tabs (multi-WebContentsView) ──────────────────────────────────────────
+//
+// The single-browser model became a multi-tab model. Each tab is a
+// WebContentsView with its own URL, history, and live page state. Only the
+// ACTIVE tab is laid out by applyBrowserViewLayout; inactive tabs are
+// parked at 1×1. The `browserView` variable above is preserved as an
+// alias for the active tab's view, so all the existing IPC handlers and
+// extraction code keep working unchanged.
+//
+// Per-tab analysis cache: each tab tracks its last extraction result.
+// Switching tabs replays the cached panel state so the user sees a
+// coherent panel-per-tab UX.
 
-  // Send a navigation state snapshot to the renderer.
-  // ready=true is ONLY set from did-stop-loading; all other events update the
-  // URL/title but intentionally leave loading:true so the React browserLoading
-  // gate prevents analysis from firing before the page is fully rendered.
+/** @typedef {{
+ *   id:        string,
+ *   view:      WebContentsView,
+ *   navState:  { url: string, title: string, isListing: boolean,
+ *                canGoBack: boolean, canGoForward: boolean, loading: boolean },
+ *   analysis:  null | "analyzing" | { error: true, message: string } | object,
+ *   /** URL of the last fully-completed analysis. Used to dedupe
+ *    *  did-stop-loading bursts on SPA pages (Zillow fires this multiple
+ *    *  times per listing). If we've already analyzed this exact URL, skip. *\/
+ *   lastAnalyzedUrl: string | null,
+ * }} Tab */
+
+/** @type {Map<string, Tab>} */
+const tabs = new Map()
+/** @type {string | null} */
+let activeTabId = null
+
+function makeTabId() {
+  return `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+}
+
+/** Friendly default tab title — domain when we have a URL, "New tab" otherwise. */
+function prettyTabTitle(url) {
+  if (!url) return "New tab"
+  try {
+    return new URL(url).hostname.replace(/^www\./, "")
+  } catch { return url }
+}
+
+/** Empty nav state — used for new tabs and as the default when no tab exists. */
+function emptyNavState() {
+  return { url: "", title: "", isListing: false, canGoBack: false, canGoForward: false, loading: false }
+}
+
+function createTab(initialUrl, opts = {}) {
+  if (!appWindow || appWindow.isDestroyed()) return null
+  const id = makeTabId()
+  const view = new WebContentsView({
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration:  false,
+      sandbox:          true,
+      // Anti-fingerprint preload — runs before any page script and
+      // patches navigator.webdriver / plugins / languages so the
+      // embedded WebContentsView doesn't read as an automated browser.
+      preload: path.join(__dirname, "embed-preload.js"),
+    },
+  })
+  view.webContents.setUserAgent(CHROME_DESKTOP_UA)
+  // Transparent compositor backdrop. WITHOUT this, an empty tab (no URL)
+  // paints solid black/white over the React start screen, and during a
+  // navigation between pages there's a black flash before the new page
+  // paints its first frame. Real listing pages set their own opaque
+  // background so this doesn't bleed through once content loads.
+  try { view.webContents.setBackgroundColor("#00000000") } catch {}
+  appWindow.contentView.addChildView(view)
+  view.setBounds({ x: 0, y: 0, width: 1, height: 1 }) // park initially
+
+  /** @type {Tab} */
+  const tab = { id, view, navState: emptyNavState(), analysis: null, lastAnalyzedUrl: null }
+  tabs.set(id, tab)
+  attachTabListeners(tab)
+
+  if (opts.activate ?? true) activateTab(id)
+  if (initialUrl) view.webContents.loadURL(initialUrl)
+
+  broadcastTabsState()
+  return id
+}
+
+/** Attach navigation + keyboard event listeners to a tab. Each listener
+ *  updates the tab's navState and only broadcasts to the renderer when
+ *  this tab is currently active. */
+function attachTabListeners(tab) {
+  const { id, view } = tab
+
   const sendNav = (ready = false) => {
-    if (!appWindow || !browserView) return
-    const url = browserView.webContents.getURL()
-    broadcast("browser:nav-update", {
+    const url = view.webContents.getURL()
+    tab.navState = {
       url,
-      title:     browserView.webContents.getTitle(),
-      isListing: shouldAutoExtract(url),
-      canGoBack: browserView.webContents.canGoBack(),
-      canGoForward: browserView.webContents.canGoForward(),
-      ...(ready ? { loading: false } : {}),   // only did-stop-loading clears the loading flag
-    })
+      title:        view.webContents.getTitle(),
+      isListing:    shouldAutoExtract(url),
+      canGoBack:    view.webContents.canGoBack(),
+      canGoForward: view.webContents.canGoForward(),
+      loading:      ready ? false : tab.navState.loading,
+    }
+    if (id === activeTabId) {
+      broadcast("browser:nav-update", { ...tab.navState, ...(ready ? { loading: false } : {}) })
+    }
+    broadcastTabsState()
   }
-  browserView.webContents.on("did-navigate",         () => sendNav(false))
-  browserView.webContents.on("did-navigate-in-page", () => sendNav(false))
-  browserView.webContents.on("page-title-updated",   () => sendNav(false))
-  browserView.webContents.on("did-start-loading", () => {
-    broadcast("browser:nav-update", { loading: true })
+
+  view.webContents.on("did-navigate",         () => sendNav(false))
+  view.webContents.on("did-navigate-in-page", () => sendNav(false))
+  view.webContents.on("page-title-updated",   () => sendNav(false))
+  view.webContents.on("did-start-loading", () => {
+    tab.navState.loading = true
+    // Zero out the stale isListing flag — we're loading SOMETHING new
+    // but we don't know what until did-navigate fires. Without this,
+    // navigating away from a Zillow listing keeps the tab's green
+    // loading dot pulsing for 200-500ms while the new (non-listing)
+    // page is loading, which makes regular page loads look like they're
+    // doing analysis.
+    tab.navState.isListing = false
+    if (id === activeTabId) broadcast("browser:nav-update", { loading: true, isListing: false })
+    broadcastTabsState()
   })
-  browserView.webContents.on("did-stop-loading", () => {
+  view.webContents.on("did-stop-loading", () => {
     sendNav(true)
-    autoAnalyze()
+    if (id === activeTabId) autoAnalyze()
   })
-  browserView.webContents.setWindowOpenHandler(({ url }) => {
-    browserView?.webContents.loadURL(url)
+  // window.open / target=_blank links open in a new tab.
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    createTab(url, { activate: true })
     return { action: "deny" }
   })
 
-  // Intercept keyboard shortcuts that should act on the app frame rather
-  // than the embedded page. The browser view normally swallows these.
-  browserView.webContents.on("before-input-event", (event, input) => {
+  view.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return
     const mod = process.platform === "darwin" ? input.meta : input.control
 
-    // Cmd/Ctrl+L — focus OUR URL bar (not Chromium's invisible address bar).
-    // preventDefault stops Chromium from handling it as "select all in URL bar"
-    // which would be a no-op anyway since there's no visible URL bar in the view.
+    // Cmd/Ctrl+L — focus OUR URL bar.
     if (mod && !input.shift && !input.alt && input.key === "l") {
       event.preventDefault()
       broadcast("browser:focus-urlbar")
       return
     }
-
-    // Cmd/Ctrl+Opt+I — DevTools for the browser panel itself.
+    // Cmd/Ctrl+Opt+I — DevTools for the browser panel.
     if (mod && input.alt && input.key === "I") {
       event.preventDefault()
-      browserView.webContents.openDevTools({ mode: "detach" })
+      view.webContents.openDevTools({ mode: "detach" })
     }
+  })
+
+  // Right-click context menu. Builds a Chrome-equivalent native menu from
+  // the params Chromium hands us — link / image / selection / nav. Without
+  // this, right-click on any embedded page silently does nothing, which
+  // breaks every "Open in New Tab" / "Save Image" / "Copy Link" muscle
+  // memory the user has from real browsers.
+  view.webContents.on("context-menu", (_event, params) => {
+    const items = []
+
+    // Edit operations — only show what's actionable on the current target.
+    if (params.editFlags?.canCut)       items.push({ label: "Cut",        role: "cut" })
+    if (params.editFlags?.canCopy)      items.push({ label: "Copy",       role: "copy" })
+    if (params.editFlags?.canPaste)     items.push({ label: "Paste",      role: "paste" })
+    if (params.editFlags?.canSelectAll) items.push({ label: "Select All", role: "selectAll" })
+    if (items.length > 0) items.push({ type: "separator" })
+
+    if (params.linkURL) {
+      items.push(
+        { label: "Open Link in New Tab", click: () => createTab(params.linkURL, { activate: true }) },
+        { label: "Copy Link Address",    click: () => clipboard.writeText(params.linkURL) },
+        { type: "separator" }
+      )
+    }
+
+    if (params.mediaType === "image" && params.srcURL) {
+      items.push(
+        { label: "Save Image As…",  click: () => view.webContents.downloadURL(params.srcURL) },
+        { label: "Copy Image Address",   click: () => clipboard.writeText(params.srcURL) },
+        { type: "separator" }
+      )
+    }
+
+    if (params.selectionText && params.selectionText.trim().length > 0) {
+      const q = params.selectionText.trim().slice(0, 200)
+      const display = q.length > 30 ? `${q.slice(0, 30)}…` : q
+      items.push(
+        { label: `Search Google for "${display}"`,
+          click: () => createTab(`https://www.google.com/search?q=${encodeURIComponent(q)}`, { activate: true }) },
+        { type: "separator" }
+      )
+    }
+
+    if (view.webContents.canGoBack())    items.push({ label: "Back",    click: () => view.webContents.goBack() })
+    if (view.webContents.canGoForward()) items.push({ label: "Forward", click: () => view.webContents.goForward() })
+    items.push({ label: "Reload", click: () => view.webContents.reload() })
+
+    if (DEV) {
+      items.push(
+        { type: "separator" },
+        { label: "Inspect Element", click: () => view.webContents.inspectElement(params.x, params.y) }
+      )
+    }
+
+    if (items.length === 0) return
+    Menu.buildFromTemplate(items).popup({ window: appWindow ?? undefined })
   })
 }
 
-function destroyBrowserView() {
-  if (!browserView) return
-  if (appWindow && !appWindow.isDestroyed()) {
-    appWindow.contentView.removeChildView(browserView)
+function activateTab(id) {
+  const t = tabs.get(id)
+  if (!t) return
+  // Park every other tab off-screen.
+  for (const [tid, tab] of tabs) {
+    if (tid !== id) tab.view.setBounds({ x: 0, y: 0, width: 1, height: 1 })
   }
-  try { browserView.webContents.close() } catch { /* already closed */ }
-  browserView = null
-  browserViewHidden = false
-  viewLayout = { panelWidth: 0 }
+  activeTabId = id
+  browserView = t.view
+  applyBrowserViewLayout()
+  // Replay this tab's nav state to the renderer (URL bar, back/forward).
+  broadcast("browser:nav-update", t.navState)
+  // Replay the tab's last analysis state so the panel reflects this tab.
+  if (t.analysis === null) {
+    broadcast("panel:hide")
+  } else if (t.analysis === "analyzing") {
+    broadcast("panel:analyzing")
+  } else if (t.analysis && typeof t.analysis === "object" && t.analysis.error) {
+    broadcast("panel:error", t.analysis.message ?? "Analysis failed.")
+  } else if (t.analysis && typeof t.analysis === "object") {
+    broadcast("panel:ready", t.analysis)
+  }
+  broadcastTabsState()
 }
 
+function closeTab(id) {
+  const t = tabs.get(id)
+  if (!t) return
+  if (appWindow && !appWindow.isDestroyed()) {
+    appWindow.contentView.removeChildView(t.view)
+  }
+  try { t.view.webContents.close() } catch { /* already closed */ }
+  tabs.delete(id)
+
+  if (activeTabId === id) {
+    const nextId = tabs.keys().next().value
+    if (nextId) {
+      activateTab(nextId)
+    } else {
+      activeTabId = null
+      browserView = null
+      broadcast("browser:nav-update", emptyNavState())
+      broadcast("panel:hide")
+    }
+  }
+  broadcastTabsState()
+}
+
+/** Activate the next/prev tab in insertion order, wrapping at the ends. */
+function stepActiveTab(direction) {
+  const ids = Array.from(tabs.keys())
+  if (ids.length === 0 || !activeTabId) return
+  const i = ids.indexOf(activeTabId)
+  if (i === -1) return
+  const nextI = ((i + direction) % ids.length + ids.length) % ids.length
+  activateTab(ids[nextI])
+}
+
+function destroyAllTabs() {
+  // Iterate over a snapshot since closeTab mutates the map.
+  for (const id of Array.from(tabs.keys())) closeTab(id)
+  browserViewHidden = false
+  panelWidth = 0
+  cancelBvAnim()
+}
+
+/** Hide / show all tab views — used by route-change gating
+ *  (panel routes may want browserView parked). */
 function hideBrowserView() {
-  if (!browserView) return
   browserViewHidden = true
-  browserView.setBounds({ x: 0, y: 0, width: 1, height: 1 })
+  for (const t of tabs.values()) {
+    t.view.setBounds({ x: 0, y: 0, width: 1, height: 1 })
+  }
 }
 
 function showBrowserView() {
-  if (!browserView) return
   browserViewHidden = false
-  applyLayout()
+  applyBrowserViewLayout()
 }
+
+function broadcastTabsState() {
+  const list = Array.from(tabs.entries()).map(([id, t]) => ({
+    id,
+    url:       t.navState.url,
+    title:     t.navState.title || prettyTabTitle(t.navState.url),
+    isListing: t.navState.isListing,
+    loading:   t.navState.loading,
+  }))
+  broadcast("browser:tabs:state", { tabs: list, activeId: activeTabId })
+  // Re-flow the active browserView — the chrome above it (toolbar +
+  // optional tab strip) may have changed height when this tab was added,
+  // closed, or first navigated to a URL.
+  applyBrowserViewLayout()
+}
+
+// Backward-compat aliases for the single-browser names. Existing IPC
+// handlers (browser:create, browser:destroy) call these.
+function createBrowserView() {
+  // Ensure at least one tab exists. The renderer calls this on mount.
+  if (tabs.size > 0) return
+  createTab(undefined, { activate: true })
+}
+function destroyBrowserView() { destroyAllTabs() }
 
 // ---------------------------------------------------------------------------
 // IPC — browser panel
 // ---------------------------------------------------------------------------
 
+// Read sidebarWidth + panelWidth from a layout payload. Returns the new
+// values, leaving fields not provided unchanged.
+function readLayoutInto(layout) {
+  let sb = sidebarWidth
+  let pw = panelWidth
+  if (layout && typeof layout.sidebarWidth === "number") sb = Math.max(0, layout.sidebarWidth)
+  if (layout && typeof layout.panelWidth   === "number") pw = Math.max(0, layout.panelWidth)
+  return { sb, pw }
+}
+
 ipcMain.handle("browser:create", (_e, layout) => {
-  if (layout && typeof layout.panelWidth === "number") {
-    viewLayout.panelWidth = Math.max(0, layout.panelWidth)
+  const { sb, pw } = readLayoutInto(layout)
+  sidebarWidth = sb
+  panelWidth   = pw
+  // ALWAYS reset the hidden flag — a re-mounted /browse calls create
+  // expecting the view to be visible, but a previous unmount may have
+  // parked all tabs at 1×1 via hideBrowser. Without this, the view
+  // would stay invisible after navigation and the user would see the
+  // page load but never appear on screen.
+  browserViewHidden = false
+  if (browserView) {
+    applyBrowserViewLayout()
+    return { reused: true }
   }
-  if (browserView) { applyLayout(); return { reused: true } }
-  createBrowserView(); applyLayout()
+  createBrowserView()
+  applyBrowserViewLayout()
   return { reused: false }
 })
 ipcMain.handle("browser:destroy",      () => destroyBrowserView())
 ipcMain.handle("browser:hide",         () => hideBrowserView())
 ipcMain.handle("browser:show", (_e, layout) => {
   if (!browserView) return { exists: false }
-  if (layout && typeof layout.panelWidth === "number") {
-    viewLayout.panelWidth = Math.max(0, layout.panelWidth)
-  }
+  const { sb, pw } = readLayoutInto(layout)
+  sidebarWidth = sb
+  panelWidth   = pw
   showBrowserView()
   const url = browserView.webContents.getURL()
   return {
@@ -915,11 +1243,158 @@ ipcMain.handle("browser:navigate",     (_e, url) => browserView?.webContents.loa
 ipcMain.handle("browser:back",         () => { if (browserView?.webContents.canGoBack())    browserView.webContents.goBack()    })
 ipcMain.handle("browser:forward",      () => { if (browserView?.webContents.canGoForward()) browserView.webContents.goForward() })
 ipcMain.handle("browser:reload",       () => browserView?.webContents.reload())
+// Settled layout from React: animate browserView's bounds with Apple
+// spring 220ms. The React sidebar/panel CSS transitions use the same
+// curve, so the listing's left edge tracks the sidebar in lockstep.
 ipcMain.handle("browser:set-layout", (_e, layout) => {
-  if (layout && typeof layout.panelWidth === "number") {
-    viewLayout.panelWidth = Math.max(0, layout.panelWidth)
+  const { sb, pw } = readLayoutInto(layout)
+  if (layout && layout.animate === false) {
+    sidebarWidth = sb
+    panelWidth   = pw
+    cancelBvAnim()
+    applyBrowserViewLayout()
+  } else {
+    animateBrowserViewTo(sb, pw)
   }
-  applyLayout()
+})
+
+// ── Watch / re-check IPC ──────────────────────────────────────────────────
+//
+// Re-fetches each watched deal's source URL in a hidden background view,
+// runs Haiku extraction, and returns the new list price + a flag for
+// whether anything material changed since the last snapshot. The renderer
+// is responsible for writing changes to Supabase + emitting deal_events
+// so this stays a pure "give me the latest" call.
+//
+// Sequential by design — running these in parallel would burn through
+// the Anthropic rate budget and slam listing sites. Each check takes
+// 5-15s, so a 10-deal portfolio is ~1-2 minutes of background work.
+
+/** @type {WebContentsView | null} */
+let recheckView = null
+
+function getRecheckView() {
+  if (recheckView && !recheckView.webContents.isDestroyed()) return recheckView
+  recheckView = new WebContentsView({
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  recheckView.webContents.setUserAgent(CHROME_DESKTOP_UA)
+  appWindow.contentView.addChildView(recheckView)
+  // Park entirely off-screen — never user-visible.
+  recheckView.setBounds({ x: 0, y: 0, width: 1, height: 1 })
+  return recheckView
+}
+
+async function recheckOneDeal(url, prevListPrice) {
+  const view = getRecheckView()
+  view.webContents.loadURL(url)
+
+  // Wait for load + DOM hydration (same polling pattern as autoAnalyze).
+  await new Promise((resolve) => {
+    if (!view.webContents.isLoading()) { resolve(); return }
+    const h = () => resolve()
+    view.webContents.once("did-stop-loading", h)
+    setTimeout(() => { try { view.webContents.off("did-stop-loading", h) } catch {} resolve() }, 12_000)
+  })
+
+  let dom = null
+  const POLL_DEADLINE_MS = 12_000
+  const POLL_TARGET_LEN  = 1200
+  const start = Date.now()
+  while (Date.now() - start < POLL_DEADLINE_MS) {
+    try {
+      dom = await view.webContents.executeJavaScript(`
+        (() => {
+          const clone = document.body.cloneNode(true)
+          clone.querySelectorAll('nav,header,footer,script,style,[aria-hidden="true"]').forEach(el => el.remove())
+          return { url: window.location.href, title: document.title, text: (clone.innerText||"").slice(0,25000) }
+        })()
+      `)
+    } catch { dom = null }
+    if ((dom?.text?.length ?? 0) >= POLL_TARGET_LEN) break
+    await new Promise((r) => setTimeout(r, 700))
+  }
+
+  if (!dom || (dom.text?.length ?? 0) < 200) {
+    return { ok: false, url, reason: "couldn't read page" }
+  }
+
+  const cfg = readConfig()
+  if (!cfg.anthropicApiKey) {
+    return { ok: false, url, reason: "no API key" }
+  }
+
+  const extracted = await callAnthropicHaiku(cfg.anthropicApiKey, dom)
+  if (!extracted) {
+    return { ok: false, url, reason: "extraction failed" }
+  }
+
+  const hostname = (() => { try { return new URL(dom.url).hostname.replace("www.", "") } catch { return "listing" } })()
+  const result = postProcess(extracted, hostname, "anthropic")
+  if (!result?.ok) {
+    return { ok: false, url, reason: result?.message ?? "extraction failed" }
+  }
+
+  const newPrice  = result.facts.listPrice ?? null
+  const priceChanged =
+    typeof newPrice === "number" &&
+    typeof prevListPrice === "number" &&
+    Math.abs(newPrice - prevListPrice) >= 1
+
+  return {
+    ok:           true,
+    url,
+    newListPrice: newPrice,
+    prevListPrice,
+    priceChanged,
+    delta:        newPrice != null && prevListPrice != null ? newPrice - prevListPrice : null,
+    facts:        result.facts,
+  }
+}
+
+ipcMain.handle("watch:check-all", async (_e, deals) => {
+  if (!Array.isArray(deals) || deals.length === 0) return { ok: true, results: [] }
+  const results = []
+  for (const d of deals) {
+    if (!d?.source_url) continue
+    try {
+      const r = await recheckOneDeal(d.source_url, d.list_price ?? null)
+      results.push({ id: d.id, ...r })
+    } catch (err) {
+      results.push({ id: d.id, ok: false, url: d.source_url, reason: err?.message ?? "fetch failed" })
+    }
+    // Yield between checks — gives the user's main browser breathing room.
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  return { ok: true, results }
+})
+
+// ── Tab management IPC ────────────────────────────────────────────────────
+ipcMain.handle("browser:tabs:list", () => {
+  return Array.from(tabs.entries()).map(([id, t]) => ({
+    id,
+    url:       t.navState.url,
+    title:     t.navState.title || prettyTabTitle(t.navState.url),
+    isListing: t.navState.isListing,
+    loading:   t.navState.loading,
+    activeId:  activeTabId,
+  }))
+})
+
+ipcMain.handle("browser:tabs:create", (_e, opts) => {
+  const url = (opts && typeof opts.url === "string") ? opts.url : undefined
+  const id  = createTab(url, { activate: true })
+  return { id }
+})
+
+ipcMain.handle("browser:tabs:close", (_e, id) => {
+  if (typeof id !== "string") return
+  closeTab(id)
+})
+
+ipcMain.handle("browser:tabs:activate", (_e, id) => {
+  if (typeof id !== "string") return
+  activateTab(id)
 })
 
 ipcMain.handle("browser:extract-dom", async () => {
@@ -1146,20 +1621,85 @@ let autoAnalyzing = false
 //   4. Send panel:ready with full PanelResult, or panel:error on failure
 // ---------------------------------------------------------------------------
 
-async function autoAnalyze() {
-  if (!browserView || !appWindow || autoAnalyzing) return
+async function autoAnalyze(opts = {}) {
+  // `force: true` is set by the user-initiated reanalyze flow — it bypasses
+  // both the in-flight guard and the URL dedupe, and broadcasts an error
+  // back to the renderer when shouldAutoExtract is false (rather than
+  // silently hiding). This keeps the manual reanalyze button from leaving
+  // the panel stuck in "analyzing" with no resolution.
+  const force = !!opts.force
+
+  if (!browserView || !appWindow) {
+    if (force) broadcast("panel:error", "Open a listing first.")
+    return
+  }
+  if (autoAnalyzing && !force) return
 
   const url = browserView.webContents.getURL()
   if (!shouldAutoExtract(url)) {
-    broadcast("panel:hide")
+    // Clear analysis cache for the active tab and hide the panel.
+    const cur = activeTabId ? tabs.get(activeTabId) : null
+    if (cur) {
+      cur.analysis        = null
+      cur.lastAnalyzedUrl = null
+    }
+    if (force) {
+      broadcast("panel:error", "This page doesn't look like a listing. Open a property page to analyze it.")
+    } else {
+      broadcast("panel:hide")
+    }
     return
   }
 
+  // Capture the originating tab — if the user switches tabs while we're
+  // waiting on the network/extraction, we still write the result onto
+  // the tab that started the analysis, but only broadcast to the
+  // renderer if THAT tab is still active.
+  const startedTabId = activeTabId
+  const startedTab   = startedTabId ? tabs.get(startedTabId) : null
+
+  // Dedupe: SPA listing pages (Zillow, Redfin) fire did-stop-loading
+  // multiple times per page (initial load + lazy-loaded sections + XHR
+  // settlement). If we've already HANDLED this URL on this tab — whether
+  // the result was a real analysis, an error, or "this is a search page,
+  // hide" — treat the rerun as a no-op. We stamp lastAnalyzedUrl from
+  // every settle path below. `force` skips this so the user's reanalyze
+  // button always re-runs and always resolves the panel state.
+  if (!force && startedTab && startedTab.lastAnalyzedUrl === url) {
+    return
+  }
+  if (force && startedTab) {
+    startedTab.lastAnalyzedUrl = null
+  }
+
+  const isStillActive = () => activeTabId === startedTabId
+  const setTabAnalysis = (a) => { if (startedTab) startedTab.analysis = a }
+
   autoAnalyzing = true
-  broadcast("panel:analyzing")
+  setTabAnalysis("analyzing")
+  if (isStillActive()) broadcast("panel:analyzing")
   lastExtractDebug = { stage: "started", at: new Date().toISOString() }
 
   try {
+    // Humanlike settle window — bot-detection systems flag the pattern
+    // "page loaded → DOM read immediately." A 1.2-1.8s jittered pause
+    // + a synthetic mouse-move into the viewport simulates a human
+    // pausing to look at the page before we extract. This won't beat
+    // Turnstile, but it dramatically reduces the false-positive rate
+    // on Zillow's first-page-load bot heuristics.
+    const SETTLE_MIN_MS = 1200
+    const SETTLE_MAX_MS = 1800
+    const settle = SETTLE_MIN_MS + Math.floor(Math.random() * (SETTLE_MAX_MS - SETTLE_MIN_MS))
+    await new Promise((r) => setTimeout(r, settle))
+    try {
+      const b = browserView.getBounds()
+      // Send a single mouseMove into roughly the center-third of the
+      // viewport — small jitter so the coords don't repeat across runs.
+      const x = Math.floor(b.width  * 0.4 + Math.random() * (b.width  * 0.2))
+      const y = Math.floor(b.height * 0.4 + Math.random() * (b.height * 0.2))
+      browserView.webContents.sendInputEvent({ type: "mouseMove", x, y })
+    } catch { /* sendInputEvent can throw if view isn't focusable yet */ }
+
     // Wait for DOM to hydrate (SPAs fire did-stop-loading early)
     const POLL_TARGET_LEN = 1200
     const POLL_DEADLINE_MS = 18_000
@@ -1184,18 +1724,26 @@ async function autoAnalyze() {
     }
 
     if (!dom || (dom.text?.length ?? 0) < 200) {
-      broadcast("panel:error", "Couldn't read enough page content. Try refreshing the listing.")
+      const msg = "Couldn't read enough page content. Try refreshing the listing."
+      setTabAnalysis({ error: true, message: msg })
+      if (startedTab) startedTab.lastAnalyzedUrl = url
+      if (isStillActive()) broadcast("panel:error", msg)
       return
     }
 
     if (looksLikeCaptcha(dom.title, dom.text)) {
-      broadcast("panel:error", "Verify you're not a robot, then the panel will populate.")
+      const msg = "Verify you're not a robot, then the panel will populate."
+      setTabAnalysis({ error: true, message: msg })
+      if (startedTab) startedTab.lastAnalyzedUrl = url
+      if (isStillActive()) broadcast("panel:error", msg)
       return
     }
 
     const sig = scanSignals(dom.text, dom.url)
     if (sig.looksLikeSearchResults || !sig.looksLikeListing) {
-      broadcast("panel:hide")
+      setTabAnalysis(null)
+      if (startedTab) startedTab.lastAnalyzedUrl = url
+      if (isStillActive()) broadcast("panel:hide")
       return
     }
 
@@ -1208,37 +1756,52 @@ async function autoAnalyze() {
     }
 
     if (!extracted) {
-      broadcast("panel:error", "Add an Anthropic key in Settings to enable auto-analysis.")
+      const msg = "Add an Anthropic key in Settings to enable auto-analysis."
+      setTabAnalysis({ error: true, message: msg })
+      if (startedTab) startedTab.lastAnalyzedUrl = url
+      if (isStillActive()) broadcast("panel:error", msg)
       return
     }
 
     const extractResult = postProcess(extracted, hostname, "anthropic")
     if (!extractResult?.ok) {
-      broadcast("panel:error", extractResult?.message ?? "Couldn't read this listing.")
+      const msg = extractResult?.message ?? "Couldn't read this listing."
+      setTabAnalysis({ error: true, message: msg })
+      if (startedTab) startedTab.lastAnalyzedUrl = url
+      if (isStillActive()) broadcast("panel:error", msg)
       return
     }
 
-    // POST to /api/analyze — runs FRED + HUD FMR enrichment + calculations
+    // POST to /api/analyze — runs FRED + HUD FMR enrichment + calculations.
+    // Include the user's underwriting prefs (down payment, vacancy %, etc.)
+    // so the metrics reflect their actual model, not the built-in defaults.
+    const userPrefs = readConfig().investmentPrefs ?? {}
     const analyzeRes = await fetch(`${BASE_URL}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ extraction: extractResult }),
+      body: JSON.stringify({ extraction: extractResult, prefs: userPrefs }),
       signal: AbortSignal.timeout(30_000),
     })
 
     if (!analyzeRes.ok) {
       const body = await analyzeRes.json().catch(() => ({}))
-      broadcast("panel:error", body?.message ?? "Analysis failed. Please try again.")
+      const msg = body?.message ?? "Analysis failed. Please try again."
+      setTabAnalysis({ error: true, message: msg })
+      if (startedTab) startedTab.lastAnalyzedUrl = url
+      if (isStillActive()) broadcast("panel:error", msg)
       return
     }
 
     const panelResult = await analyzeRes.json()
-    broadcast("panel:ready", panelResult)
+    setTabAnalysis(panelResult)
+    if (startedTab) startedTab.lastAnalyzedUrl = url
+    if (isStillActive()) broadcast("panel:ready", panelResult)
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error("[autoAnalyze] error:", msg)
-    broadcast("panel:error", "Something went wrong. Try refreshing the page.")
+    setTabAnalysis({ error: true, message: "Something went wrong. Try refreshing the page." })
+    if (isStillActive()) broadcast("panel:error", "Something went wrong. Try refreshing the page.")
   } finally {
     autoAnalyzing = false
   }
@@ -1392,6 +1955,19 @@ function scanSignals(text, url) {
 // Returns an ExtractResult — discriminated union of {ok:true, ...} or
 // {ok:false, errorCode, message, ...}. The renderer NEVER sees a raw API
 // error.
+// User-initiated reanalyze. Drives the panel through the FULL autoAnalyze
+// flow (extract → enrich → broadcast panel:ready / panel:error). The
+// renderer's existing onPanelReady / onPanelError listeners catch the
+// result, so the reanalyze button never leaves the panel stuck on the
+// analyzing spinner.
+ipcMain.handle("browser:reanalyze", async () => {
+  // Defensive: clear the in-flight guard in case a previous run died
+  // silently and left autoAnalyzing stuck at true.
+  autoAnalyzing = false
+  void autoAnalyze({ force: true })
+  return { ok: true }
+})
+
 ipcMain.handle("browser:analyze", async () => {
   if (!browserView) {
     return { ok: false, errorCode: "unknown", message: userMessageFor("unknown") }
@@ -1664,108 +2240,6 @@ function postProcess(raw, hostname, modelUsed) {
 }
 
 // ---------------------------------------------------------------------------
-// IPC — shell (sidebar lives in shell/index.html, talks to main via shellAPI)
-// ---------------------------------------------------------------------------
-
-// The shell reports the bounds of its `.content-pane` div whenever the layout
-// changes (sidebar collapse, window resize, etc.).  Main re-positions the
-// Next.js WebContentsView accordingly.  Also: the FIRST time bounds arrive,
-// create nextView — this guarantees we don't try to position an unloaded view.
-// Shell signals it's ready — first call triggers nextView creation. The
-// `bounds` arg is now ignored: main owns layout via computeNextViewBounds()
-// and recomputes on every relevant trigger (window resize, sidebar toggle,
-// sidebar drag, panel layout change).
-ipcMain.handle("shell:content-bounds", (_e, _bounds) => {
-  if (!nextView) {
-    createNextView("/browse")
-  } else {
-    applyLayout()
-  }
-})
-
-// Sidebar drag handle pushes its width here on every mousemove tick + on
-// release. Main re-computes nextView and browserView bounds in one pass
-// and broadcasts the live width to the React toolbar so it can keep its
-// own traffic-light clearance padding in sync. Cancels any in-flight
-// toggle animation — drag overrides the tween.
-ipcMain.handle("shell:sidebar-width", (_e, w) => {
-  if (typeof w === "number" && Number.isFinite(w)) {
-    sidebarWidth = Math.max(0, Math.round(w))
-    cancelLayoutAnim()
-    broadcast("sidebar:width", sidebarOpen ? sidebarWidth : 0)
-    applyLayout()
-  }
-})
-
-// Sidebar nav click — load the requested route in the Next.js view.
-ipcMain.handle("shell:navigate", (_e, route) => {
-  if (!nextView) return
-  try {
-    nextView.webContents.loadURL(`${BASE_URL}${route}`)
-  } catch (err) {
-    console.error("[shell:navigate]", err?.message ?? err)
-  }
-})
-
-// ── Sidebar state (single source of truth in main process) ─────────────────
-// Both the shell HTML AND the Next.js Toolbar (in nextView) read/write this
-// via the IPC channels below.  Main broadcasts every change to BOTH so they
-// stay in sync regardless of which side initiated the change.
-let sidebarOpen = true
-
-function broadcastSidebarState() {
-  broadcast("sidebar:state", sidebarOpen)
-  // Width is NOT broadcast here — when the state flips, animateLayoutTo
-  // broadcasts per-frame interpolated widths so the toolbar's padding
-  // tracks the tween smoothly. Broadcasting target width here would cause
-  // a one-frame flash to the final padding before the animation begins.
-}
-
-ipcMain.handle("sidebar:get-state", () => {
-  console.log("[main] sidebar:get-state →", sidebarOpen)
-  return sidebarOpen
-})
-
-ipcMain.handle("sidebar:toggle", () => {
-  console.log("[main] sidebar:toggle received, was:", sidebarOpen)
-  sidebarOpen = !sidebarOpen
-  console.log("[main] sidebar:toggle → broadcasting", sidebarOpen)
-  broadcastSidebarState()
-  animateLayoutTo(sidebarOpen ? sidebarWidth : 0)
-  return sidebarOpen
-})
-
-ipcMain.handle("sidebar:set", (_e, open) => {
-  console.log("[main] sidebar:set received:", open)
-  const wasOpen = sidebarOpen
-  sidebarOpen = !!open
-  broadcastSidebarState()
-  // Drag-release calls setSidebar(true) even when already open — skip the
-  // animation in that case (we want the live drag width to stay put, not
-  // animate from current to itself).
-  if (sidebarOpen !== wasOpen) {
-    animateLayoutTo(sidebarOpen ? sidebarWidth : 0)
-  } else {
-    applyLayout()
-  }
-  return sidebarOpen
-})
-
-// Legacy IPC kept as no-op shims to avoid runtime errors during transition.
-ipcMain.handle("shell:toggle-sidebar", () => {
-  sidebarOpen = !sidebarOpen
-  broadcastSidebarState()
-  animateLayoutTo(sidebarOpen ? sidebarWidth : 0)
-})
-ipcMain.handle("shell:sidebar-state", (_e, open) => {
-  const wasOpen = sidebarOpen
-  sidebarOpen = !!open
-  broadcastSidebarState()
-  if (sidebarOpen !== wasOpen) animateLayoutTo(sidebarOpen ? sidebarWidth : 0)
-  else                          applyLayout()
-})
-
-// ---------------------------------------------------------------------------
 // IPC — auth
 // ---------------------------------------------------------------------------
 
@@ -1884,6 +2358,31 @@ ipcMain.handle("config:has-anthropic-key", () => {
   return !!(config.anthropicApiKey || process.env.ANTHROPIC_API_KEY)
 })
 
+// ── Investment defaults ──────────────────────────────────────────────────
+// User's personal underwriting defaults — fed into lib/calculations.ts
+// when analyzing a listing. Sensible defaults shipped if the user has
+// never saved any. Shape stays permissive so we can add fields later.
+const DEFAULT_INVESTMENT_PREFS = {
+  downPaymentPct:   0.25,
+  vacancyPct:       0.05,
+  managementPct:    0.08,
+  maintenancePct:   0.05,
+  capexPct:         0.05,
+  rateAdjustmentBps: 0, // basis points added to FRED rate (e.g. for investor loan premium)
+}
+
+ipcMain.handle("config:get-investment-prefs", () => {
+  const cfg = readConfig()
+  return { ...DEFAULT_INVESTMENT_PREFS, ...(cfg.investmentPrefs ?? {}) }
+})
+ipcMain.handle("config:set-investment-prefs", (_e, patch) => {
+  if (!patch || typeof patch !== "object") return { ok: false }
+  const cfg = readConfig()
+  cfg.investmentPrefs = { ...DEFAULT_INVESTMENT_PREFS, ...(cfg.investmentPrefs ?? {}), ...patch }
+  writeConfig(cfg)
+  return { ok: true, prefs: cfg.investmentPrefs }
+})
+
 // Returns the most recent extraction round-trip trace. The renderer's
 // debug drawer (⌘⇧D in /research) reads this so the user can see exactly
 // why a listing failed instead of staring at a generic error message.
@@ -1892,13 +2391,528 @@ ipcMain.handle("extract:debug:last", () => {
 })
 
 // ---------------------------------------------------------------------------
+// IPC — Live mortgage rate (FRED MORTGAGE30US)
+// ---------------------------------------------------------------------------
+//
+// Surfaces the current 30Y fixed rate to the sidebar's market context
+// band. FRED publishes MORTGAGE30US weekly (Thursday) so a long cache
+// is fine. Failure returns null — the indicator hides itself rather
+// than show stale data.
+
+let ratesCache = null
+const RATES_TTL_MS = 12 * 60 * 60 * 1000 // 12 hours
+
+async function fetchMortgageRate() {
+  if (ratesCache && Date.now() - ratesCache.fetchedAt < RATES_TTL_MS) {
+    return { rate: ratesCache.rate, asOf: ratesCache.asOf }
+  }
+  const apiKey = process.env.FRED_API_KEY
+  if (!apiKey) return null
+
+  try {
+    const url = `https://api.stlouisfed.org/fred/series/observations?series_id=MORTGAGE30US&api_key=${apiKey}&file_type=json&sort_order=desc&limit=1`
+    const res = await fetch(url, { signal: AbortSignal.timeout(5_000) })
+    if (!res.ok) return null
+    const data = await res.json()
+    const obs = data?.observations?.[0]
+    if (!obs?.value || obs.value === ".") return null
+    const rate = parseFloat(obs.value)
+    if (!Number.isFinite(rate)) return null
+    ratesCache = { rate, asOf: obs.date, fetchedAt: Date.now() }
+    return { rate, asOf: obs.date }
+  } catch {
+    return null
+  }
+}
+
+ipcMain.handle("rates:get-mortgage", async () => {
+  const r = await fetchMortgageRate()
+  return r ? { ok: true, ...r } : { ok: false }
+})
+
+// ---------------------------------------------------------------------------
+// IPC — AI tagging
+// ---------------------------------------------------------------------------
+//
+// Generates 2-3 short factual tags for a saved deal. Called fire-and-forget
+// from the renderer right after a successful save. The renderer then writes
+// the returned tags onto the saved_deals row via Supabase.
+//
+// Failure is silent — if the model can't produce good tags, the deal just
+// stays untagged. We never let tagging block the save flow.
+
+const TAG_SYSTEM_PROMPT = `You are RealVerdict's deal tagger. Given a property snapshot, output 2-3 short factual tags that capture this deal's most notable characteristics — the kind of tags that help an investor filter their pipeline.
+
+OUTPUT
+A single JSON array of 2-3 strings. No prose, no markdown, no commentary.
+
+TAG RULES
+- 1-3 words each, lowercase, hyphen-separated.
+- FACTUAL only — no judgment, no marketing, no scoring. NEVER use words like "great", "good", "bad", "deal", "investor-special", "must-see".
+- Pull tags from objective signals in the snapshot: property type, condition, geography, key metric extremes, strategy class.
+- Prefer specific over generic. "negative-cash-flow" beats "low-cash-flow"; "needs-roof" beats "fixer-upper" if the snapshot mentions it.
+
+EXAMPLES OF GOOD TAGS
+single-family · multi-family · 4-unit · condo · townhouse · land
+move-in-ready · needs-work · as-is · new-construction · tear-down
+high-cash-flow · negative-cash-flow · breakeven · tight-debt · low-dscr · debt-covers
+high-cap-rate · low-cap-rate · appreciation-play · value-add
+flood-zone · pre-1978 · leasehold · busy-road · tenant-occupied
+austin-tx · phoenix-az · sf-bay · brooklyn
+
+EXAMPLES OF BAD TAGS (NEVER OUTPUT)
+great-deal · investor-special · must-see · profitable · risky · hot-market
+
+Return ONLY the JSON array.`
+
+ipcMain.handle("ai:tag-deal", async (_e, payload) => {
+  const cfg = readConfig()
+  const apiKey = cfg.anthropicApiKey
+  if (!apiKey) return { ok: false, tags: [], reason: "no-key" }
+  if (!payload || typeof payload !== "object") return { ok: false, tags: [], reason: "bad-input" }
+
+  // Compress to a small structured user message — Haiku doesn't need the
+  // full PanelResult shape, just the salient facts + key metrics.
+  const compact = {
+    address:        payload.address ?? null,
+    city:           payload.city ?? null,
+    state:          payload.state ?? null,
+    propertyType:   payload.propertyType ?? null,
+    listPrice:      payload.listPrice ?? null,
+    beds:           payload.beds ?? null,
+    baths:          payload.baths ?? null,
+    sqft:           payload.sqft ?? null,
+    yearBuilt:      payload.yearBuilt ?? null,
+    monthlyCashFlow: payload.monthlyCashFlow ?? null,
+    capRate:        payload.capRate ?? null,
+    dscr:           payload.dscr ?? null,
+    riskFlags:      Array.isArray(payload.riskFlags) ? payload.riskFlags : [],
+    siteName:       payload.siteName ?? null,
+  }
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type":      "application/json",
+        "x-api-key":         apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model:      ANTHROPIC_MODEL,
+        max_tokens: 120,
+        system:     TAG_SYSTEM_PROMPT,
+        messages:   [{ role: "user", content: JSON.stringify(compact) }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return { ok: false, tags: [], reason: `http-${res.status}` }
+    const data = await res.json()
+    const text = data?.content?.[0]?.text?.trim() ?? ""
+    // Strip code fences if Haiku wrapped the array in markdown.
+    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim()
+    let parsed
+    try { parsed = JSON.parse(cleaned) } catch { return { ok: false, tags: [], reason: "parse-failed" } }
+    if (!Array.isArray(parsed)) return { ok: false, tags: [], reason: "not-array" }
+
+    // Sanitize: lowercase, hyphenate, length cap, count cap.
+    const tags = parsed
+      .filter((t) => typeof t === "string")
+      .map((t) => t.toLowerCase().trim().replace(/\s+/g, "-"))
+      .filter((t) => t.length > 0 && t.length <= 24 && t.split("-").length <= 3)
+      .slice(0, 3)
+    return { ok: true, tags }
+  } catch (err) {
+    return { ok: false, tags: [], reason: err?.name ?? "fetch-failed" }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// IPC — AI listing chat
+// ---------------------------------------------------------------------------
+//
+// Conversational Q&A about the currently-open listing. The panel's
+// authoritative numbers (Cash Flow / Cap Rate / DSCR) come from FRED +
+// HUD + Haiku extraction; this chat is for everything around them —
+// hypothetical underwriting ("what if I put 30% down?"), comp ranges,
+// "why is the cap rate low?", etc.
+//
+// The system prompt locks the model into the same no-verdict stance the
+// rest of the product uses: surface facts and arithmetic, never advise
+// or score.
+
+const CHAT_SYSTEM_PROMPT = `You are RealVerdict's listing-analysis assistant. The user is looking at a specific real-estate listing and asks you questions about it.
+
+YOU CAN
+- Answer factual questions using the provided extraction data, metrics, and the user's pipeline context.
+- Do simple hypothetical underwriting math when asked ("what if I put 30% down", "what would cash flow look like at $400k").
+- Reference comparable saved deals from the user's pipeline when relevant.
+- Estimate market context (rent comps, typical taxes, neighborhood feel) using your general knowledge — but ALWAYS flag estimates as estimates.
+
+YOU MUST NEVER
+- Give advice ("you should buy this", "skip this one", "great deal", "weak deal").
+- Rate, score, or rank the property.
+- Invent facts not in the data and present them as facts.
+- Use exclamation points or hype language.
+
+SHAPE
+- Reply in 1-3 short sentences. Plain prose. No markdown headers, no bullet lists unless explicitly asked. Bold (**text**) for emphasis only, sparingly.
+- Use SPECIFIC numbers from the provided data — say "6.2% cap rate", not "decent cap rate".
+- When the panel data already answers the question, reference it directly.
+- When you're estimating ("typical rents in this zip are around X"), say so plainly.
+- If you don't have the data to answer, say so plainly. Don't make things up.
+
+CONTEXT FORMAT
+You'll receive: { listing: { address, listPrice, beds, baths, sqft, propertyType, monthlyCashFlow, capRate, dscr, monthlyRent, ... }, prefs: { downPaymentPct, vacancyPct, ... }, pipeline: { saves count, common cities, ... }, history: [previous messages] }`
+
+ipcMain.handle("ai:chat-deal", async (_e, payload) => {
+  const cfg = readConfig()
+  const apiKey = cfg.anthropicApiKey
+  if (!apiKey) return { ok: false, response: null, reason: "no-key" }
+
+  const { query, context, history } = payload ?? {}
+  if (typeof query !== "string" || !query.trim()) {
+    return { ok: false, response: null, reason: "bad-input" }
+  }
+
+  // Build the multi-turn message array. The system prompt is constant;
+  // the user message bundles the context (so we don't have to send it
+  // on every turn separately) plus the latest question.
+  const messages = []
+  // Replay prior conversation as user/assistant pairs. Cap at 10 turns
+  // to stay within token budget — chat about a single listing rarely
+  // needs more.
+  if (Array.isArray(history)) {
+    for (const m of history.slice(-10)) {
+      if (m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string") {
+        messages.push({ role: m.role, content: m.content })
+      }
+    }
+  }
+  // The new turn — bundle context with the question on the FIRST turn,
+  // or just the question on subsequent turns (context already in history).
+  const isFirstTurn = messages.length === 0
+  const userContent = isFirstTurn
+    ? `Context:\n${JSON.stringify(context ?? {}, null, 2)}\n\nQuestion: ${query}`
+    : query
+  messages.push({ role: "user", content: userContent })
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type":      "application/json",
+        "x-api-key":         apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model:      ANTHROPIC_MODEL,
+        max_tokens: 600,
+        system:     CHAT_SYSTEM_PROMPT,
+        messages,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!res.ok) return { ok: false, response: null, reason: `http-${res.status}` }
+    const data = await res.json()
+    const text = data?.content?.[0]?.text?.trim() ?? ""
+    if (!text) return { ok: false, response: null, reason: "empty-response" }
+    return { ok: true, response: text }
+  } catch (err) {
+    return { ok: false, response: null, reason: err?.name ?? "fetch-failed" }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// IPC — AI palette query
+// ---------------------------------------------------------------------------
+//
+// Powers the ⌘K "Ask…" surface. Takes a free-form query plus a small
+// context bundle (the user's saved deals + recent listings) and returns
+// EITHER a short factual answer OR a structured navigation hint.
+
+const ASK_SYSTEM_PROMPT = `You are RealVerdict's command-palette assistant. The user types a question or a navigation request; you respond with a small JSON object describing how to handle it.
+
+OUTPUT (always)
+A single JSON object — no prose, no markdown. Shapes:
+
+  { "kind": "answer",   "text": "<= 60 words, factual, first-person plural ('we'/'your')" }
+  { "kind": "navigate", "url": "/pipeline?stage=watching" or "/browse?url=https://..." }
+  { "kind": "filter",   "stage": "watching" | "interested" | "offered" | "won" | "passed" | null,
+                        "city":  "<city name>" | null,
+                        "minCapRate":     <number 0..1> | null,
+                        "minCashFlow":    <dollars> | null,
+                        "label":          "<short user-facing summary like 'Austin · cap >5%'>" }
+  { "kind": "open",     "url": "https://..." (must be one URL from the user's saved deals) }
+  { "kind": "unknown" }
+
+RULES
+- Match the user's intent. "show watching" → navigate to /pipeline?stage=watching. "compare [a] and [b]" → answer (we don't yet have a navigate-to-compare URL).
+- For factual questions about THE USER'S deals (counts, names, totals), output an "answer" with the actual number from the context.
+- Numeric thresholds: "cap rate over 5%" → minCapRate: 0.05. "cash flow positive" → minCashFlow: 0.
+- City names: pull from the deals' "city" field (case-sensitive copy). If the city isn't in the user's data, return "unknown" rather than inventing.
+- Never invent facts. Never give advice. Never score or rank deals.
+
+The context object will look like:
+  { "savedDeals": [ { id, address, city, state, listPrice, monthlyCashFlow, capRate, dscr, stage, sourceUrl, tags } ], "recentListings": [...], "currentRoute": "/browse" }`
+
+ipcMain.handle("ai:answer-query", async (_e, payload) => {
+  const cfg = readConfig()
+  const apiKey = cfg.anthropicApiKey
+  if (!apiKey) return { ok: false, response: null, reason: "no-key" }
+  const { query, context } = payload ?? {}
+  if (typeof query !== "string" || !query.trim()) {
+    return { ok: false, response: null, reason: "bad-input" }
+  }
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type":      "application/json",
+        "x-api-key":         apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model:      ANTHROPIC_MODEL,
+        max_tokens: 300,
+        system:     ASK_SYSTEM_PROMPT,
+        messages:   [{
+          role: "user",
+          content: `Query: ${query}\n\nContext:\n${JSON.stringify(context ?? {})}`,
+        }],
+      }),
+      signal: AbortSignal.timeout(12_000),
+    })
+    if (!res.ok) return { ok: false, response: null, reason: `http-${res.status}` }
+    const data = await res.json()
+    const text = data?.content?.[0]?.text?.trim() ?? ""
+    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim()
+    let parsed
+    try { parsed = JSON.parse(cleaned) } catch { return { ok: false, response: null, reason: "parse-failed" } }
+    if (!parsed || typeof parsed !== "object") return { ok: false, response: null, reason: "bad-shape" }
+    return { ok: true, response: parsed }
+  } catch (err) {
+    return { ok: false, response: null, reason: err?.name ?? "fetch-failed" }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// IPC — AI factual diff for the comparison view
+// ---------------------------------------------------------------------------
+//
+// Given 2-4 saved deals, returns ONE short factual paragraph (1-2 sentences)
+// describing the differences. NEVER scores, ranks, or recommends. Just
+// surfaces deltas worth noticing.
+
+const COMPARE_SYSTEM_PROMPT = `You are RealVerdict's deal-comparison voice. Given a JSON array of 2-4 properties with their key metrics, output ONE short factual paragraph (1-2 sentences, max 40 words) summarizing the most notable differences.
+
+OUTPUT
+Plain prose. No markdown, no quotes, no commentary. Just the sentence(s).
+
+VOICE & RULES
+- Factual, not advisory. Never score, rank, or recommend ("the better deal", "you should...").
+- Lead with the most striking delta — a price gap, cash-flow gap, neighborhood difference, property-type difference.
+- Cite specific numbers when meaningful (e.g. "$312/mo cash-flow gap", "0.8 percentage-point cap-rate spread").
+- If two deals are very similar, say so plainly.
+- Never use words like "best", "worst", "winner", "great", "weak", "good", "bad".
+
+EXAMPLES OF GOOD OUTPUT
+"Same Austin neighborhood, but the duplex cash-flows $312/mo more on a 0.8 percentage-point higher cap rate. The condo is the lower-DSCR option."
+"Both single-family at similar prices. The Phoenix property has cleaner debt coverage; the Tucson one carries a stronger cap rate."
+"Similar metrics across the board — within $40/mo of each other on cash flow, identical cap rate to the tenth."
+
+Return ONLY the paragraph.`
+
+ipcMain.handle("ai:compare-deals", async (_e, deals) => {
+  const cfg = readConfig()
+  const apiKey = cfg.anthropicApiKey
+  if (!apiKey) return { ok: false, summary: null, reason: "no-key" }
+  if (!Array.isArray(deals) || deals.length < 2 || deals.length > 4) {
+    return { ok: false, summary: null, reason: "bad-input" }
+  }
+
+  // Compress to just the essentials Haiku needs to write a one-liner.
+  const compact = deals.map((d) => ({
+    address:    d.address,
+    city:       d.city,
+    state:      d.state,
+    propertyType: d.propertyType,
+    listPrice:  d.listPrice,
+    beds:       d.beds,
+    baths:      d.baths,
+    sqft:       d.sqft,
+    monthlyCashFlow: d.monthlyCashFlow,
+    capRate:    d.capRate,
+    cashOnCash: d.cashOnCash,
+    dscr:       d.dscr,
+    grm:        d.grm,
+    tags:       Array.isArray(d.tags) ? d.tags.slice(0, 3) : [],
+  }))
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type":      "application/json",
+        "x-api-key":         apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model:      ANTHROPIC_MODEL,
+        max_tokens: 200,
+        system:     COMPARE_SYSTEM_PROMPT,
+        messages:   [{ role: "user", content: JSON.stringify(compact) }],
+      }),
+      signal: AbortSignal.timeout(12_000),
+    })
+    if (!res.ok) return { ok: false, summary: null, reason: `http-${res.status}` }
+    const data = await res.json()
+    const text = data?.content?.[0]?.text?.trim() ?? ""
+    const cleaned = text.replace(/^["'`“]+/, "").replace(/["'`”]+$/, "").trim()
+    if (!cleaned || cleaned.length > 600) {
+      return { ok: false, summary: null, reason: "out-of-bounds" }
+    }
+    return { ok: true, summary: cleaned }
+  } catch (err) {
+    return { ok: false, summary: null, reason: err?.name ?? "fetch-failed" }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// IPC — AI personalized greeting
+// ---------------------------------------------------------------------------
+//
+// Generates ONE line (8-22 words) for the Browse start screen subhead.
+// Called at most once per day per user — the renderer caches the result in
+// localStorage keyed by the date. Failure falls back to the rules-based
+// subhead so the start screen never blocks.
+
+const GREETING_SYSTEM_PROMPT = `You are RealVerdict's start-screen voice — the subhead under "Good morning / afternoon / evening" on a real-estate investor's home page.
+
+Output ONE line (8-22 words) personalized to the user's current activity. No quotes, no markdown, no commentary, no JSON. Just the line.
+
+VOICE
+- Casual, knowing, occasionally wry. Investor talking to investor.
+- Never preachy, never inspirational, never over-eager.
+- Reference specific facts from the context when they sharpen the line.
+- If the context is empty (new user, no activity), keep it light — don't fake familiarity.
+
+NEVER
+- Make up facts not in the context.
+- Give advice, judgment, or scoring ("you should...", "this is a great deal").
+- Use exclamation points or emojis.
+- Repeat the greeting word ("Good morning, ..." — that's already on the line above).
+- Restate the SAME underlying activity twice in different forms. If a deal is in Watching AND was saved this week AND counts as "active", that's ONE deal — describe it once. Numbers in the context overlap; never additively sum them in your sentence.
+
+CONTEXT FIELD MEANINGS
+- pipeline.activeCount: total deals not in Won or Passed.
+- pipeline.watchingCount: deals in the Watching stage. SUBSET of activeCount.
+- pipeline.staleWatching: Watching deals not touched in 7+ days. SUBSET of watchingCount.
+- pipeline.savedThisWeek: any save action in the last 7 days. May overlap heavily with watchingCount and activeCount.
+Pick the SINGLE most useful signal for one line. Don't enumerate.
+
+GOOD EXAMPLES
+"Three deals deep in Watching — anything worth a second look?"
+"Late lap on the pipeline, huh."
+"You've been staring at Austin all week."
+"Quiet weekend. Anything you want to lock in?"
+"Two in Offered. Closing thoughts?"
+"Coffee, then comps."`
+
+ipcMain.handle("ai:greeting", async (_e, context) => {
+  const cfg = readConfig()
+  const apiKey = cfg.anthropicApiKey
+  if (!apiKey) return { ok: false, line: null, reason: "no-key" }
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type":      "application/json",
+        "x-api-key":         apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model:      ANTHROPIC_MODEL,
+        max_tokens: 80,
+        system:     GREETING_SYSTEM_PROMPT,
+        messages:   [{ role: "user", content: JSON.stringify(context ?? {}) }],
+      }),
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (!res.ok) return { ok: false, line: null, reason: `http-${res.status}` }
+    const data = await res.json()
+    const text = data?.content?.[0]?.text?.trim() ?? ""
+    // Strip surrounding quotes if Haiku ignored the rule.
+    const cleaned = text.replace(/^["'`“]+/, "").replace(/["'`”]+$/, "").trim()
+    if (!cleaned || cleaned.length > 200) {
+      return { ok: false, line: null, reason: "out-of-bounds" }
+    }
+    return { ok: true, line: cleaned }
+  } catch (err) {
+    return { ok: false, line: null, reason: err?.name ?? "fetch-failed" }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Downloads
+//
+// Hooks the default session's `will-download` event so any link the user
+// triggers in the embedded browser saves cleanly to ~/Downloads (Chrome /
+// Safari default behavior). Without this, downloads silently no-op — the
+// user clicks a file link and nothing happens.
+//
+// We broadcast `download:state` events to the renderer so the React UI can
+// surface a small toast when a download starts and when it finishes.
+// ---------------------------------------------------------------------------
+
+function attachDownloadHandler() {
+  session.defaultSession.on("will-download", (_event, item) => {
+    const filename = item.getFilename()
+    const savePath = path.join(app.getPath("downloads"), filename)
+    item.setSavePath(savePath)
+
+    broadcast("download:state", {
+      state:      "started",
+      filename,
+      savePath,
+      totalBytes: item.getTotalBytes(),
+    })
+
+    item.on("updated", (_e, state) => {
+      if (state === "interrupted") {
+        broadcast("download:state", { state: "interrupted", filename, savePath })
+      }
+    })
+    item.once("done", (_e, finalState) => {
+      // finalState is "completed" | "cancelled" | "interrupted"
+      broadcast("download:state", { state: finalState, filename, savePath })
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
-  nativeTheme.themeSource = "dark"
+  // Resolve persisted theme BEFORE window creation so the BrowserWindow
+  // opens with the correct vibrancy on the very first frame (no flash
+  // of dark when the user picked Light).
+  const cfg = readConfig()
+  const initialPicked = THEME_OPTIONS.includes(cfg.theme) ? cfg.theme : DEFAULT_THEME
+  const initialResolved = resolveTheme(initialPicked)
+  nativeTheme.themeSource = initialResolved === "light" ? "light" : "dark"
+  if (initialPicked === "system") ensureSystemThemeListener()
+
   Menu.setApplicationMenu(buildAppMenu())
+  attachDownloadHandler()
   createAppWindow()
+  // Re-apply once the window exists — sets vibrancy + backgroundColor on
+  // the freshly-created window. (createAppWindow uses hardcoded sidebar
+  // vibrancy in its options; this corrects to the resolved theme.)
+  applyTheme(initialPicked, { broadcastOnly: true })
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

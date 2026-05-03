@@ -34,21 +34,31 @@
   --rv-accent-dim:    rgba(48, 164, 108, 0.14);
   --rv-accent-border: rgba(48, 164, 108, 0.26);
 
-  /* Signals */
-  --rv-good:    #30a46c;
-  --rv-good-bg: rgba(48, 164, 108, 0.12);
+  /* Signals — see app/globals.css for the full rationale.
+     Negative numbers use --rv-neg (calmer rose), risk flags use --rv-warn (amber),
+     and --rv-alarm is reserved for system-honesty failures (broken data fetch). */
+  --rv-pos:     #2f9c69;
+  --rv-pos-bg:  rgba(47, 156, 105, 0.12);
+  --rv-neg:     #d4596d;
+  --rv-neg-bg:  rgba(212, 89, 109, 0.10);
   --rv-warn:    #f59e0b;
-  --rv-warn-bg: rgba(245, 158, 11, 0.12);
-  --rv-bad:     #ef4444;
-  --rv-bad-bg:  rgba(239, 68, 68, 0.11);
+  --rv-warn-bg: rgba(245, 158, 11, 0.10);
+  --rv-alarm:   #ef4444;
+  --rv-alarm-bg: rgba(239, 68, 68, 0.11);
+
+  /* Legacy aliases */
+  --rv-good:    var(--rv-pos);
+  --rv-good-bg: var(--rv-pos-bg);
+  --rv-bad:     var(--rv-neg);
+  --rv-bad-bg:  var(--rv-neg-bg);
 
   /* Source confidence chips */
-  --rv-src-hi-bg: rgba(48, 164, 108, 0.14);
-  --rv-src-hi-fg: #30a46c;
+  --rv-src-hi-bg: rgba(47, 156, 105, 0.14);
+  --rv-src-hi-fg: var(--rv-pos);
   --rv-src-md-bg: rgba(245, 158, 11, 0.12);
-  --rv-src-md-fg: #f59e0b;
-  --rv-src-lo-bg: rgba(239, 68, 68, 0.10);
-  --rv-src-lo-fg: #ef4444;
+  --rv-src-md-fg: var(--rv-warn);
+  --rv-src-lo-bg: rgba(212, 89, 109, 0.10);
+  --rv-src-lo-fg: var(--rv-neg);
 
   /* ── Aliases for existing components ────────────────────────────────────── */
 
@@ -189,10 +199,150 @@
 }
 .ring-pulse { animation: ringPulse 1.6s ease-in-out infinite; }
 
-/* ── Thin scrollbar for panel ────────────────────────────────────────────── */
-.panel-scroll::-webkit-scrollbar       { width: 3px; }
+/* ── Scrollbars — quiet by default, fade in on hover only.
+   The previous always-on 3px bar read like a leftover web-page chrome
+   artifact. Apple-style: thumb is invisible until the user is hovering
+   the scrollable region, then it fades in subtly. Track stays empty. */
+.panel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.panel-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.panel-scroll::-webkit-scrollbar       { width: 8px; height: 8px; }
 .panel-scroll::-webkit-scrollbar-track { background: transparent; }
 .panel-scroll::-webkit-scrollbar-thumb {
-  background: var(--rv-border-mid);
+  background:        transparent;
+  border-radius:     4px;
+  border:            2px solid transparent;
+  background-clip:   content-box;
+  transition:        background-color 200ms ease-out;
+}
+.panel-scroll:hover::-webkit-scrollbar-thumb {
+  background-color:  rgba(255, 255, 255, 0.18);
+}
+
+/* ── Sidebar (React) ────────────────────────────────────────────────────────
+   Replaces the old shell.html sidebar — same visual treatment, but lives
+   in the same React tree as the toolbar, so animations are pure CSS with
+   no cross-process IPC during transitions.
+
+   Mode treatment:
+   - FULL  (>=120px): top strip tinted, sidebar covers the corner; macOS
+     traffic lights overlay the sidebar's tinted top.
+   - ICONS (80px):    top strip transparent, blends with the toolbar so the
+     toolbar visually spans corner-to-corner.
+   - HIDDEN (0px):    sidebar element collapses; toggle button stays put.
+*/
+.rv-sidebar-body {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+/* Default = full mode: tint extends across the top strip too. */
+.rv-sidebar-top {
+  background: rgba(255, 255, 255, 0.045);
+  transition: background-color 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Icons mode: top strip transparent — merges with toolbar. */
+.rv-sidebar[data-icons-only] .rv-sidebar-top {
+  background: transparent;
+}
+
+/* Hover state on the resize handle. The visible bar appears on hover only,
+   pinned to the right edge of the sidebar. */
+.rv-sidebar-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%) scaleY(0.65);
+  width: 2px;
+  height: 26px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.32);
+  opacity: 0;
+  transition: opacity 140ms ease-out, transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.rv-sidebar-handle:hover::after,
+.rv-sidebar-handle:active::after {
+  opacity: 1;
+  transform: translateY(-50%) scaleY(1);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Command palette open animation ────────────────────────────────────── */
+@keyframes rv-palette-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes rv-palette-rise-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.rv-palette-fade { animation: rv-palette-fade-in 140ms ease-out; }
+.rv-palette-rise { animation: rv-palette-rise-in 200ms cubic-bezier(0.32, 0.72, 0, 1); }
+
+/* ── Pipeline splitter ────────────────────────────────────────────────── */
+.rv-splitter {
+  background: transparent;
+  transition: background-color 100ms ease-out;
+}
+.rv-splitter:hover, .rv-splitter:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Menu pop (stage dropdown) ────────────────────────────────────────── */
+@keyframes rv-menu-pop-in {
+  from { opacity: 0; transform: translateY(-3px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.rv-menu-pop { animation: rv-menu-pop-in 120ms cubic-bezier(0.32, 0.72, 0, 1); transform-origin: top left; }
+
+/* ── Settings slider thumb ─────────────────────────────────────────────── */
+.rv-slider::-webkit-slider-runnable-track {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
 }
+.rv-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(245, 245, 247, 0.95);
+  margin-top: -5.5px;
+  border: 0.5px solid rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+@keyframes rv-advanced-pop-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+.rv-advanced-pop { animation: rv-advanced-pop-in 180ms cubic-bezier(0.32, 0.72, 0, 1); }
+
+/* ── Tab strip ────────────────────────────────────────────────────────── */
+.rv-tabstrip-scroll {
+  scrollbar-width: none;
+}
+.rv-tabstrip-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Watch-check toast text ────────────────────────────────────────────── */
+@keyframes rv-watch-toast-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+.rv-watch-toast { animation: rv-watch-toast-in 220ms cubic-bezier(0.32, 0.72, 0, 1); }
+
+/* ── Auto-watch banner entrance ───────────────────────────────────────── */
+@keyframes rv-watch-banner-in {
+  from { opacity: 0; transform: translate(-50%, -6px) scale(0.97); }
+  to   { opacity: 1; transform: translate(-50%, 0)    scale(1);    }
+}
+.rv-watch-banner { animation: rv-watch-banner-in 240ms cubic-bezier(0.32, 0.72, 0, 1); }

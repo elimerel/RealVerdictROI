@@ -1,7 +1,9 @@
 "use client"
 
-import { useState, useRef, useEffect, KeyboardEvent } from "react"
+import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react"
 import type { NavUpdate } from "@/lib/electron"
+import { useSidebar } from "@/components/sidebar/context"
+import { SNAP_ICONS } from "@/components/sidebar/context"
 
 function BackIcon() {
   return (
@@ -34,15 +36,6 @@ function ReloadIcon({ spinning }: { spinning?: boolean }) {
   )
 }
 
-function SidebarIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
-      <line x1="6" y1="3" x2="6" y2="13" stroke="currentColor" strokeWidth="1.4"/>
-    </svg>
-  )
-}
-
 function AnalyzingDots() {
   return (
     <span className="flex gap-[3px] items-center" title="Analyzing listing…">
@@ -58,13 +51,13 @@ function AnalyzingDots() {
 }
 
 interface ToolbarProps {
-  nav:        NavUpdate
-  isAnalyzing: boolean
-  onBack:     () => void
-  onForward:  () => void
-  onReload:   () => void
-  onNavigate: (url: string) => void
-  urlbarRef?: React.RefObject<HTMLInputElement | null>
+  nav:           NavUpdate
+  isAnalyzing:   boolean
+  onBack:        () => void
+  onForward:     () => void
+  onReload:      () => void
+  onNavigate:    (url: string) => void
+  urlbarRef?:    React.RefObject<HTMLInputElement | null>
 }
 
 export default function Toolbar({
@@ -78,56 +71,81 @@ export default function Toolbar({
 }: ToolbarProps) {
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState("")
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [sidebarWidth, setSidebarWidth] = useState(200)
   const inputRef = useRef<HTMLInputElement>(null)
   const resolvedRef = urlbarRef ?? inputRef
 
-  // Subscribe to shell sidebar state + live width. The toolbar's left
-  // padding is computed to keep the leftmost button always at window
-  // x≥84 — past the macOS traffic lights (which sit at x=14-72) — across
-  // all sidebar states (full / icons-only / hidden). Without the width
-  // subscription, in icons-only mode the toggle would land at x=68 and
-  // overlap the traffic lights.
-  useEffect(() => {
-    const offState = window.shellAPI?.onSidebarState?.((open) => setSidebarOpen(open))
-    const offWidth = window.shellAPI?.onSidebarWidth?.((w) => setSidebarWidth(w))
-    return () => { offState?.(); offWidth?.() }
-  }, [])
-
-  const effectiveSidebarWidth = sidebarOpen ? sidebarWidth : 0
-  // Toolbar lives inside nextView which sits at x=effectiveSidebarWidth in
-  // window coords. Padding the toolbar by (88 - effectiveSidebarWidth) puts
-  // the leftmost button at window x=88 — past the macOS traffic lights
-  // (which end around x=74) and at the SAME window position across icons-
-  // only mode (sidebar=80) and hidden mode (sidebar=0). When the sidebar
-  // is wide, the natural left edge is already past x=88, so we drop to a
-  // small visual padding (8px).
-  const TRAFFIC_LIGHT_CLEARANCE = 88
-  const toolbarPadL = Math.max(8, TRAFFIC_LIGHT_CLEARANCE - effectiveSidebarWidth)
+  // The sidebar's mode dictates how much left padding the toolbar needs
+  // to clear the global sidebar-toggle button (fixed at window x=86-114):
+  //   - full   (sidebar >=120): toggle sits inside the sidebar; toolbar
+  //     starts past x=120 already → just an 8px visual breath.
+  //   - icons  (sidebar=80):    toolbar starts at x=80; toggle covers x=86-114
+  //     → pad 38 (toolbar-relative) to clear x=118 visible toolbar content.
+  //   - hidden (sidebar=0):     toolbar starts at x=0; toggle covers x=86-114
+  //     → pad 120 to push content past traffic lights AND toggle.
+  const { open, width } = useSidebar()
+  let toolbarPadL = 8
+  if (!open)                  toolbarPadL = 120  // hidden
+  else if (width < SNAP_ICONS) toolbarPadL = 38   // icons
 
   const displayUrl = nav.url ?? ""
 
-  function startEdit() {
+  const startEdit = useCallback(() => {
+    // Idempotent — clicks bubbling from the input itself shouldn't reset
+    // the draft the user is mid-typing.
+    if (editing) return
     setDraft(displayUrl)
     setEditing(true)
-    setTimeout(() => resolvedRef.current?.select(), 0)
-  }
+    // Focus + select on the next paint. .select() alone doesn't move
+    // focus; without explicit .focus(), clicking the wrapper leaves
+    // focus on whatever had it before (often browserView), and typed
+    // characters go there instead of the URL bar — which is why hitting
+    // Enter sometimes did nothing.
+    setTimeout(() => {
+      const el = resolvedRef.current
+      if (!el) return
+      el.focus()
+      el.select()
+    }, 0)
+  }, [editing, displayUrl, resolvedRef])
 
-  function commit() {
-    setEditing(false)
-    if (!draft.trim()) return
-    let url = draft.trim()
+  // ⌘L (View → Open URL Bar) broadcasts `browser:focus-urlbar`. Subscribe
+  // here so the URL bar enters edit mode AND focuses, even when the
+  // embedded browserView had focus a moment ago.
+  useEffect(() => {
+    const api = window.electronAPI
+    if (!api?.onFocusUrlbar) return
+    return api.onFocusUrlbar(() => startEdit())
+  }, [startEdit])
+
+  /**
+   * Commit the typed URL or search. Reads draft directly off `e` so we
+   * never miss a navigation when the input blurs in the same tick. Order
+   * matters: navigate first, then exit edit mode — flipping editing to
+   * false unmounts the input and any pending state would be discarded.
+   */
+  function commit(value: string) {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      setEditing(false)
+      return
+    }
+    let url = trimmed
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       url = url.includes(".")
         ? `https://${url}`
         : `https://www.google.com/search?q=${encodeURIComponent(url)}`
     }
     onNavigate(url)
+    setEditing(false)
   }
 
   function handleKey(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter")  { commit(); return }
+    if (e.key === "Enter") {
+      e.preventDefault()
+      e.stopPropagation()
+      commit((e.currentTarget as HTMLInputElement).value)
+      return
+    }
     if (e.key === "Escape") { setEditing(false); return }
   }
 
@@ -145,7 +163,8 @@ export default function Toolbar({
       title={title}
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-all duration-100
-                 text-[rgba(245,245,247,0.42)] hover:text-[rgba(245,245,247,0.95)] hover:bg-white/[0.07]
+                 text-[var(--rv-t2)] hover:text-[var(--rv-t1)] hover:bg-[var(--rv-elev-4)]
+                 active:bg-[var(--rv-elev-5)]
                  disabled:opacity-25 disabled:pointer-events-none"
     >
       {children}
@@ -153,7 +172,6 @@ export default function Toolbar({
   )
 
   return (
-    /* Whole toolbar is a drag region (no-drag set on interactive children) */
     <div
       className="flex items-center shrink-0 select-none"
       style={{
@@ -161,35 +179,44 @@ export default function Toolbar({
         WebkitAppRegion: "drag",
         background:      "transparent",
         paddingLeft:     toolbarPadL,
+        transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       } as React.CSSProperties}
     >
-      {/* Inner wrapper stays a DRAG region for window-move; each button
-          opts out via `no-drag`. Sidebar toggle is leftmost — moves with
-          the toolbar's left edge instead of needing reserved shell
-          territory (which used to leave a 120 px black bar). */}
       <div className="flex items-center gap-1 flex-1 pr-2">
-        <NavBtn onClick={() => window.shellAPI?.toggleSidebar?.()} title="Toggle sidebar">
-          <SidebarIcon />
-        </NavBtn>
-
-        {/* Browser nav */}
         <NavBtn onClick={onBack}    disabled={!nav.canGoBack}    title="Back">    <BackIcon />    </NavBtn>
         <NavBtn onClick={onForward} disabled={!nav.canGoForward} title="Forward"> <ForwardIcon /> </NavBtn>
         <NavBtn onClick={onReload}  title="Reload">
           <ReloadIcon spinning={nav.loading} />
         </NavBtn>
 
-        {/* URL bar */}
         <div className="flex-1 mx-1.5">
           <div
-            className="w-full h-[28px] flex items-center gap-2 rounded-[7px] px-3 cursor-text
+            className="w-full h-[32px] flex items-center gap-2 rounded-[8px] px-3.5 cursor-text
                        transition-all duration-150"
             style={{
-              background:      editing ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.05)",
-              border:          "none",
+              // Matte: focus brightens the surface and firms the hairline,
+              // no glowing accent ring. Reads as a real input that woke up,
+              // not as a marketing focus state.
+              background: editing
+                ? "var(--rv-elev-4)"
+                : "var(--rv-elev-2)",
+              border: editing
+                ? "0.5px solid var(--rv-border-mid)"
+                : "0.5px solid var(--rv-elev-3)",
+              boxShadow: "var(--rv-shadow-inset)",
               WebkitAppRegion: "no-drag",
             } as React.CSSProperties}
             onClick={startEdit}
+            onMouseEnter={(e) => {
+              if (editing) return
+              e.currentTarget.style.background = "var(--rv-elev-3)"
+              e.currentTarget.style.borderColor = "var(--rv-border-mid)"
+            }}
+            onMouseLeave={(e) => {
+              if (editing) return
+              e.currentTarget.style.background = "var(--rv-elev-2)"
+              e.currentTarget.style.borderColor = "var(--rv-elev-3)"
+            }}
           >
             {editing ? (
               <input
@@ -197,17 +224,18 @@ export default function Toolbar({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKey}
+                onClick={(e) => e.stopPropagation()}
                 onBlur={() => setEditing(false)}
-                className="flex-1 bg-transparent border-none outline-none text-[12px] leading-none"
-                style={{ color: "rgba(245,245,247,0.95)" }}
+                className="flex-1 bg-transparent border-none outline-none text-[13px] leading-none"
+                style={{ color: "var(--rv-t1)" }}
                 spellCheck={false}
                 autoComplete="off"
               />
             ) : (
               <>
                 <span
-                  className="flex-1 text-[12px] truncate leading-none"
-                  style={{ color: displayUrl ? "rgba(245,245,247,0.75)" : "rgba(245,245,247,0.30)" }}
+                  className="flex-1 text-[13px] truncate leading-none"
+                  style={{ color: displayUrl ? "var(--rv-t1)" : "var(--rv-t3)" }}
                 >
                   {displayUrl || "Navigate to any listing…"}
                 </span>
@@ -216,6 +244,10 @@ export default function Toolbar({
             )}
           </div>
         </div>
+
+        {/* The panel-toggle moved out to a window-level pinned button —
+            see components/browser/PanelToggle.tsx, mounted in the (app)
+            layout. Keeping the right side of the URL bar clean. */}
       </div>
     </div>
   )

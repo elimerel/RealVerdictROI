@@ -3,9 +3,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── RealVerdict design tokens ────────────────────────────────────────────── */
-/* Always dark. Both :root and .dark define the same values so the dark-class  */
-/* toggle is a no-op — the app is opinionated about its aesthetic.             */
+/* ── RealVerdict design tokens ──────────────────────────────────────────────
+ *
+ * The app supports a real theme system: System / Dark / Warm Charcoal /
+ * Cinema / Light. Tokens defined in :root are the canonical Dark values.
+ * Theme-override classes (.theme-charcoal-warm / .theme-charcoal-cinema /
+ * .theme-light) are added to <html> by app/layout.tsx's THEME_SCRIPT to
+ * flip the values without re-mounting any component.
+ *
+ * Component code MUST always use var(--rv-*) — never hand-code rgba()
+ * or hex literals. If a value isn't in this token set, add it here first.
+ * The forest-green accent is intentionally identical across all themes.
+ */
 :root {
   /* Surfaces */
   --rv-bg:       #0d0d0f;
@@ -13,10 +22,51 @@
   --rv-raised:   #1e1e22;
   --rv-overlay:  #252529;
 
+  /* Surface elevations
+     Use these for component backgrounds instead of hand-coded rgba whites.
+     Each step is a deliberate elevation — pick the smallest tier that
+     reads as "lifted" against its parent. Flips correctly under .theme-light. */
+  --rv-elev-1: rgba(255, 255, 255, 0.025);  /* subtle card */
+  --rv-elev-2: rgba(255, 255, 255, 0.04);   /* lifted card / sidebar bg */
+  --rv-elev-3: rgba(255, 255, 255, 0.06);   /* hover */
+  --rv-elev-4: rgba(255, 255, 255, 0.08);   /* selected / pressed */
+  --rv-elev-5: rgba(255, 255, 255, 0.11);   /* strong selected */
+
   /* Glass — transparent so macOS vibrancy shows through underneath */
   --rv-glass:        transparent;
   --rv-glass-mid:    rgba(255, 255, 255, 0.04);
   --rv-glass-light:  transparent;
+  /* Tint applied OVER macOS vibrancy on the sidebar / panel chrome. */
+  --rv-glass-tint:        rgba(255, 255, 255, 0.05);
+  --rv-glass-tint-strong: rgba(255, 255, 255, 0.07);
+
+  /* Scrim / overlay darkening — for modal backdrops + dropdown shadows.
+     Always a dark color regardless of theme, since modals dim what's
+     behind them in both Dark and Light contexts (Light just uses a
+     lighter scrim). */
+  --rv-scrim:        rgba(0, 0, 0, 0.32);
+  --rv-scrim-strong: rgba(0, 0, 0, 0.55);
+
+  /* Shadows — outer (drop) and inner (top highlight on raised cards). */
+  --rv-shadow-outer-sm: 0 4px 12px rgba(0, 0, 0, 0.32);
+  --rv-shadow-outer-md: 0 8px 24px rgba(0, 0, 0, 0.40);
+  --rv-shadow-outer-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --rv-shadow-inset:    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* Hairline gradient — used between hero and content blocks. */
+  --rv-hairline-gradient: linear-gradient(90deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 60%, transparent 100%);
+
+  /* Opaque-glass chrome backgrounds — used by surfaces that sit OVER the
+     vibrancy material (panel, sources drawer, command palette, dropdowns,
+     toasts). These are intentionally semi-opaque so they read as their
+     own layer instead of fully showing the page beneath. They MUST be
+     theme-aware: in Light mode the same translucent dark would render
+     as a near-black smear over the light vibrancy. */
+  --rv-panel-bg:        rgba(15, 15, 18, 0.72);
+  --rv-drawer-bg:       rgba(22, 22, 26, 0.88);
+  --rv-popover-bg:      rgba(20, 20, 22, 0.96);
+  --rv-toast-bg:        rgba(22, 22, 26, 0.92);
+  --rv-badge-ring:      rgba(15, 15, 18, 0.85);  /* badge boundary on PanelToggle */
 
   /* Text */
   --rv-t1: rgba(245, 245, 247, 0.95);
@@ -34,21 +84,40 @@
   --rv-accent-dim:    rgba(48, 164, 108, 0.14);
   --rv-accent-border: rgba(48, 164, 108, 0.26);
 
-  /* Signals */
-  --rv-good:    #30a46c;
-  --rv-good-bg: rgba(48, 164, 108, 0.12);
+  /* Signals
+     ──────────────────────────────────────────────────────────────────────────
+     Color is data hygiene, not judgment.
+       --rv-neg   : negative numbers (cash flow below zero, year-over-year drop).
+                    Calmer than alarm red — Mercury-style desaturated rose.
+       --rv-pos   : positive deltas in tabular numbers. Slightly muted vs. accent.
+       --rv-warn  : risk/info flags ("low DSCR", "foreclosure"). Amber, attention
+                    without alarm.
+       --rv-alarm : reserved for SYSTEM honesty — stale source, missing data,
+                    failed fetch. When you see full alarm-red, something's
+                    actually broken in the data, not in the deal.
+     Legacy --rv-good / --rv-bad kept as aliases so older call sites compile. */
+  --rv-pos:     #2f9c69;
+  --rv-pos-bg:  rgba(47, 156, 105, 0.12);
+  --rv-neg:     #d4596d;
+  --rv-neg-bg:  rgba(212, 89, 109, 0.10);
   --rv-warn:    #f59e0b;
-  --rv-warn-bg: rgba(245, 158, 11, 0.12);
-  --rv-bad:     #ef4444;
-  --rv-bad-bg:  rgba(239, 68, 68, 0.11);
+  --rv-warn-bg: rgba(245, 158, 11, 0.10);
+  --rv-alarm:   #ef4444;
+  --rv-alarm-bg: rgba(239, 68, 68, 0.11);
+
+  /* Legacy aliases */
+  --rv-good:    var(--rv-pos);
+  --rv-good-bg: var(--rv-pos-bg);
+  --rv-bad:     var(--rv-neg);
+  --rv-bad-bg:  var(--rv-neg-bg);
 
   /* Source confidence chips */
-  --rv-src-hi-bg: rgba(48, 164, 108, 0.14);
-  --rv-src-hi-fg: #30a46c;
+  --rv-src-hi-bg: rgba(47, 156, 105, 0.14);
+  --rv-src-hi-fg: var(--rv-pos);
   --rv-src-md-bg: rgba(245, 158, 11, 0.12);
-  --rv-src-md-fg: #f59e0b;
-  --rv-src-lo-bg: rgba(239, 68, 68, 0.10);
-  --rv-src-lo-fg: #ef4444;
+  --rv-src-md-fg: var(--rv-warn);
+  --rv-src-lo-bg: rgba(212, 89, 109, 0.10);
+  --rv-src-lo-fg: var(--rv-neg);
 
   /* ── Aliases for existing components ────────────────────────────────────── */
 
@@ -113,7 +182,104 @@
   --sidebar-border:       var(--rv-border);
 }
 
-/* .dark mirrors :root — app is always dark regardless of system setting */
+/* ── Theme overrides
+   ──────────────────────────────────────────────────────────────────────────
+   :root carries the canonical Dark values. Adding one of these classes to
+   <html> (via app/layout.tsx's THEME_SCRIPT) overrides the relevant tokens.
+   The native side (electron-app/main.js) handles vibrancy + window
+   backgroundColor + nativeTheme.themeSource via the theme:set IPC. */
+
+/* Warm Charcoal — distinctly warmer than Dark. Earthier slate-brown
+   undertone instead of cool slate-gray; surfaces shift noticeably so it
+   reads as a real second variant, not "dark with the warmth turned up
+   slightly." Same vibrancy material as Dark. */
+.theme-charcoal-warm {
+  --rv-bg:       #16120e;
+  --rv-surface:  #221c16;
+  --rv-raised:   #2c241c;
+  --rv-overlay:  #382e23;
+
+  /* Warmer text white — lifts the bg's earth tones instead of fighting them. */
+  --rv-t1: rgba(248, 244, 236, 0.95);
+  --rv-t2: rgba(248, 244, 236, 0.58);
+  --rv-t3: rgba(248, 244, 236, 0.33);
+  --rv-t4: rgba(248, 244, 236, 0.16);
+
+  --rv-panel-bg:   rgba(28, 22, 16, 0.78);
+  --rv-drawer-bg:  rgba(38, 30, 22, 0.90);
+  --rv-popover-bg: rgba(34, 27, 20, 0.96);
+  --rv-toast-bg:   rgba(38, 30, 22, 0.92);
+  --rv-badge-ring: rgba(28, 22, 16, 0.85);
+}
+
+/* Light — full inversion. Vibrancy switches to "light" material; window
+   backgroundColor flips to a light fallback. Text becomes near-black on
+   off-white surfaces; elevations and tints invert (white → black at low
+   alpha). Forest-green accent stays (vibrant on light too). */
+.theme-light {
+  --rv-bg:       #f5f5f7;
+  --rv-surface:  #ffffff;
+  --rv-raised:   #fafafa;
+  --rv-overlay:  #ffffff;
+
+  --rv-elev-1: rgba(0, 0, 0, 0.025);
+  --rv-elev-2: rgba(0, 0, 0, 0.04);
+  --rv-elev-3: rgba(0, 0, 0, 0.06);
+  --rv-elev-4: rgba(0, 0, 0, 0.09);
+  --rv-elev-5: rgba(0, 0, 0, 0.12);
+
+  --rv-glass-tint:        rgba(0, 0, 0, 0.025);
+  --rv-glass-tint-strong: rgba(0, 0, 0, 0.04);
+  --rv-glass-mid:         rgba(0, 0, 0, 0.04);
+
+  --rv-scrim:        rgba(0, 0, 0, 0.18);
+  --rv-scrim-strong: rgba(0, 0, 0, 0.28);
+
+  --rv-shadow-outer-sm: 0 2px 8px rgba(15, 15, 18, 0.08);
+  --rv-shadow-outer-md: 0 6px 18px rgba(15, 15, 18, 0.12);
+  --rv-shadow-outer-lg: 0 12px 32px rgba(15, 15, 18, 0.16);
+  --rv-shadow-inset:    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  --rv-hairline-gradient: linear-gradient(90deg, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.06) 60%, transparent 100%);
+
+  --rv-t1: rgba(15, 15, 18, 0.95);
+  --rv-t2: rgba(15, 15, 18, 0.62);
+  --rv-t3: rgba(15, 15, 18, 0.42);
+  --rv-t4: rgba(15, 15, 18, 0.22);
+
+  /* Light-mode borders bumped a notch — at the same alphas as dark mode's
+     white-on-dark borders, dark-on-light reads as too faint and panel
+     edges visually disappear. These values give clean hairlines. */
+  --rv-border:     rgba(0, 0, 0, 0.12);
+  --rv-border-mid: rgba(0, 0, 0, 0.20);
+  --rv-border-hi:  rgba(0, 0, 0, 0.32);
+
+  /* Accent dim and signal-bg get re-tuned for light surfaces — at low
+     alpha on white they were nearly invisible. */
+  --rv-accent-dim:    rgba(48, 164, 108, 0.10);
+  --rv-accent-border: rgba(48, 164, 108, 0.32);
+  --rv-pos-bg:        rgba(47, 156, 105, 0.10);
+  --rv-neg-bg:        rgba(212, 89, 109, 0.10);
+  --rv-warn-bg:       rgba(245, 158, 11, 0.12);
+  --rv-alarm-bg:      rgba(239, 68, 68, 0.10);
+
+  /* Glass chrome surfaces — semi-opaque white sitting OVER the macOS
+     light vibrancy material. Without these, the dark-glass values
+     defined in :root would render as near-black smears in Light mode. */
+  --rv-panel-bg:   rgba(252, 252, 254, 0.82);
+  --rv-drawer-bg:  rgba(255, 255, 255, 0.92);
+  --rv-popover-bg: rgba(255, 255, 255, 0.97);
+  --rv-toast-bg:   rgba(255, 255, 255, 0.95);
+  --rv-badge-ring: rgba(245, 245, 247, 0.92);
+
+  /* Glass-tint inversion — sidebar/panel chrome tints become subtle
+     darker overlays on light vibrancy instead of white-on-dark. */
+  --rv-glass-tint:        rgba(0, 0, 0, 0.025);
+  --rv-glass-tint-strong: rgba(0, 0, 0, 0.04);
+}
+
+/* .dark stays as a no-op alias for backwards compatibility — the @theme
+   block reads from :root and that's where the canonical Dark values live. */
 .dark {
   --background: var(--rv-bg);
   --foreground:  var(--rv-t1);
@@ -198,6 +364,103 @@
   html.electron body {
     background: transparent;
   }
+
+  /* Light-theme safety net: macOS `setVibrancy("light")` at runtime is
+     historically flaky (Electron occasionally keeps the previous material
+     until the next window-focus event). If vibrancy doesn't flip cleanly,
+     a transparent body over a "sidebar" (dark) material reads as a fully
+     dark screen even though all the React tokens flipped to light.
+     Forcing the body to an opaque light bg here means Light mode ALWAYS
+     looks light — at the (acceptable) cost of losing the vibrancy depth.
+     The sidebar/panel chrome still uses semi-transparent glass tints, so
+     they pick up the light body underneath and read as layered. */
+  html.electron.theme-light body {
+    background: var(--rv-bg);
+  }
+
+  /* Root-level overflow is locked. The (app) layout sets its own viewport via
+     `flex w-screen h-screen overflow-hidden`, so neither <html> nor <body>
+     should ever scroll. Without this, a stray over-tall element would force a
+     vertical scrollbar to appear at the right edge of the WINDOW (not any
+     content area) — which is the rogue thin bar that kept showing up on the
+     start screen even after the StartScreen container's own scroll was hidden. */
+  html, body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+/* ── Sidebar tint
+   ──────────────────────────────────────────────────────────────────────────
+   The sidebar uses native macOS vibrancy (window-level: "sidebar" material)
+   plus a subtle white tint to lift it off the vibrancy and read as a
+   distinct glass surface. The tint was previously only defined in
+   styles/globals.css, which the Electron build doesn't import — so the
+   sidebar was rendering as bare vibrancy with no tint at all, looking flat
+   black against the toolbar.
+
+   Mode treatment:
+   - FULL  (>=120px): top strip tinted, sidebar covers the corner; macOS
+     traffic lights overlay the sidebar's tinted top.
+   - ICONS (80px):    top strip transparent, blends with the toolbar so the
+     toolbar visually spans corner-to-corner.
+   - HIDDEN (0px):    sidebar element collapses; toggle button stays put. */
+.rv-sidebar-body {
+  background: var(--rv-glass-tint);
+  /* Right-edge separator — uses --rv-border so it flips per theme.
+     In dark themes this reads as a faint white inset highlight; in
+     light mode it becomes a subtle dark hairline that visually
+     separates the sidebar from the content area. Without this the
+     sidebar and main content blur into each other on light. */
+  box-shadow: inset -1px 0 0 var(--rv-border);
+}
+.rv-sidebar-top {
+  background: var(--rv-glass-tint);
+  transition: background-color 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.rv-sidebar[data-icons-only] .rv-sidebar-top {
+  background: transparent;
+}
+
+/* Resize handle — visible bar on hover only, pinned to the sidebar's
+   right edge. Same indicator pattern Linear uses for resizable panes. */
+.rv-sidebar-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%) scaleY(0.65);
+  width: 2px;
+  height: 26px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.32);
+  opacity: 0;
+  transition: opacity 140ms ease-out, transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.rv-sidebar-handle:hover::after,
+.rv-sidebar-handle:active::after {
+  opacity: 1;
+  transform: translateY(-50%) scaleY(1);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* TabStrip's overflow gutter — hide it. The class is referenced in the
+   TabStrip component but the rule used to live only in styles/globals.css
+   (which isn't imported by the Electron build). Without this, every tab
+   strip painted a faint scrollbar gutter above the toolbar. */
+.rv-tabstrip-scroll {
+  scrollbar-width: none;
+}
+.rv-tabstrip-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* ── Panel slide animations ───────────────────────────────────────────────── */
@@ -211,6 +474,114 @@
 }
 .panel-enter { animation: panelIn  220ms cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
 .panel-exit  { animation: panelOut 180ms cubic-bezier(0.55, 0, 1, 0.45) forwards; }
+
+/* ── Settings sliders
+   ──────────────────────────────────────────────────────────────────────────
+   Premium horizontal range input. Track is 4px, with the filled portion
+   (left of the thumb) painted accent-green via a CSS gradient driven by
+   the inline `--fill` variable that the React slider sets per value. The
+   thumb is a small white circle with a hairline border and subtle drop
+   shadow — matches the Mercury / Linear settings aesthetic. Hover/active
+   nudge the thumb size for tactile feedback. */
+.rv-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  outline: none;
+  cursor: default;
+  background: linear-gradient(
+    to right,
+    var(--rv-accent) 0%,
+    var(--rv-accent) var(--fill, 0%),
+    rgba(255, 255, 255, 0.07) var(--fill, 0%),
+    rgba(255, 255, 255, 0.07) 100%
+  );
+}
+.rv-slider::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 4px;
+  border: none;
+}
+.rv-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(247, 247, 250, 0.96);
+  border: 0.5px solid rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  margin-top: -5px;
+  cursor: pointer;
+  transition: width 100ms cubic-bezier(0.32,0.72,0,1), height 100ms cubic-bezier(0.32,0.72,0,1);
+}
+.rv-slider:hover::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -6px; }
+.rv-slider:active::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -6px; }
+
+/* Hairline gradient divider — used between section title and content. */
+.rv-hairline {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 60%, transparent 100%);
+}
+
+/* ── Smart panel toggle (top-right pinned button)
+   ──────────────────────────────────────────────────────────────────────────
+   The arc traces continuously around the icon while analysis is in flight.
+   `transform-box: fill-box` + transform-origin center keeps the rotation
+   pinned to the SVG's center regardless of where it lives in the DOM.
+   No pulsing rings, no expanding halos — Apple-fintech smooth, single
+   tone, steady speed. */
+@keyframes rv-panel-arc-spin {
+  to { transform: rotate(360deg); }
+}
+.rv-panel-arc {
+  transform-box:    fill-box;
+  transform-origin: 50% 50%;
+  animation:        rv-panel-arc-spin 2.4s linear infinite;
+}
+
+/* Ready-badge entrance — a single overshoot scale settle, no loop. */
+@keyframes rv-panel-badge-pop {
+  0%   { opacity: 0; transform: scale(0.7); }
+  60%  { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1.0); }
+}
+.rv-panel-badge { animation: rv-panel-badge-pop 280ms cubic-bezier(0.32,0.72,0,1) both; }
+
+/* ── Download toast — slides up from bottom-right with a soft fade.
+   Used for the embedded-browser download lifecycle (started / completed /
+   cancelled / interrupted). The spinner inside is a pure CSS rotation,
+   not a pulse — see the rationale in the smart panel-toggle button. */
+@keyframes rv-download-toast-in {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0,    0); }
+}
+.rv-download-toast { animation: rv-download-toast-in 220ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+
+@keyframes rv-download-spin {
+  to { transform: rotate(360deg); }
+}
+.rv-download-spin { animation: rv-download-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+
+/* ── Ambient sidebar chip — fades in once on mount, then sits there. */
+@keyframes rv-ambient-fade {
+  from { opacity: 0; transform: translate3d(0, 2px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0,   0); }
+}
+.rv-ambient-in { animation: rv-ambient-fade 320ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+
+/* ── Sources drawer (slides in from the right edge of the panel) ──────────── */
+@keyframes drawerIn {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes drawerBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.drawer-enter        { animation: drawerIn         200ms cubic-bezier(0.32, 0.72, 0, 1) forwards; }
+.drawer-backdrop-in  { animation: drawerBackdropIn 160ms ease-out forwards; }
 
 /* ── Analyzing dots ───────────────────────────────────────────────────────── */
 @keyframes dotPulse {
@@ -227,12 +598,40 @@
 }
 .ring-pulse { animation: ringPulse 1.6s ease-in-out infinite; }
 
-/* ── Thin scrollbar for panel ────────────────────────────────────────────── */
-.panel-scroll::-webkit-scrollbar       { width: 3px; }
+/* ── Scrollbars — quiet by default, fade in on hover only.
+   Mirrors styles/globals.css. Replaces the always-on 3px bar that
+   read like a leftover web-page artifact. */
+.panel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.panel-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.panel-scroll::-webkit-scrollbar       { width: 8px; height: 8px; }
 .panel-scroll::-webkit-scrollbar-track { background: transparent; }
 .panel-scroll::-webkit-scrollbar-thumb {
-  background: var(--rv-border-mid);
-  border-radius: 2px;
+  background:       transparent;
+  border-radius:    4px;
+  border:           2px solid transparent;
+  background-clip:  content-box;
+  transition:       background-color 200ms ease-out;
+}
+.panel-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+/* ── Fully invisible scroll — for surfaces that scroll but should NEVER
+   display chrome (e.g. StartScreen, TabStrip). Trackpad / wheel scrolling
+   still works; the gutter just doesn't reserve any width or paint anything,
+   which matches macOS-native overlay-scrollbar behavior. */
+.rv-invisible-scroll {
+  scrollbar-width: none;
+}
+.rv-invisible-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* ── StartScreen entrance animations ─────────────────────────────────────────

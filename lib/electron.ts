@@ -8,12 +8,25 @@ export interface ElectronBounds {
   height: number
 }
 
-// Layout descriptor sent from renderer → main. Main computes the actual
-// browserView bounds against the current nextViewBounds, so window
-// drag-resize and sidebar collapse are real-time without IPC roundtrips
-// on every tick.
+// Layout descriptor sent from renderer → main. Either field is optional;
+// main keeps the cached value for any field not provided. `animate: false`
+// applies bounds instantly (used during live sidebar drags); otherwise
+// main runs an Apple-spring tween to the new target.
 export interface BrowserLayout {
-  panelWidth: number
+  sidebarWidth?: number
+  panelWidth?:   number
+  animate?:      boolean
+}
+
+/** Per-tab summary used by the TabStrip. The full nav state for the active
+ *  tab still arrives via `onNavUpdate`; this payload is the lightweight
+ *  per-tab info needed to render the strip. */
+export interface TabInfo {
+  id:        string
+  url:       string
+  title:     string
+  isListing: boolean
+  loading:   boolean
 }
 
 export interface NavUpdate {
@@ -36,6 +49,156 @@ export interface DomPayload {
   url: string
   title: string
   text: string
+}
+
+/** Context bundle Haiku sees when generating a personalized greeting line.
+ *  Shape is intentionally loose — drop in whatever signals are available.
+ *  Empty fields are fine; the prompt tells the model not to fake. */
+export interface GreetingInput {
+  hour?:           number
+  dayOfWeek?:      number
+  isWeekend?:      boolean
+  recentListings?: Array<{ address?: string | null; siteName?: string | null; visitedAt?: string }>
+  pipeline?: {
+    activeCount?:    number
+    watchingCount?:  number
+    staleWatching?:  number
+    savedThisWeek?:  number
+  }
+}
+
+/** Context bundle passed with a ⌘K free-form query. */
+export interface AskContext {
+  savedDeals?: Array<{
+    id:           string
+    address?:     string | null
+    city?:        string | null
+    state?:       string | null
+    listPrice?:   number | null
+    monthlyCashFlow?: number | null
+    capRate?:     number | null
+    dscr?:        number | null
+    stage?:       string
+    sourceUrl?:   string
+    tags?:        string[]
+  }>
+  recentListings?: Array<{ url: string; address?: string | null; siteName?: string | null }>
+  currentRoute?: string
+}
+
+export type AskResponse =
+  | { kind: "answer";   text: string }
+  | { kind: "navigate"; url: string }
+  | { kind: "filter";   stage?: string | null; city?: string | null; minCapRate?: number | null; minCashFlow?: number | null; label: string }
+  | { kind: "open";     url: string }
+  | { kind: "unknown" }
+
+/** A single chat message in a listing conversation. */
+export interface ChatMessage {
+  id:        string
+  role:      "user" | "assistant"
+  content:   string
+  /** Local timestamp (ms). Not displayed by default; useful for staleness checks. */
+  at:        number
+}
+
+/** Context bundle the panel chat sends along with each user query.
+ *  Loose shape — Haiku skips fields that aren't there. */
+export interface ChatContext {
+  listing?: {
+    address?:        string | null
+    city?:           string | null
+    state?:          string | null
+    zip?:            string | null
+    propertyType?:   string | null
+    listPrice?:      number | null
+    beds?:           number | null
+    baths?:          number | null
+    sqft?:           number | null
+    yearBuilt?:      number | null
+    monthlyCashFlow?: number | null
+    capRate?:        number | null
+    cashOnCash?:     number | null
+    dscr?:           number | null
+    grm?:            number | null
+    monthlyRent?:    number | null
+    monthlyMortgage?: number | null
+    annualPropertyTax?: number | null
+    monthlyHOA?:     number | null
+    annualInsurance?: number | null
+    riskFlags?:      string[]
+    siteName?:       string | null
+  }
+  prefs?: {
+    downPaymentPct?:    number
+    vacancyPct?:        number
+    managementPct?:     number
+    maintenancePct?:    number
+    capexPct?:          number
+    rateAdjustmentBps?: number
+  }
+  pipeline?: {
+    activeCount?:    number
+    /** Cities the user has saved deals in — informs comp-style answers. */
+    commonCities?:   string[]
+  }
+}
+
+/** Watch re-check inputs — what main needs to re-fetch a deal. */
+export interface WatchCheckInput {
+  id:         string
+  source_url: string
+  list_price?: number | null
+}
+
+/** Result of a single deal re-check. */
+export interface WatchCheckResult {
+  id:           string
+  ok:           boolean
+  url:          string
+  reason?:      string
+  newListPrice?: number | null
+  prevListPrice?: number | null
+  priceChanged?: boolean
+  delta?:       number | null
+  facts?:       Record<string, unknown>
+}
+
+/** Compact comparison input — what Haiku gets when summarizing deltas. */
+export interface CompareInput {
+  address?:        string | null
+  city?:           string | null
+  state?:          string | null
+  propertyType?:   string | null
+  listPrice?:      number | null
+  beds?:           number | null
+  baths?:          number | null
+  sqft?:           number | null
+  monthlyCashFlow?: number | null
+  capRate?:        number | null
+  cashOnCash?:     number | null
+  dscr?:           number | null
+  grm?:            number | null
+  tags?:           string[]
+}
+
+/** Compact deal payload used to ask Haiku for filter tags. All fields
+ *  optional — Haiku skips what isn't there and tags from what is. */
+export interface TagDealInput {
+  address?:         string | null
+  city?:            string | null
+  state?:           string | null
+  propertyType?:    string | null
+  listPrice?:       number | null
+  beds?:            number | null
+  baths?:           number | null
+  sqft?:            number | null
+  yearBuilt?:       number | null
+  monthlyCashFlow?: number | null
+  capRate?:         number | null
+  dscr?:            number | null
+  riskFlags?:       string[]
+  siteName?:        string | null
 }
 
 // The full analysis result sent from main → renderer when a listing is ready.
@@ -70,6 +233,23 @@ export interface PanelError {
 }
 
 export type PanelPayload = PanelResult | PanelError
+
+/** Download lifecycle event from the embedded browser. The renderer
+ *  surfaces a small toast for "started" and "completed" states; the
+ *  intermediate "interrupted" / "cancelled" states get a quieter
+ *  treatment. `savePath` always points inside the user's Downloads folder. */
+export interface DownloadState {
+  state:       "started" | "completed" | "cancelled" | "interrupted"
+  filename:    string
+  savePath:    string
+  totalBytes?: number
+}
+
+/** User-pickable theme. "system" auto-resolves to dark or light based on
+ *  the macOS appearance preference; the others are explicit. */
+export type ThemePicked   = "system" | "dark" | "charcoal-warm" | "light"
+/** Concrete theme actually applied (after resolving "system"). */
+export type ThemeResolved = "dark" | "charcoal-warm" | "light"
 
 export interface AnalysisInputs {
   purchasePrice: number
@@ -131,6 +311,13 @@ export interface ElectronAPI {
   showBrowser:     (layout: BrowserLayout) => Promise<BrowserState>
   getState:        () => Promise<BrowserState>
 
+  // Tabs
+  listTabs:        () => Promise<TabInfo[]>
+  newTab:          (url?: string) => Promise<{ id: string }>
+  closeTab:        (id: string) => Promise<void>
+  activateTab:     (id: string) => Promise<void>
+  onTabsState:     (cb: (payload: { tabs: TabInfo[]; activeId: string | null }) => void) => () => void
+
   // Navigation
   navigate:        (url: string) => Promise<void>
   back:            () => Promise<void>
@@ -141,7 +328,34 @@ export interface ElectronAPI {
   // Extraction (manual trigger, fallback)
   extractDom:      () => Promise<DomPayload | null>
   analyze:         () => Promise<Record<string, unknown>>
+  /** User-initiated reanalyze. Drives the panel through the full broadcast
+   *  flow — listen for panel:ready / panel:error to receive the result. */
+  reanalyze:       () => Promise<{ ok: boolean }>
   extractDebug:    () => Promise<Record<string, unknown>>
+
+  // AI tagging — Haiku call in main, returns 0-3 short factual tags.
+  tagDeal:         (payload: TagDealInput) => Promise<{ ok: boolean; tags: string[]; reason?: string }>
+
+  // AI greeting — Haiku call returns one personalized line (8-22 words)
+  // for the Browse start-screen subhead. Renderer caches once per day.
+  generateGreeting: (context: GreetingInput) => Promise<{ ok: boolean; line: string | null; reason?: string }>
+
+  // AI compare — given 2-4 deals, returns a short factual diff paragraph.
+  compareDeals:    (deals: CompareInput[]) => Promise<{ ok: boolean; summary: string | null; reason?: string }>
+
+  // ⌘K Ask — free-form NL query → answer | navigate | filter | open
+  askQuery:        (query: string, context: AskContext) => Promise<{ ok: boolean; response: AskResponse | null; reason?: string }>
+
+  // Listing chat — conversational Q&A about the active listing.
+  chatDeal:        (query: string, context: ChatContext, history: ChatMessage[]) =>
+    Promise<{ ok: boolean; response: string | null; reason?: string }>
+
+  // Watch — sequential background re-check of every watched deal.
+  checkWatchedDeals: (deals: WatchCheckInput[]) =>
+    Promise<{ ok: boolean; results: WatchCheckResult[] }>
+
+  // Live FRED mortgage rate. Returns ok:false when no key / network down.
+  getMortgageRate: () => Promise<{ ok: true; rate: number; asOf: string } | { ok: false }>
 
   // Panel state events — main → renderer
   onNavUpdate:     (cb: (payload: NavUpdate) => void) => () => void
@@ -150,6 +364,15 @@ export interface ElectronAPI {
   onPanelReady:    (cb: (result: PanelPayload) => void) => () => void
   onPanelHide:     (cb: () => void) => () => void
   onPanelError:    (cb: (message: string) => void) => () => void
+
+  // Download lifecycle from the embedded BrowserView's session.
+  onDownloadState: (cb: (payload: DownloadState) => void) => () => void
+
+  // Theme system. `picked` is the user's choice (one of THEMES); `resolved`
+  // is the concrete variant (system → dark|light depending on macOS).
+  getTheme:       () => Promise<{ picked: ThemePicked; resolved: ThemeResolved }>
+  setTheme:       (theme: ThemePicked) => Promise<{ ok: boolean; resolved: ThemeResolved }>
+  onThemeChanged: (cb: (payload: { picked: ThemePicked; resolved: ThemeResolved }) => void) => () => void
 
   // Auth
   signedIn:        () => Promise<void>
@@ -162,26 +385,38 @@ export interface ElectronAPI {
   hasOpenAIKey:    () => Promise<boolean>
   setAnthropicKey: (key: string) => Promise<{ ok: boolean }>
   hasAnthropicKey: () => Promise<boolean>
+
+  // Investment defaults
+  getInvestmentPrefs: () => Promise<InvestmentPrefs>
+  setInvestmentPrefs: (patch: Partial<InvestmentPrefs>) => Promise<{ ok: boolean; prefs?: InvestmentPrefs }>
 }
 
-// ── Shell API ────────────────────────────────────────────────────────────────
-// Available to BOTH the shell HTML AND the Next.js app loaded in nextView.
-// Used to coordinate sidebar state and route between the shell and React.
-export interface ShellAPI {
-  navigate:         (route: string) => Promise<void>
-  setContentBounds: (bounds: ElectronBounds) => Promise<void>
-  setSidebarWidth:  (w: number) => Promise<void>
-  toggleSidebar:    () => Promise<void>
-  setSidebar:       (open: boolean) => Promise<void>
-  getSidebarState:  () => Promise<boolean>
-  onActiveRoute:    (cb: (route: string) => void) => () => void
-  onSidebarState:   (cb: (open: boolean) => void) => () => void
-  onSidebarWidth:   (cb: (w: number) => void) => () => void
+/** Investment underwriting defaults stored in the local Electron config.
+ *  Fed into lib/calculations.ts on every analysis. */
+export interface InvestmentPrefs {
+  downPaymentPct:    number
+  vacancyPct:        number
+  managementPct:     number
+  maintenancePct:    number
+  capexPct:          number
+  /** Basis points added on top of FRED-quoted 30Y rate for investor loans. */
+  rateAdjustmentBps: number
 }
+
+/** Menu-accelerator shortcuts broadcast from main.js via IPC. preload.js
+ *  registers a fan-out listener and exposes this subscriber on window so
+ *  any component can react. Returns an unsubscribe function. */
+export type ShortcutKind =
+  | "navigate"
+  | "toggle-sidebar"
+  | "open-palette"
+  | "save-listing"
+  | "reanalyze"
+export type ShortcutListener = (kind: ShortcutKind, arg?: string) => void
 
 declare global {
   interface Window {
     electronAPI?: ElectronAPI
-    shellAPI?:    ShellAPI
+    __rvOnShortcut?: (cb: ShortcutListener) => () => void
   }
 }

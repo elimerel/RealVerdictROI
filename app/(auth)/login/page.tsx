@@ -30,23 +30,36 @@ export default async function LoginPage({
 
   if (isElectron) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen px-5 py-4 bg-[var(--p-bg)]">
-        <div className="mb-6 flex items-center gap-2">
-          <div
-            className="flex h-7 w-7 items-center justify-center rounded-[7px] bg-[var(--accent)]"
-            style={{ boxShadow: "0 1px 3px var(--accent-border), inset 0 0 0 0.5px oklch(1 0 0 / 20%)" }}
+      <div
+        className="flex flex-col items-center justify-center min-h-screen px-5 py-6 dark"
+        style={{
+          background: "transparent", // window vibrancy reads through
+          color:      "rgba(245,245,247,0.95)",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, ui-sans-serif, system-ui, sans-serif",
+        }}
+      >
+        {/* Wordmark only — no icon. Matches the in-app chrome's restraint. */}
+        <div className="mb-7 flex flex-col items-center gap-1">
+          <span
+            className="text-[15px] font-semibold tracking-[-0.015em]"
+            style={{ color: "rgba(245,245,247,0.96)" }}
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-              <path d="M7 1L3 8h4l-1 5 5-7H7l1-5z" fill="white" strokeWidth="0"/>
-            </svg>
-          </div>
-          <span className="text-[13px] font-semibold text-[var(--p-t1)] tracking-tight">
             RealVerdict
+          </span>
+          <span className="text-[11px]" style={{ color: "rgba(235,235,245,0.45)" }}>
+            Real estate investing, reimagined
           </span>
         </div>
 
         {oauthError && (
-          <div className="mb-3 w-full max-w-xs rounded-lg border border-[var(--bad)] bg-[var(--bad-bg)] px-3 py-2 text-xs text-[var(--bad)]">
+          <div
+            className="mb-3 w-full max-w-xs rounded-[8px] px-3 py-2 text-[11.5px]"
+            style={{
+              background: "rgba(255,87,87,0.10)",
+              border:     "0.5px solid rgba(255,87,87,0.25)",
+              color:      "rgba(255,150,150,0.95)",
+            }}
+          >
             {oauthError}
           </div>
         )}

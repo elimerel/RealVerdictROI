@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { analyseDeal, DEFAULT_INPUTS, sanitiseInputs } from "@/lib/calculations"
+import { analyseDeal, DEFAULT_INPUTS } from "@/lib/calculations"
 import { getCurrentMortgageRate } from "@/lib/rates"
 import type { DealInputs } from "@/lib/calculations"
 import type { PanelResult, SourceField } from "@/lib/electron"
@@ -111,6 +111,18 @@ export async function POST(req: NextRequest) {
   // ── 3. Build DealInputs ───────────────────────────────────────────────────────
   const inputs: DealInputs = { ...DEFAULT_INPUTS }
 
+  // User's underwriting defaults (sent from main process from local config).
+  // Each field is opt-in — if not provided, fall back to DEFAULT_INPUTS.
+  const prefs = (body as { prefs?: {
+    downPaymentPct?: number; vacancyPct?: number; managementPct?: number;
+    maintenancePct?: number; capexPct?: number; rateAdjustmentBps?: number;
+  } }).prefs ?? {}
+  if (typeof prefs.downPaymentPct === "number")  inputs.downPaymentPercent       = prefs.downPaymentPct
+  if (typeof prefs.vacancyPct      === "number") inputs.vacancyRatePercent       = prefs.vacancyPct
+  if (typeof prefs.managementPct   === "number") inputs.propertyManagementPercent = prefs.managementPct
+  if (typeof prefs.maintenancePct  === "number") inputs.maintenancePercent       = prefs.maintenancePct
+  if (typeof prefs.capexPct        === "number") inputs.capexReservePercent      = prefs.capexPct
+
   if (facts.listPrice && facts.listPrice > 0)       inputs.purchasePrice    = Math.round(facts.listPrice)
   if (facts.monthlyHOA != null && facts.monthlyHOA >= 0) inputs.monthlyHOA  = Math.round(facts.monthlyHOA)
   if (facts.annualPropertyTax && facts.annualPropertyTax > 0) inputs.annualPropertyTax = Math.round(facts.annualPropertyTax)
@@ -127,9 +139,13 @@ export async function POST(req: NextRequest) {
     inputs.monthlyRent = hudFmr
   }
 
-  // Mortgage rate: FRED first, then DEFAULT
+  // Mortgage rate: FRED first, then DEFAULT. Apply user's rate adjustment
+  // (basis points) as an additive bump for investor-loan premiums.
   if (fredResult?.rate) {
     inputs.loanInterestRate = fredResult.rate
+  }
+  if (typeof prefs.rateAdjustmentBps === "number" && prefs.rateAdjustmentBps !== 0) {
+    inputs.loanInterestRate = inputs.loanInterestRate + prefs.rateAdjustmentBps / 100
   }
 
   // ── 4. Build provenance ───────────────────────────────────────────────────────

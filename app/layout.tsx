@@ -33,9 +33,35 @@ export const viewport: Viewport = {
   themeColor: "#0a0b11",
 }
 
-// Apply dark class synchronously before first paint — reads from localStorage
-// so the user never sees a flash of the wrong theme.
-const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem('rv-theme');if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();`
+// Apply the theme class synchronously before first paint — reads from
+// localStorage as the pre-paint hint (the IPC value from main.js is the
+// source of truth, but it'd require an async round-trip and would cause
+// a flash). The picker writes to localStorage immediately on change, so
+// the next paint always lands on the right theme.
+//
+// Five options (matches main.js + lib/electron.ts):
+//   system          → resolves to dark or light via prefers-color-scheme
+//   dark            → no class needed (the :root tokens ARE dark)
+//   charcoal-warm   → adds .theme-charcoal-warm
+//   charcoal-cinema → adds .theme-charcoal-cinema
+//   light           → adds .theme-light
+//
+// The .dark class also gets stamped for backwards compatibility with any
+// remaining `dark:` Tailwind variants in the codebase.
+const THEME_SCRIPT = `(function(){try{
+  var picked = localStorage.getItem('rv-theme') || 'dark';
+  // Migrate retired cinema choice to the closest live option (dark).
+  if (picked === 'charcoal-cinema') { picked = 'dark'; localStorage.setItem('rv-theme', 'dark'); }
+  var resolved = picked;
+  if (picked === 'system') {
+    resolved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  var cls = document.documentElement.classList;
+  cls.remove('theme-charcoal-warm', 'theme-charcoal-cinema', 'theme-light');
+  if (resolved === 'charcoal-warm') cls.add('theme-charcoal-warm');
+  if (resolved === 'light')         cls.add('theme-light');
+  if (resolved === 'light') cls.remove('dark'); else cls.add('dark');
+}catch(e){}})();`
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
