@@ -117,10 +117,11 @@ function DealListRow({
       onContextMenu={(e) => { e.preventDefault(); onContextMenuAdd() }}
       className="relative flex items-start gap-3 text-left select-none w-full"
       style={{
-        padding:    "13px 16px",
-        background: bg,
-        transition: "background 120ms cubic-bezier(0.4,0,0.2,1)",
-        borderLeft: `2px solid ${multiSelected || active ? "var(--rv-accent)" : "transparent"}`,
+        padding:       "12px 16px",
+        background:    bg,
+        transition:    "background 120ms cubic-bezier(0.4,0,0.2,1)",
+        borderLeft:    `2px solid ${multiSelected || active ? "var(--rv-accent)" : "transparent"}`,
+        borderBottom:  "0.5px solid var(--rv-border)",
       }}
       onMouseEnter={(e) => {
         if (!active && !multiSelected) e.currentTarget.style.background = "rgba(255,255,255,0.03)"
@@ -201,12 +202,12 @@ function DealListRow({
             {STAGE_LABEL[deal.stage]}
           </span>
           <span
-            className="tabular-nums font-medium"
-            style={{ color: cashFlowTone(cashFlow) }}
+            className="tabular-nums font-semibold"
+            style={{ color: cashFlowTone(cashFlow), fontSize: "11.5px" }}
           >
             {cashFlow == null
               ? "—"
-              : <><Currency value={cashFlow} signed /><span style={{ color: "var(--rv-t4)" }}>/mo</span></>}
+              : <><Currency value={cashFlow} signed /><span style={{ color: "var(--rv-t4)", fontWeight: 400 }}>/mo</span></>}
           </span>
           {deal.tags?.[0] && (
             <span className="truncate">{deal.tags[0]}</span>
@@ -382,17 +383,30 @@ function DealDetail({
   const cfTone = cashFlowTone(metrics.monthlyCashFlow)
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: "var(--rv-bg)" }}>
+    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
+      {/* Atmospheric top glow — gives the detail pane a light source behind
+          the price/address hero, same technique as Browse + Pipeline page. */}
+      <div
+        className="absolute inset-x-0 top-0 pointer-events-none"
+        style={{
+          height:     "45%",
+          background: "radial-gradient(ellipse 90% 50% at 50% 0%, rgba(48,164,108,0.04) 0%, transparent 65%)",
+          zIndex: 0,
+        }}
+      />
       {/* Header — title + actions */}
       <div
-        className="flex items-start gap-3 px-6 py-5 shrink-0"
-        style={{ borderBottom: "0.5px solid var(--rv-border)" }}
+        className="flex items-start gap-3 px-6 py-5 shrink-0 relative"
+        style={{
+          borderBottom: "0.5px solid var(--rv-border)",
+          zIndex: 1,
+        }}
       >
         <div className="flex-1 min-w-0">
           {deal.list_price != null && (
             <p
-              className="text-[24px] font-semibold tracking-[-0.020em] leading-none tabular-nums"
-              style={{ color: "var(--rv-t1)" }}
+              className="font-bold tracking-[-0.030em] leading-none tabular-nums"
+              style={{ color: "var(--rv-t1)", fontSize: 28 }}
             >
               <Currency value={deal.list_price} whole />
             </p>
@@ -439,7 +453,7 @@ function DealDetail({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto panel-scroll">
+      <div className="flex-1 min-h-0 overflow-y-auto panel-scroll relative" style={{ zIndex: 1 }}>
         {/* Tags */}
         {deal.tags.length > 0 && (
           <div
@@ -895,7 +909,11 @@ function ComparisonView({
       {/* Header */}
       <div
         className="flex items-center justify-between gap-3 px-6 py-4 shrink-0"
-        style={{ borderBottom: "0.5px solid var(--rv-border)" }}
+        style={{
+          borderBottom: "0.5px solid var(--rv-border)",
+          background:   "var(--rv-elev-1)",
+          boxShadow:    "inset 0 1px 0 rgba(255,255,255,0.04)",
+        }}
       >
         <div className="flex items-center gap-2 min-w-0">
           <GitCompareArrows size={14} strokeWidth={1.7} style={{ color: "var(--rv-accent)" }} />
@@ -1421,10 +1439,18 @@ function PipelinePageInner() {
   }, [checking, watchedCount, refresh])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: "var(--rv-bg)" }}>
+    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
+      {/* Atmospheric bloom — same source-light technique as Browse */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: "radial-gradient(ellipse 65% 28% at 50% -1%, rgba(48,164,108,0.05) 0%, transparent 55%)",
+          zIndex: 0,
+        }}
+      />
       {/* Header */}
       <div
-        className="flex items-center shrink-0"
+        className="flex items-center shrink-0 relative"
         style={{
           height:          52,
           paddingLeft:     headerPadL,
@@ -1432,6 +1458,7 @@ function PipelinePageInner() {
           WebkitAppRegion: "drag",
           borderBottom:    "0.5px solid var(--rv-border)",
           transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+          zIndex: 1,
         } as React.CSSProperties}
       >
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-3 min-w-0">
@@ -1654,7 +1681,7 @@ function PipelinePageInner() {
       <CompareModeBanner active={compareMode} count={compareIds.size} />
 
       {/* Body — list + splitter + detail */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative" style={{ zIndex: 1 }}>
         {error && (
           <div className="flex items-center justify-center w-full">
             <p className="text-[13px]" style={{ color: "var(--rv-bad)" }}>{error}</p>

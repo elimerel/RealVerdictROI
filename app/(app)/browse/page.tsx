@@ -1661,8 +1661,8 @@ function StartScreen({
           // time users and the brief moment between sign-up and first save.
           <>
             <h1
-              className={`${introCls("rv-greeting")} text-[24px] font-medium tracking-[-0.022em] text-center`}
-              style={{ color: "var(--rv-t1)", lineHeight: 1.1 }}
+              className={`${introCls("rv-greeting")} font-semibold tracking-[-0.028em] text-center`}
+              style={{ color: "var(--rv-t1)", lineHeight: 1.1, fontSize: 34 }}
             >
               {greetWithName || " "}
             </h1>
