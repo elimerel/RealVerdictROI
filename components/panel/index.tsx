@@ -50,44 +50,43 @@ function MetricCard({
 
   return (
     <div
-      className="flex flex-col gap-1 rounded-xl p-3 min-w-0 overflow-hidden"
+      className="flex flex-col gap-1 rounded-xl min-w-0 overflow-hidden"
       style={{
-        background: "var(--rv-elev-1)",
-        border:     "0.5px solid var(--rv-border)",
-        boxShadow:  "var(--rv-shadow-inset)",
+        padding:    "10px 12px 11px",
+        background: "var(--rv-elev-2)",
+        border:     "0.5px solid var(--rv-border-mid)",
+        boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
       }}
     >
       <span
-        className="text-[10px] uppercase tracking-widest font-medium truncate"
-        style={{ color: "var(--rv-t3)" }}
+        className="text-[9.5px] uppercase tracking-widest font-medium truncate"
+        style={{ color: "var(--rv-t4)" }}
       >
         {label}
       </span>
       <span
-        className="font-semibold tabular-nums leading-none truncate"
+        className="font-bold tabular-nums leading-none truncate"
         style={{
           color:              valueColor,
           fontVariantNumeric: "tabular-nums",
-          // 17px (down from 19px) + tightened tracking buys ~12% horizontal
-          // headroom, which is enough for 7-figure currencies with the
-          // signed sign + Mercury superscript cents to fit narrow cards.
-          fontSize:           17,
-          letterSpacing:      "-0.01em",
+          fontSize:           21,
+          letterSpacing:      "-0.02em",
+          marginTop:          2,
         }}
       >
         {value}
       </span>
       {delta && (
         <span
-          className="text-[10.5px] leading-none tabular-nums truncate"
-          style={{ color: deltaColor }}
+          className="text-[10px] leading-none tabular-nums truncate"
+          style={{ color: deltaColor, marginTop: 1 }}
           title="vs default analysis"
         >
           {delta.text}
         </span>
       )}
       {sub && (
-        <span className="text-[11px] leading-none truncate" style={{ color: "var(--rv-t4)" }}>
+        <span className="text-[10.5px] leading-none truncate" style={{ color: "var(--rv-t3)", marginTop: 1 }}>
           {sub}
         </span>
       )}

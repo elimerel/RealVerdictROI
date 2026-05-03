@@ -34,24 +34,27 @@ function NavItem({
       href={href}
       className="relative flex items-center select-none rounded-[7px]"
       style={{
-        height:        32,
-        gap:           iconsOnly ? 0 : 10,
+        height:        36,
+        gap:           iconsOnly ? 0 : 9,
         padding:       iconsOnly ? 0 : "0 10px",
         justifyContent: iconsOnly ? "center" : "flex-start",
         color:         active ? "var(--rv-t1)" : "var(--rv-t2)",
-        background:    active ? "rgba(120,120,128,0.24)" : "transparent",
+        background:    active
+          ? "linear-gradient(90deg, rgba(48,164,108,0.22) 0%, rgba(48,164,108,0.07) 60%, rgba(48,164,108,0.02) 100%)"
+          : "transparent",
+        boxShadow:     active ? "inset 0 0 0 0.5px rgba(48,164,108,0.18)" : "none",
         fontSize:      13,
         fontWeight:    active ? 500 : 400,
         letterSpacing: "-0.005em",
         whiteSpace:    "nowrap",
         overflow:      "hidden",
         minWidth:      0,
-        transition:    "color 100ms cubic-bezier(0.4, 0, 0.2, 1), background-color 100ms cubic-bezier(0.4, 0, 0.2, 1)",
+        transition:    "color 100ms cubic-bezier(0.4, 0, 0.2, 1), background 100ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 100ms",
       }}
       onMouseEnter={(e) => {
         if (!active) {
           e.currentTarget.style.color      = "var(--rv-t1)"
-          e.currentTarget.style.background = "rgba(120,120,128,0.18)"
+          e.currentTarget.style.background = "rgba(255,255,255,0.05)"
         }
       }}
       onMouseLeave={(e) => {
@@ -61,13 +64,10 @@ function NavItem({
         }
       }}
     >
-      {active && (
-        <span
-          className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r-[2px] shrink-0"
-          style={{ width: 2.5, height: 14, background: "#30a46c" }}
-        />
-      )}
-      <span className="shrink-0 flex items-center">{icon}</span>
+      <span
+        className="shrink-0 flex items-center"
+        style={{ color: active ? "var(--rv-accent)" : "inherit" }}
+      >{icon}</span>
       {!iconsOnly && (
         <>
           <span className="truncate flex-1">{label}</span>
@@ -78,7 +78,7 @@ function NavItem({
                 minWidth:    16,
                 height:      16,
                 padding:     "0 5px",
-                color:       active ? "var(--rv-accent)" : "var(--rv-t2)",
+                color:       active ? "var(--rv-accent)" : "var(--rv-t3)",
                 background:  active ? "rgba(48,164,108,0.16)" : "var(--rv-elev-3)",
                 fontWeight:  500,
               }}
@@ -222,25 +222,28 @@ function StageSubItem({
   return (
     <Link
       href={`/pipeline?stage=${stage}`}
-      className="relative flex items-center select-none rounded-[6px]"
+      className="flex items-center select-none rounded-[6px]"
       style={{
-        height:        26,
-        padding:       "0 8px",
+        height:        28,
+        padding:       "0 10px",
         gap:           8,
         color:         active ? "var(--rv-t1)" : "var(--rv-t2)",
-        background:    active ? "rgba(120,120,128,0.20)" : "transparent",
+        background:    active
+          ? "linear-gradient(90deg, rgba(48,164,108,0.18) 0%, rgba(48,164,108,0.05) 60%, transparent 100%)"
+          : "transparent",
+        boxShadow:     active ? "inset 0 0 0 0.5px rgba(48,164,108,0.14)" : "none",
         fontSize:      12,
         fontWeight:    active ? 500 : 400,
         letterSpacing: "-0.005em",
         whiteSpace:    "nowrap",
         overflow:      "hidden",
         minWidth:      0,
-        transition:    "color 100ms cubic-bezier(0.4, 0, 0.2, 1), background-color 100ms cubic-bezier(0.4, 0, 0.2, 1)",
+        transition:    "color 100ms cubic-bezier(0.4, 0, 0.2, 1), background 100ms cubic-bezier(0.4, 0, 0.2, 1)",
       }}
       onMouseEnter={(e) => {
         if (!active) {
           e.currentTarget.style.color      = "var(--rv-t1)"
-          e.currentTarget.style.background = "rgba(120,120,128,0.12)"
+          e.currentTarget.style.background = "rgba(255,255,255,0.04)"
         }
       }}
       onMouseLeave={(e) => {
@@ -250,16 +253,10 @@ function StageSubItem({
         }
       }}
     >
-      {active && (
-        <span
-          className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r-[2px] shrink-0"
-          style={{ width: 2, height: 11, background: "#30a46c" }}
-        />
-      )}
       <span className="truncate flex-1">{STAGE_LABEL[stage]}</span>
       <span
         className="text-[10.5px] tabular-nums shrink-0"
-        style={{ color: count === 0 ? "var(--rv-t4)" : "var(--rv-t3)" }}
+        style={{ color: count === 0 ? "var(--rv-t4)" : active ? "var(--rv-accent)" : "var(--rv-t3)" }}
       >
         {count}
       </span>

@@ -98,13 +98,11 @@ function DealListRow({
   // detail focus" tint. Outside compare mode, the focal row gets the same
   // accent treatment. Reads as: "this row is one of the things I picked."
   const bg =
-    multiSelected ? "rgba(48,164,108,0.14)" :
-    active        ? "rgba(48,164,108,0.10)" :
-                    "transparent"
-  const leftBar =
-    multiSelected ? "var(--rv-accent)" :
-    active        ? "var(--rv-accent)" :
-                    "transparent"
+    multiSelected
+      ? "linear-gradient(90deg, rgba(48,164,108,0.20) 0%, rgba(48,164,108,0.08) 60%, rgba(48,164,108,0.02) 100%)"
+    : active
+      ? "linear-gradient(90deg, rgba(48,164,108,0.14) 0%, rgba(48,164,108,0.05) 60%, rgba(48,164,108,0.01) 100%)"
+    : "transparent"
 
   return (
     <button
@@ -117,14 +115,15 @@ function DealListRow({
       onDragEnd={() => onDragEndRow()}
       onClick={(e) => onSelect({ metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey })}
       onContextMenu={(e) => { e.preventDefault(); onContextMenuAdd() }}
-      className="relative flex items-start gap-3 text-left transition-colors duration-100 select-none w-full"
+      className="relative flex items-start gap-3 text-left select-none w-full"
       style={{
-        padding:    "11px 14px",
+        padding:    "13px 16px",
         background: bg,
-        borderLeft: `2px solid ${leftBar}`,
+        transition: "background 120ms cubic-bezier(0.4,0,0.2,1)",
+        borderLeft: `2px solid ${multiSelected || active ? "var(--rv-accent)" : "transparent"}`,
       }}
       onMouseEnter={(e) => {
-        if (!active && !multiSelected) e.currentTarget.style.background = "var(--rv-elev-2)"
+        if (!active && !multiSelected) e.currentTarget.style.background = "rgba(255,255,255,0.03)"
       }}
       onMouseLeave={(e) => {
         if (!active && !multiSelected) e.currentTarget.style.background = "transparent"
@@ -730,32 +729,34 @@ function DetailMetric({
                             "var(--rv-t4)"
   return (
     <div
-      className="flex flex-col gap-1 rounded-[10px] px-3.5 py-3 min-w-0 overflow-hidden"
+      className="flex flex-col gap-1 rounded-[10px] min-w-0 overflow-hidden"
       style={{
+        padding:   "10px 14px 11px",
         background: "var(--rv-elev-2)",
-        border:     "0.5px solid var(--rv-border)",
+        border:     "0.5px solid var(--rv-border-mid)",
+        boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
       }}
     >
-      <p className="text-[10px] uppercase tracking-widest font-medium truncate" style={{ color: "var(--rv-t3)" }}>
+      <p className="text-[9.5px] uppercase tracking-widest font-medium truncate" style={{ color: "var(--rv-t4)" }}>
         {label}
       </p>
       <p
-        className="font-semibold tabular-nums leading-none truncate"
-        style={{ color, fontSize: 18, letterSpacing: "-0.01em" }}
+        className="font-bold tabular-nums leading-none truncate"
+        style={{ color, fontSize: 22, letterSpacing: "-0.02em", marginTop: 2 }}
       >
         {value}
       </p>
       {delta && (
         <p
-          className="text-[10.5px] leading-none tabular-nums truncate"
-          style={{ color: deltaColor }}
+          className="text-[10px] leading-none tabular-nums truncate"
+          style={{ color: deltaColor, marginTop: 1 }}
           title="vs default analysis"
         >
           {delta.text}
         </p>
       )}
       {sub && (
-        <p className="text-[11px] leading-none truncate" style={{ color: "var(--rv-t4)" }}>{sub}</p>
+        <p className="text-[10.5px] leading-none truncate" style={{ color: "var(--rv-t3)", marginTop: 1 }}>{sub}</p>
       )}
     </div>
   )
