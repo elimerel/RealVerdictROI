@@ -593,6 +593,40 @@ function SidebarInner() {
         className="rv-sidebar-body flex flex-col flex-1 min-w-0"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
+        {/* Brand wordmark — sits right below the traffic-light drag zone.
+            Full mode: green square + "RealVerdict" text. Icons-only: just
+            the square, centered. Gives the sidebar a product identity
+            rather than a blank draggable strip. */}
+        <div
+          className="shrink-0 flex items-center"
+          style={{
+            height:          36,
+            padding:         iconsOnly ? "0 4px" : "0 12px",
+            justifyContent:  iconsOnly ? "center" : "flex-start",
+            gap:             8,
+            marginBottom:    4,
+          }}
+        >
+          <div
+            style={{
+              width:        20,
+              height:       20,
+              borderRadius: 5,
+              background:   "var(--rv-accent)",
+              flexShrink:   0,
+              boxShadow:    "0 2px 6px rgba(48,164,108,0.35)",
+            }}
+          />
+          {!iconsOnly && (
+            <span
+              className="text-[13px] font-semibold tracking-[-0.01em] truncate"
+              style={{ color: "var(--rv-t1)" }}
+            >
+              RealVerdict
+            </span>
+          )}
+        </div>
+
         <nav
           className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden"
           style={{ padding: iconsOnly ? "2px 4px" : "2px 8px", gap: 2 }}

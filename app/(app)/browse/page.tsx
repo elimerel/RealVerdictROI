@@ -1120,7 +1120,6 @@ function DashboardCard({
   title, action, children, className,
 }: {
   title:    string
-  /** Optional small action element rendered top-right (refresh, link, ⋯). */
   action?:   React.ReactNode
   children: React.ReactNode
   className?: string
@@ -1129,14 +1128,14 @@ function DashboardCard({
     <div
       className={`rounded-[12px] flex flex-col ${className ?? ""}`}
       style={{
-        background: "var(--rv-elev-1)",
-        border:     "0.5px solid var(--rv-border)",
-        boxShadow:  "var(--rv-shadow-inset)",
+        background: "var(--rv-elev-2)",
+        border:     "0.5px solid var(--rv-border-mid)",
+        boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
       }}
     >
       <div className="flex items-center justify-between px-5 pt-4 pb-3">
         <p
-          className="text-[10.5px] uppercase tracking-widest font-medium"
+          className="text-[9.5px] uppercase tracking-widest font-medium"
           style={{ color: "var(--rv-t4)" }}
         >
           {title}
@@ -1277,34 +1276,39 @@ function PipelineDashCard({
             <button
               key={deal.id}
               onClick={() => onOpenInPipeline(deal.id)}
-              className="group flex items-center gap-3.5 px-5 py-3 text-left transition-colors"
+              className="group flex items-center gap-4 px-5 text-left"
               style={{
-                background: "transparent",
-                borderTop:  i === 0 ? "0.5px solid var(--rv-border)" : "0.5px solid var(--rv-border)",
+                paddingTop:    14,
+                paddingBottom: 14,
+                background:    "transparent",
+                borderTop:     "0.5px solid var(--rv-border)",
+                transition:    "background 100ms",
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-2)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-3)" }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
               title="Open in Pipeline"
             >
               <SourceMark source="listing" siteName={deal.site_name} />
               <div className="flex-1 min-w-0">
-                <p className="text-[12.5px] truncate leading-tight" style={{ color: "var(--rv-t1)" }}>
+                <p className="text-[13px] font-medium truncate leading-tight" style={{ color: "var(--rv-t1)" }}>
                   {address}
                 </p>
                 {deal.list_price != null && (
-                  <p className="text-[11.5px] tabular-nums leading-tight mt-0.5" style={{ color: "var(--rv-t2)" }}>
+                  <p className="text-[11.5px] tabular-nums leading-tight mt-0.5" style={{ color: "var(--rv-t3)" }}>
                     <Currency value={deal.list_price} whole />
                   </p>
                 )}
               </div>
               {cashFlow != null && (
-                <span
-                  className="text-[12.5px] tabular-nums shrink-0"
-                  style={{ color: cashColor, fontWeight: cashFlow < 0 ? 500 : 400 }}
-                >
-                  <Currency value={cashFlow} signed />
-                  <span style={{ color: "var(--rv-t4)", marginLeft: 2 }}>/mo</span>
-                </span>
+                <div className="shrink-0 text-right">
+                  <span
+                    className="tabular-nums font-bold"
+                    style={{ color: cashColor, fontSize: 16, letterSpacing: "-0.02em" }}
+                  >
+                    <Currency value={cashFlow} signed />
+                  </span>
+                  <span className="block text-[10px]" style={{ color: "var(--rv-t4)" }}>/mo cash flow</span>
+                </div>
               )}
             </button>
           )
@@ -1330,14 +1334,14 @@ function MarketDashCard() {
   const asOf = rate ? new Date(rate.asOf).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null
 
   return (
-    <DashboardCard title="Market today">
-      <div className="flex flex-col gap-1.5 px-5 pb-4">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[11px] tracking-tight w-[58px]" style={{ color: "var(--rv-t3)" }}>30-yr fixed</span>
-          <span className="text-[18px] font-semibold tabular-nums" style={{ color: "var(--rv-t1)" }}>
-            {rate ? `${rate.rate.toFixed(2)}%` : "—"}
-          </span>
-        </div>
+    <DashboardCard title="30-yr fixed">
+      <div className="flex flex-col px-5 pb-4" style={{ gap: 4 }}>
+        <span
+          className="tabular-nums font-bold leading-none"
+          style={{ color: "var(--rv-t1)", fontSize: 28, letterSpacing: "-0.03em" }}
+        >
+          {rate ? `${rate.rate.toFixed(2)}%` : "—"}
+        </span>
         <p className="text-[10.5px]" style={{ color: "var(--rv-t4)" }}>
           {asOf ? `${asOf} · FRED` : "Loading…"}
         </p>
@@ -1590,29 +1594,28 @@ function StartScreen({
           : "max-w-[560px] items-center py-10"
       }`}>
         {isWorkstation ? (
-          // ── WORKSTATION MODE — Mercury card grid + Apple spacing ───────
-          // Greeting → factual subtitle → action chips → 2-column card
-          // grid. The greeting is one beat (no chatty AI subtitle); the
-          // user's actual data is the surface. Same dashboard pattern
-          // Mercury uses on the home tab.
+          // ── WORKSTATION MODE ─────────────────────────────────────────────
+          // Layout: greeting (large) → action chips → full-width pipeline
+          // section (the hero) → 3-column stat strip below. Breaking the
+          // old 2×2 equal-weight card grid — the pipeline is the main thing,
+          // everything else is supporting context.
           <>
-            <div className="flex flex-col items-stretch w-full mb-7">
+            {/* Greeting — bigger and bolder, more presence */}
+            <div className={`${introCls("rv-greeting")} flex flex-col items-stretch w-full mb-6`}>
               <h1
-                className={`${introCls("rv-greeting")} text-[26px] font-semibold tracking-[-0.022em] leading-[1.1]`}
-                style={{ color: "var(--rv-t1)" }}
+                className="font-bold tracking-[-0.03em] leading-[1.05]"
+                style={{ color: "var(--rv-t1)", fontSize: 36 }}
               >
                 {greetWithName || " "}
               </h1>
               <p
-                className={`${introCls("rv-subhead")} mt-1.5 text-[13px] tracking-[-0.005em]`}
+                className={`${introCls("rv-subhead")} mt-2 text-[13px] tracking-[-0.005em]`}
                 style={{ color: "var(--rv-t3)" }}
               >
                 {workstationSubtitle(activeDeals, ctx)}
               </p>
             </div>
 
-            {/* Action chip row — primary in accent (only colored thing on
-                the screen), rest neutral pills. */}
             <ActionButtonRow
               onSaveCurrent={onSaveCurrent}
               canSave={canSave}
@@ -1622,42 +1625,30 @@ function StartScreen({
               onManual={onManual}
             />
 
-            {/* Card grid — Pipeline + Since-you-last-looked on top, then
-                Market + QuickSearches as a smaller second row. */}
-            <div className="grid grid-cols-2 gap-5 mt-7">
-              <div className="col-span-2 lg:col-span-1">
-                {activeDeals.length > 0 && onOpenInPipeline && (
-                  <PipelineDashCard deals={activeDeals} onOpenInPipeline={onOpenInPipeline} />
-                )}
+            {/* Pipeline — full-width hero. The deal list IS the content,
+                not a card inside a grid. Visible only when there are deals. */}
+            {activeDeals.length > 0 && onOpenInPipeline && (
+              <div className={`${introCls("rv-grid")} mt-7`}>
+                <PipelineDashCard deals={activeDeals} onOpenInPipeline={onOpenInPipeline} />
               </div>
-              <div className="col-span-2 lg:col-span-1">
-                <SinceLastLookCard activeDeals={activeDeals} />
-              </div>
+            )}
+
+            {/* Supporting stat strip — 3 compact cards in a row. Each one
+                has a clear label + single hero number. Visually quieter than
+                the pipeline above so hierarchy is obvious. */}
+            <div className={`${introCls("rv-grid")} grid grid-cols-3 gap-4 mt-4`}>
+              <MarketDashCard />
+              <SinceLastLookCard activeDeals={activeDeals} />
+              <QuickSearchesCard onNavigate={onNavigate} />
             </div>
 
-            <div className="grid grid-cols-2 gap-5 mt-5">
-              <div className="col-span-2 lg:col-span-1">
-                <MarketDashCard />
-              </div>
-              <div className="col-span-2 lg:col-span-1">
-                <QuickSearchesCard onNavigate={onNavigate} />
-              </div>
-            </div>
-
-            {/* Quiet bottom strip — keyboard hint only. The site pills
-                that used to live here moved into Quick searches; the
-                rate moved into the Market card. */}
             <p
-              className={`${introCls("rv-hint")} mt-8 flex items-center gap-1.5 text-[11px] px-1`}
+              className={`${introCls("rv-hint")} mt-6 flex items-center gap-1.5 text-[11px] px-1`}
               style={{ color: "var(--rv-t4)" }}
             >
               <kbd
                 className="inline-flex items-center justify-center rounded px-1 py-[1px] text-[10px] font-medium"
-                style={{
-                  background: "var(--rv-elev-3)",
-                  color: "var(--rv-t3)",
-                  minWidth: 18,
-                }}
+                style={{ background: "var(--rv-elev-3)", color: "var(--rv-t3)", minWidth: 18 }}
               >
                 ⌘L
               </kbd>
