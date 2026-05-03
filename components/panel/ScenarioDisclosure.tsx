@@ -45,7 +45,7 @@ export function ScenarioDisclosure({
       >
         <span
           className="text-[10px] uppercase tracking-widest font-medium"
-          style={{ color: "var(--rv-t4)" }}
+          style={{ color: "var(--rv-t3)" }}
         >
           Adjust assumptions
         </span>
