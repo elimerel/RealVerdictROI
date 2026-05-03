@@ -1116,6 +1116,159 @@ function TypingSubhead({ text, className, animate = true }: { text: string; clas
 // (PipelineDashCard, MarketDashCard, SinceLastLookCard, QuickSearchesCard)
 // compose DashboardCard with their own header + body content.
 
+// ── HeroStatsStrip — Modulix / Finexy hero pattern ────────────────────────
+//
+// Four cards across the top of the workstation, each with the big confident
+// number treatment: muted uppercase label, bold tabular value (28-32px), an
+// optional trend chip below. This is the visual hero of the start screen.
+// Every reference (Modulix Pending Orders 219, Finexy Total Earnings $950,
+// Sapphire Students 16,892) opens this way — the user's portfolio numbers
+// dominate the page before anything else.
+
+function HeroStatsStrip({
+  activeDeals, ctx,
+}: {
+  activeDeals: SavedDeal[]
+  ctx:         StartScreenContext | null
+}) {
+  const stats = useMemo(() => {
+    let exposure = 0
+    let cashFlowSum = 0
+    let cashFlowCount = 0
+    let capSum = 0
+    let capCount = 0
+    for (const d of activeDeals) {
+      if (typeof d.list_price === "number" && Number.isFinite(d.list_price)) exposure += d.list_price
+      const m = d.snapshot?.metrics
+      if (m && Number.isFinite(m.monthlyCashFlow)) { cashFlowSum += m.monthlyCashFlow; cashFlowCount++ }
+      if (m && Number.isFinite(m.capRate))         { capSum      += m.capRate;         capCount++ }
+    }
+    return {
+      active:      activeDeals.length,
+      exposure:    exposure || null,
+      avgCashFlow: cashFlowCount > 0 ? cashFlowSum / cashFlowCount : null,
+      avgCap:      capCount      > 0 ? capSum      / capCount      : null,
+    }
+  }, [activeDeals])
+
+  const fmtCompactCurrency = (n: number) => {
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
+    if (n >= 1_000)     return `$${(n / 1_000).toFixed(0)}K`
+    return `$${Math.round(n).toLocaleString()}`
+  }
+  const fmtCash = (n: number) =>
+    `${n >= 0 ? "+" : "−"}$${Math.abs(Math.round(n)).toLocaleString()}`
+
+  const savedThisWeek = ctx?.pipeline?.savedThisWeek ?? 0
+  const watchingCount = ctx?.pipeline?.watchingCount ?? 0
+
+  return (
+    <div className="grid grid-cols-4 gap-3 mt-7">
+      <HeroStatCard
+        label="Active deals"
+        value={String(stats.active)}
+        sub={watchingCount > 0 ? `${watchingCount} watching` : undefined}
+        trend={savedThisWeek > 0
+          ? { text: `+${savedThisWeek} this week`, tone: "pos" }
+          : null}
+      />
+      <HeroStatCard
+        label="Total exposure"
+        value={stats.exposure != null ? fmtCompactCurrency(stats.exposure) : "—"}
+        sub={stats.exposure != null ? "across pipeline" : undefined}
+        trend={null}
+      />
+      <HeroStatCard
+        label="Avg cash flow"
+        value={stats.avgCashFlow != null
+          ? `${fmtCash(stats.avgCashFlow)}`
+          : "—"}
+        valueSuffix="/mo"
+        tone={stats.avgCashFlow != null && stats.avgCashFlow < 0 ? "neg" : "neutral"}
+        sub="across saved deals"
+        trend={null}
+      />
+      <HeroStatCard
+        label="Avg cap rate"
+        value={stats.avgCap != null ? `${(stats.avgCap * 100).toFixed(2)}%` : "—"}
+        sub="weighted mean"
+        trend={null}
+      />
+    </div>
+  )
+}
+
+function HeroStatCard({
+  label, value, valueSuffix, sub, trend, tone = "neutral",
+}: {
+  label:        string
+  value:        string
+  /** Tiny suffix appended after the main value at smaller weight (e.g. "/mo"). */
+  valueSuffix?: string
+  sub?:         string
+  trend:        { text: string; tone: "pos" | "neg" | "neutral" } | null
+  tone?:        "neg" | "neutral"
+}) {
+  const valueColor = tone === "neg" ? "var(--rv-neg)" : "var(--rv-t1)"
+  const trendColor =
+    trend?.tone === "pos" ? "var(--rv-pos)" :
+    trend?.tone === "neg" ? "var(--rv-neg)" :
+                            "var(--rv-t4)"
+  return (
+    <div
+      className="rounded-[14px] flex flex-col"
+      style={{
+        padding:    "16px 18px 18px",
+        background: "var(--rv-elev-3)",
+        border:     "0.5px solid var(--rv-border-mid)",
+        boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.07), 0 6px 20px rgba(0,0,0,0.36)",
+      }}
+    >
+      <p
+        className="text-[10px] uppercase tracking-widest font-medium"
+        style={{ color: "var(--rv-t4)" }}
+      >
+        {label}
+      </p>
+      <div className="flex items-baseline gap-1 mt-3">
+        <span
+          className="font-bold tabular-nums leading-none"
+          style={{
+            color:         valueColor,
+            fontSize:      30,
+            letterSpacing: "-0.030em",
+          }}
+        >
+          {value}
+        </span>
+        {valueSuffix && (
+          <span
+            className="font-medium tabular-nums"
+            style={{ color: "var(--rv-t4)", fontSize: 12 }}
+          >
+            {valueSuffix}
+          </span>
+        )}
+      </div>
+      <div className="flex items-baseline justify-between mt-2.5 gap-2 min-h-[14px]">
+        {sub && (
+          <span className="text-[11px] truncate" style={{ color: "var(--rv-t3)" }}>
+            {sub}
+          </span>
+        )}
+        {trend && (
+          <span
+            className="text-[11px] tracking-tight tabular-nums shrink-0 ml-auto"
+            style={{ color: trendColor }}
+          >
+            {trend.text}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DashboardCard({
   title, action, children, className,
 }: {
@@ -1625,10 +1778,19 @@ function StartScreen({
               onManual={onManual}
             />
 
-            {/* Pipeline — full-width hero. The deal list IS the content,
+            {/* Hero stat cards — 4 across. The visual centerpiece of the
+                workstation, mirroring the Modulix / Finexy / Sapphire pattern
+                where the page opens with confident hero numbers. */}
+            {activeDeals.length > 0 && (
+              <div className={introCls("rv-grid")}>
+                <HeroStatsStrip activeDeals={activeDeals} ctx={ctx} />
+              </div>
+            )}
+
+            {/* Pipeline — full-width list. The deal list IS the content,
                 not a card inside a grid. Visible only when there are deals. */}
             {activeDeals.length > 0 && onOpenInPipeline && (
-              <div className={`${introCls("rv-grid")} mt-7`}>
+              <div className={`${introCls("rv-grid")} mt-4`}>
                 <PipelineDashCard deals={activeDeals} onOpenInPipeline={onOpenInPipeline} />
               </div>
             )}
