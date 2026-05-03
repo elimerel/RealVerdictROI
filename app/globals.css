@@ -79,10 +79,29 @@
   --rv-border-mid: rgba(255, 255, 255, 0.14);
   --rv-border-hi:  rgba(255, 255, 255, 0.22);
 
-  /* Accent — forest green */
+  /* Accent — forest green
+     The brand color. Signals growth, money, go. Used for primary actions,
+     active nav, the saved-deal chip, etc. */
   --rv-accent:        #30a46c;
   --rv-accent-dim:    rgba(48, 164, 108, 0.14);
   --rv-accent-border: rgba(48, 164, 108, 0.26);
+
+  /* Secondary accent — clay / terracotta
+     The "physical / attention warranted" tone. Real-estate-specific:
+     stale watching deals, the buddy-noticed-something chip, attention
+     moments that aren't warnings. Pairs with the forest green so the app
+     feels like earth + growth, not single-color SaaS. Use sparingly —
+     this tone exists to be SEEN when it shows up. */
+  --rv-clay:          #c2754a;
+  --rv-clay-dim:      rgba(194, 117, 74, 0.14);
+  --rv-clay-border:   rgba(194, 117, 74, 0.26);
+
+  /* Display font stack — system serif. macOS gets "New York" (Apple's
+     modern serif used in Keynote, TextEdit). Other systems fall back
+     gracefully to Source Serif → Charter → Georgia. Used ONLY on
+     greeting + property prices for the "Mercury-style editorial weight"
+     feel. No web font loading; always instant. */
+  --rv-font-display:  ui-serif, "New York", "Source Serif 4", "Source Serif Pro", Charter, Georgia, serif;
 
   /* Signals
      ──────────────────────────────────────────────────────────────────────────

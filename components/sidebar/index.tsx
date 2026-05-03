@@ -133,33 +133,49 @@ function AmbientChip() {
   const note = ctx ? buildAmbientNote(ctx) : null
   if (!note) return null
 
+  // Color: clay (the "attention warranted" tone) when the buddy actually
+  // noticed something stale; muted otherwise. Subtle but real — clay only
+  // appears when there's something to act on, so when you see it, you read
+  // it. Same psychological move as Stripe's amber dot for "needs review."
+  const color = note.tone === "clay" ? "var(--rv-clay)" : "var(--rv-t3)"
+
   // Padding mirrors AccountRow's outer margin (mx-2) + inner padding (px-3) so
   // the chip text sits at the SAME left edge as the email label below it,
   // reading as a single bottom-of-sidebar block. mb-1.5 keeps a clear visual
   // gap so the chip never visually crashes into the avatar/email row.
   return (
-    <div className="px-5 mt-2 mb-1.5 rv-ambient-in">
+    <div className="px-5 mt-2 mb-1.5 rv-ambient-in flex items-center gap-1.5">
+      {note.tone === "clay" && (
+        <span
+          aria-hidden
+          className="shrink-0 rounded-full"
+          style={{ width: 5, height: 5, background: "var(--rv-clay)" }}
+        />
+      )}
       <p
         className="text-[11px] leading-tight"
-        style={{ color: "var(--rv-t3)", letterSpacing: "-0.005em" }}
+        style={{ color, letterSpacing: "-0.005em" }}
         title="From your pipeline"
       >
-        {note}
+        {note.text}
       </p>
     </div>
   )
 }
 
-function buildAmbientNote(ctx: StartScreenContext): string | null {
+function buildAmbientNote(ctx: StartScreenContext): { text: string; tone: "clay" | "muted" } | null {
   const { staleWatching, watchingCount, savedThisWeek, activeCount } = ctx.pipeline
   if (staleWatching > 0) {
-    return staleWatching === 1
-      ? "1 deal idle for over a week"
-      : `${staleWatching} idle for over a week`
+    return {
+      text: staleWatching === 1
+        ? "1 deal idle for over a week"
+        : `${staleWatching} idle for over a week`,
+      tone: "clay",
+    }
   }
-  if (savedThisWeek >= 3) return `${savedThisWeek} saves this week`
-  if (watchingCount > 0)  return watchingCount === 1 ? "Watching 1" : `Watching ${watchingCount}`
-  if (activeCount   > 0)  return `${activeCount} in pipeline`
+  if (savedThisWeek >= 3) return { text: `${savedThisWeek} saves this week`, tone: "muted" }
+  if (watchingCount > 0)  return { text: watchingCount === 1 ? "Watching 1" : `Watching ${watchingCount}`, tone: "muted" }
+  if (activeCount   > 0)  return { text: `${activeCount} in pipeline`, tone: "muted" }
   return null
 }
 

@@ -49,9 +49,9 @@ export const viewport: Viewport = {
 // The .dark class also gets stamped for backwards compatibility with any
 // remaining `dark:` Tailwind variants in the codebase.
 const THEME_SCRIPT = `(function(){try{
-  var picked = localStorage.getItem('rv-theme') || 'dark';
-  // Migrate retired cinema choice to the closest live option (dark).
-  if (picked === 'charcoal-cinema') { picked = 'dark'; localStorage.setItem('rv-theme', 'dark'); }
+  var picked = localStorage.getItem('rv-theme') || 'charcoal-warm';
+  // Migrate retired cinema choice to the closest live option (warm).
+  if (picked === 'charcoal-cinema') { picked = 'charcoal-warm'; localStorage.setItem('rv-theme', 'charcoal-warm'); }
   var resolved = picked;
   if (picked === 'system') {
     resolved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';

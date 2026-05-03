@@ -1245,11 +1245,13 @@ function HeroStatCard({
       </p>
       <div className="flex items-baseline gap-1 mt-3">
         <span
-          className="font-bold tabular-nums leading-none"
+          className="tabular-nums leading-none"
           style={{
             color:         valueColor,
-            fontSize:      30,
-            letterSpacing: "-0.030em",
+            fontSize:      32,
+            letterSpacing: "-0.025em",
+            fontFamily:    "var(--rv-font-display)",
+            fontWeight:    500,
           }}
         >
           {value}
@@ -1772,14 +1774,24 @@ function StartScreen({
                 Finexy use ("Welcome, X 👋"). */}
             <div className={`${introCls("rv-greeting")} flex flex-col items-stretch w-full mb-6`}>
               <h1
-                className="font-bold tracking-[-0.03em] leading-[1.05] flex items-baseline gap-3 flex-wrap"
-                style={{ color: "var(--rv-t1)", fontSize: 46 }}
+                className="tracking-[-0.025em] leading-[1.0] flex items-baseline gap-3 flex-wrap"
+                style={{
+                  color:      "var(--rv-t1)",
+                  fontSize:   52,
+                  fontFamily: "var(--rv-font-display)",
+                  fontWeight: 500,
+                }}
               >
                 <span>{greetWithName || " "}</span>
                 {greetWithName && (
                   <span
                     aria-hidden
-                    style={{ fontSize: 32, lineHeight: 1, transform: "translateY(-2px)" }}
+                    style={{
+                      fontSize:   32,
+                      lineHeight: 1,
+                      transform:  "translateY(-2px)",
+                      fontFamily: "system-ui",  // emoji renders better in system stack
+                    }}
                   >
                     {timeOfDayGlyph()}
                   </span>

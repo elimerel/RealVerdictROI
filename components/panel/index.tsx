@@ -897,8 +897,14 @@ function ResultPane({
       <div className="px-4 pt-4 pb-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
         {result.listPrice != null && (
           <p
-            className="font-bold leading-tight tabular-nums"
-            style={{ color: "var(--rv-t1)", fontSize: 24, letterSpacing: "-0.028em" }}
+            className="leading-tight tabular-nums"
+            style={{
+              color:         "var(--rv-t1)",
+              fontSize:      26,
+              letterSpacing: "-0.022em",
+              fontFamily:    "var(--rv-font-display)",
+              fontWeight:    500,
+            }}
           >
             <Currency value={result.listPrice} whole />
           </p>

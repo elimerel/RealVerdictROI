@@ -405,8 +405,13 @@ function DealDetail({
         <div className="flex-1 min-w-0">
           {deal.list_price != null && (
             <p
-              className="font-bold tracking-[-0.030em] leading-none tabular-nums"
-              style={{ color: "var(--rv-t1)", fontSize: 28 }}
+              className="tracking-[-0.022em] leading-none tabular-nums"
+              style={{
+                color:      "var(--rv-t1)",
+                fontSize:   32,
+                fontFamily: "var(--rv-font-display)",
+                fontWeight: 500,
+              }}
             >
               <Currency value={deal.list_price} whole />
             </p>
