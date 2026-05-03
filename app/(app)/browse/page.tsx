@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import type { ChatContext, ChatMessage, NavUpdate, PanelPayload, PanelResult, TabInfo } from "@/lib/electron"
 import Toolbar from "@/components/browser/Toolbar"
@@ -69,6 +69,10 @@ function extractSiteName(url: string): string | null {
 }
 
 export default function BrowsePage() {
+  return <Suspense><BrowsePageInner /></Suspense>
+}
+
+function BrowsePageInner() {
   const urlbarRef     = useRef<HTMLInputElement>(null)
   const searchParams  = useSearchParams()
   const router        = useRouter()

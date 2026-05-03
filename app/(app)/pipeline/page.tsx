@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   ChevronRight,
@@ -1171,6 +1171,10 @@ const LIST_W_MIN     = 280
 const LIST_W_MAX     = 520
 
 export default function PipelinePage() {
+  return <Suspense><PipelinePageInner /></Suspense>
+}
+
+function PipelinePageInner() {
   const router        = useRouter()
   const searchParams  = useSearchParams()
   const stageParam    = searchParams.get("stage") as DealStage | null

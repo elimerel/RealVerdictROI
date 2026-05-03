@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, Suspense } from "react"
 import {
   Compass, LayoutGrid, Settings,
   Eye, Star, Send, Trophy, CircleSlash,
@@ -429,6 +429,10 @@ function StageMiniIcon({
 }
 
 export default function Sidebar() {
+  return <Suspense><SidebarInner /></Suspense>
+}
+
+function SidebarInner() {
   const pathname     = usePathname()
   const searchParams = useSearchParams()
   const { open, width, setWidth } = useSidebar()
