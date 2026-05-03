@@ -1126,11 +1126,11 @@ function DashboardCard({
 }) {
   return (
     <div
-      className={`rounded-[12px] flex flex-col ${className ?? ""}`}
+      className={`rounded-[14px] flex flex-col ${className ?? ""}`}
       style={{
-        background: "var(--rv-elev-2)",
+        background: "var(--rv-elev-3)",
         border:     "0.5px solid var(--rv-border-mid)",
-        boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
+        boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.07), 0 6px 20px rgba(0,0,0,0.36)",
       }}
     >
       <div className="flex items-center justify-between px-5 pt-4 pb-3">
@@ -1303,11 +1303,11 @@ function PipelineDashCard({
                 <div className="shrink-0 text-right">
                   <span
                     className="tabular-nums font-bold"
-                    style={{ color: cashColor, fontSize: 16, letterSpacing: "-0.02em" }}
+                    style={{ color: cashColor, fontSize: 18, letterSpacing: "-0.025em" }}
                   >
                     <Currency value={cashFlow} signed />
                   </span>
-                  <span className="block text-[10px]" style={{ color: "var(--rv-t4)" }}>/mo cash flow</span>
+                  <span className="block text-[9.5px] tracking-wide" style={{ color: "var(--rv-t4)" }}>/mo</span>
                 </div>
               )}
             </button>
@@ -1572,21 +1572,21 @@ function StartScreen({
       // Either way, content max-width is 540px so we don't sprawl on
       // wide windows.
       className={`absolute inset-0 flex flex-col items-center px-12 select-none ${introCls("rv-start-fade")} overflow-y-auto rv-invisible-scroll ${
-        isWorkstation ? "justify-start pt-14" : "justify-center"
+        isWorkstation ? "justify-start pt-16" : "justify-center"
       }`}
     >
-      {/* Welcome mode keeps a very faint accent atmosphere behind the
-          centered greeting; workstation mode paints nothing — the glow
-          read as decorative AI sheen, not as the matte premium feel we
-          want. The data carries the surface in workstation mode. */}
-      {!isWorkstation && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: "radial-gradient(ellipse 50% 32% at 50% 38%, rgba(48,164,108,0.035) 0%, transparent 78%)",
-          }}
-        />
-      )}
+      {/* Atmospheric bloom — gives the dead-black canvas a light source.
+          Workstation: top-anchored behind the greeting (depth, not sheen).
+          Welcome: centered, frames the hero. Both are subtle enough to
+          feel designed rather than decorative. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: isWorkstation
+            ? "radial-gradient(ellipse 75% 38% at 50% -2%, rgba(48,164,108,0.055) 0%, transparent 60%)"
+            : "radial-gradient(ellipse 55% 36% at 50% 36%, rgba(48,164,108,0.06) 0%, transparent 72%)",
+        }}
+      />
 
       <div className={`relative flex flex-col w-full ${
         isWorkstation
@@ -1604,7 +1604,7 @@ function StartScreen({
             <div className={`${introCls("rv-greeting")} flex flex-col items-stretch w-full mb-6`}>
               <h1
                 className="font-bold tracking-[-0.03em] leading-[1.05]"
-                style={{ color: "var(--rv-t1)", fontSize: 36 }}
+                style={{ color: "var(--rv-t1)", fontSize: 46 }}
               >
                 {greetWithName || " "}
               </h1>
