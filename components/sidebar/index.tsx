@@ -19,6 +19,25 @@ import {
   type StartScreenContext,
 } from "@/lib/pipeline"
 
+/** Section label — uppercase tracking-widest divider that groups the nav
+ *  rows below it. Same pattern every reference uses (Modulix MAIN MENU,
+ *  Hume TEXT TO SPEECH, Technolize OVERVIEW, Sapphire GENERAL). Quiet by
+ *  design — it's a chapter heading, not a clickable thing. */
+function SidebarSection({ label }: { label: string }) {
+  return (
+    <p
+      className="text-[9.5px] uppercase tracking-[0.14em] font-semibold select-none"
+      style={{
+        color:        "var(--rv-t4)",
+        padding:      "12px 12px 4px",
+        marginTop:    2,
+      }}
+    >
+      {label}
+    </p>
+  )
+}
+
 function NavItem({
   href, label, icon, active, iconsOnly, badge,
 }: {
@@ -631,6 +650,11 @@ function SidebarInner() {
           className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden"
           style={{ padding: iconsOnly ? "2px 4px" : "2px 8px", gap: 2 }}
         >
+          {/* Section divider — uppercase muted label, same pattern every
+              reference uses (Modulix MAIN MENU, Hume TEXT TO SPEECH,
+              Technolize OVERVIEW). Hidden in icons-only mode where there's
+              no room for a label. */}
+          {!iconsOnly && <SidebarSection label="Workspace" />}
           <NavItem
             href="/browse"
             label="Browse"
@@ -676,6 +700,7 @@ function SidebarInner() {
               )}
             </>
           )}
+          {!iconsOnly && <SidebarSection label="Account" />}
           <NavItem
             href="/settings"
             label="Settings"

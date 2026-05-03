@@ -890,6 +890,19 @@ function greeting() {
   return "Good evening"
 }
 
+/** Tiny time-of-day glyph that rides next to the greeting. Calm warmth, not
+ *  decoration — same energy as Modulix's "Welcome, Calvin 👋" or Finexy's
+ *  sun/moon mode toggle. Rendered slightly smaller than the greeting and
+ *  baseline-aligned so it reads as part of the line, not pasted on. */
+function timeOfDayGlyph(): string {
+  const h = new Date().getHours()
+  if (h < 6)  return "✦"   // late night / pre-dawn — calm
+  if (h < 12) return "☀️"  // morning
+  if (h < 17) return "👋"  // afternoon — warm hello
+  if (h < 21) return "🌇"  // evening
+  return "🌙"              // night
+}
+
 /** Best-effort first name from a Supabase user. Tries OAuth metadata first
  *  (Google/Apple sign-in usually populate `given_name` or `full_name`),
  *  then falls back to the email's local part split on a separator. Returns
@@ -1753,13 +1766,24 @@ function StartScreen({
           // old 2×2 equal-weight card grid — the pipeline is the main thing,
           // everything else is supporting context.
           <>
-            {/* Greeting — bigger and bolder, more presence */}
+            {/* Greeting — bigger and bolder, with a small time-of-day glyph
+                for warmth. The buddy doesn't shout; the glyph just lets the
+                user feel addressed instead of titled. Same trick Modulix and
+                Finexy use ("Welcome, X 👋"). */}
             <div className={`${introCls("rv-greeting")} flex flex-col items-stretch w-full mb-6`}>
               <h1
-                className="font-bold tracking-[-0.03em] leading-[1.05]"
+                className="font-bold tracking-[-0.03em] leading-[1.05] flex items-baseline gap-3 flex-wrap"
                 style={{ color: "var(--rv-t1)", fontSize: 46 }}
               >
-                {greetWithName || " "}
+                <span>{greetWithName || " "}</span>
+                {greetWithName && (
+                  <span
+                    aria-hidden
+                    style={{ fontSize: 32, lineHeight: 1, transform: "translateY(-2px)" }}
+                  >
+                    {timeOfDayGlyph()}
+                  </span>
+                )}
               </h1>
               <p
                 className={`${introCls("rv-subhead")} mt-2 text-[13px] tracking-[-0.005em]`}
