@@ -296,13 +296,13 @@ function SourcesDrawer({
     <>
       <div
         className="absolute inset-0 z-30 drawer-backdrop-in"
-        style={{ background: "var(--rv-scrim)" }}
+        style={{ background: "var(--rv-scrim-strong)" }}
         onClick={onClose}
       />
       <div
         className="absolute right-0 top-0 bottom-0 z-40 flex flex-col drawer-enter"
         style={{
-          width:          "min(360px, 90%)",
+          width:          "min(420px, 95%)",
           background:     "var(--rv-drawer-bg)",
           backdropFilter: "blur(36px) saturate(180%)",
           WebkitBackdropFilter: "blur(36px) saturate(180%)",
@@ -310,13 +310,12 @@ function SourcesDrawer({
           boxShadow:      "inset 1px 0 0 rgba(255,255,255,0.06), -16px 0 40px rgba(0, 0, 0, 0.45)",
         }}
       >
+        {/* Slim header — just close button. The drawer doesn't need a
+            chrome label; the hero inside makes the purpose obvious. */}
         <div
-          className="flex items-center justify-between px-4 shrink-0"
-          style={{ height: 40, borderBottom: "1px solid var(--rv-border)" }}
+          className="flex items-center justify-end px-3 shrink-0"
+          style={{ height: 40 }}
         >
-          <span className="text-[12px] font-semibold tracking-tight" style={{ color: "var(--rv-t1)" }}>
-            Where every number comes from
-          </span>
           <button
             onClick={onClose}
             aria-label="Close"
@@ -330,32 +329,109 @@ function SourcesDrawer({
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto panel-scroll">
-          <p className="text-[11.5px] leading-relaxed px-4 pt-4 pb-3" style={{ color: "var(--rv-t3)" }}>
-            Every figure on the panel ties back to one of these sources. Hover a
-            number anywhere on the panel to see its origin without opening this
-            drawer.
-          </p>
-          <div className="flex flex-col gap-1 px-2 pb-4">
-            {groups.map((group) => {
+          {/* Hero — display serif, brand statement in the user's words.
+              This drawer IS RealVerdict's promise made visible: every
+              number on the panel ties back to a source you can name. */}
+          <div className="px-6 pt-2 pb-6">
+            <h2
+              className="leading-tight"
+              style={{
+                color:         "var(--rv-t1)",
+                fontSize:      28,
+                fontFamily:    "var(--rv-font-display)",
+                fontWeight:    500,
+                letterSpacing: "-0.020em",
+              }}
+            >
+              Sources
+            </h2>
+            <p
+              className="mt-2 leading-snug"
+              style={{
+                color:      "var(--rv-t2)",
+                fontSize:   13.5,
+                fontFamily: "var(--rv-font-display)",
+                fontWeight: 400,
+                letterSpacing: "-0.005em",
+              }}
+            >
+              Every number on the panel ties back to one of these origins.
+              Hover any figure to see its source without opening this view.
+            </p>
+            <div
+              className="mt-4 inline-flex items-center gap-1.5 rounded-full text-[10.5px] tracking-widest uppercase font-medium"
+              style={{
+                color:      "var(--rv-accent)",
+                background: "var(--rv-accent-dim)",
+                border:     "0.5px solid var(--rv-accent-border)",
+                padding:    "3px 8px",
+              }}
+            >
+              ✦ Verifiable
+            </div>
+          </div>
+
+          {/* Source groups — each group is a numbered "citation block."
+              Header has the brand chip + serif label; numbered facts
+              below render with refined typography and clean separators. */}
+          <div className="flex flex-col gap-3 px-4 pb-6">
+            {groups.map((group, groupIdx) => {
               const meta = sourceMeta(group.source, result.siteName)
               return (
-                <div key={group.key} className="rounded-lg px-3 py-3" style={{ background: "var(--rv-elev-1)" }}>
-                  <div className="flex items-center gap-2 mb-2.5">
+                <div
+                  key={group.key}
+                  className="rounded-[12px] overflow-hidden"
+                  style={{
+                    background: "var(--rv-elev-1)",
+                    border:     "0.5px solid var(--rv-border)",
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-3 px-4 pt-3.5 pb-3"
+                    style={{ borderBottom: "0.5px solid var(--rv-border)" }}
+                  >
                     <SourceMark source={group.source} siteName={result.siteName} size="md" />
-                    <span className="text-[11.5px] font-semibold tracking-tight" style={{ color: "var(--rv-t1)" }}>
-                      {meta.label}
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="leading-tight truncate"
+                        style={{
+                          color:      "var(--rv-t1)",
+                          fontSize:   14,
+                          fontFamily: "var(--rv-font-display)",
+                          fontWeight: 500,
+                          letterSpacing: "-0.012em",
+                        }}
+                      >
+                        {meta.label}
+                      </p>
+                    </div>
+                    <span
+                      className="shrink-0 text-[10px] uppercase tracking-widest font-medium tabular-nums"
+                      style={{ color: "var(--rv-t4)" }}
+                    >
+                      {String(groupIdx + 1).padStart(2, "0")}
                     </span>
                   </div>
-                  <div className="flex flex-col">
+                  <div className="flex flex-col px-4 py-1">
                     {group.facts.map((f, i) => (
                       <div
                         key={i}
-                        className="flex items-baseline justify-between gap-3 py-1.5 last:border-0"
-                        style={{ borderBottom: "1px solid var(--rv-border)" }}
+                        className="flex items-baseline justify-between gap-3 py-2.5"
+                        style={{ borderBottom: i < group.facts.length - 1 ? "0.5px solid var(--rv-border)" : "none" }}
                       >
-                        <span className="text-[12px]" style={{ color: "var(--rv-t3)" }}>{f.label}</span>
+                        <span className="text-[12.5px]" style={{ color: "var(--rv-t3)" }}>{f.label}</span>
                         <div className="flex items-baseline gap-2 text-right">
-                          <span className="text-[12.5px] tabular-nums" style={{ color: "var(--rv-t2)" }}>{f.value}</span>
+                          <span
+                            className="tabular-nums leading-none"
+                            style={{
+                              color:      "var(--rv-t1)",
+                              fontSize:   13,
+                              fontFamily: "var(--rv-font-display)",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {f.value}
+                          </span>
                           {f.fetchedAt && (
                             <span className="text-[10.5px] tabular-nums shrink-0" style={{ color: "var(--rv-t4)" }}>
                               {freshnessLabel(f.fetchedAt)?.replace("fetched ", "") ?? ""}
