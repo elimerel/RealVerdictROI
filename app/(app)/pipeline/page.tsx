@@ -1790,57 +1790,73 @@ function PipelinePageInner() {
               title="Drag to resize"
             />
 
-            {/* RIGHT area — comparison view takes over when 2+ deals
-                selected; otherwise map (always) + sliding detail rail. */}
-            <div className="flex flex-1 min-w-0 h-full">
+            {/* RIGHT area — vertical split when comparing (map on top
+                with selected pins highlighted, comparison table below);
+                horizontal split otherwise (map + detail rail). The map
+                is ALWAYS visible — the geography is half the value of
+                comparing in real estate. */}
+            <div className={`flex flex-1 min-w-0 h-full ${compareDeals.length >= 2 ? "flex-col" : "flex-row"}`}>
+              {/* Map — always visible. In normal mode it's the dominant
+                  surface (flex-1). In compare mode it gets the top
+                  portion so you can see all compared pins together
+                  while the comparison details sit below. */}
+              <div
+                className={compareDeals.length >= 2 ? "shrink-0 w-full" : "flex-1 min-w-0 h-full"}
+                style={compareDeals.length >= 2 ? { height: "45%" } : undefined}
+              >
+                <PipelineMap
+                  deals={filtered}
+                  selectedId={selId}
+                  onSelect={setSelId}
+                  styleId={mapStyleId}
+                />
+              </div>
+
+              {/* Body content next to / below the map */}
               {compareDeals.length >= 2 ? (
-                <ComparisonView
-                  deals={compareDeals}
-                  onClear={() => setCompareIds(new Set())}
-                  onRemove={(id) => setCompareIds((prev) => {
-                    const next = new Set(prev)
-                    next.delete(id)
-                    return next
-                  })}
-                  onOpenInBrowse={(url) => router.push(`/browse?url=${encodeURIComponent(url)}`)}
-                />
+                <div className="flex-1 min-h-0 w-full" style={{ borderTop: "0.5px solid var(--rv-border)" }}>
+                  <ComparisonView
+                    deals={compareDeals}
+                    onClear={() => setCompareIds(new Set())}
+                    onRemove={(id) => setCompareIds((prev) => {
+                      const next = new Set(prev)
+                      next.delete(id)
+                      return next
+                    })}
+                    onOpenInBrowse={(url) => router.push(`/browse?url=${encodeURIComponent(url)}`)}
+                  />
+                </div>
               ) : compareMode ? (
-                <CompareSelectingPane
-                  picked={(deals ?? []).filter((d) => compareIds.has(d.id))}
-                  onRemove={(id) => setCompareIds((prev) => {
-                    const next = new Set(prev); next.delete(id); return next
-                  })}
-                />
+                <div
+                  className="shrink-0 h-full"
+                  style={{
+                    width:        320,
+                    borderLeft:   "0.5px solid var(--rv-border)",
+                  }}
+                >
+                  <CompareSelectingPane
+                    picked={(deals ?? []).filter((d) => compareIds.has(d.id))}
+                    onRemove={(id) => setCompareIds((prev) => {
+                      const next = new Set(prev); next.delete(id); return next
+                    })}
+                  />
+                </div>
               ) : (
-                <>
-                  {/* Map — always visible. Fluid width, fills the area. */}
-                  <div className="flex-1 min-w-0 h-full">
-                    <PipelineMap
-                      deals={filtered}
-                      selectedId={selId}
-                      onSelect={setSelId}
-                      styleId={mapStyleId}
-                    />
-                  </div>
-                  {/* Detail rail — slides in from the right when a deal
-                      is selected. Map shrinks (smoothly, via flex) to
-                      accommodate. Esc clears the selection. */}
-                  <div
-                    className="shrink-0 h-full"
-                    style={{
-                      width:        selected ? 440 : 0,
-                      overflow:     "hidden",
-                      borderLeft:   selected ? "0.5px solid var(--rv-border)" : "none",
-                      transition:   "width 240ms cubic-bezier(0.32, 0.72, 0, 1), border-left-color 240ms",
-                    }}
-                  >
-                    {selected ? (
-                      <DealDetail deal={selected} onChange={onDealChange} />
-                    ) : (
-                      <DetailEmpty filtered={filtered.length} hasAny={(deals?.length ?? 0) > 0} />
-                    )}
-                  </div>
-                </>
+                <div
+                  className="shrink-0 h-full"
+                  style={{
+                    width:        selected ? 440 : 0,
+                    overflow:     "hidden",
+                    borderLeft:   selected ? "0.5px solid var(--rv-border)" : "none",
+                    transition:   "width 240ms cubic-bezier(0.32, 0.72, 0, 1), border-left-color 240ms",
+                  }}
+                >
+                  {selected ? (
+                    <DealDetail deal={selected} onChange={onDealChange} />
+                  ) : (
+                    <DetailEmpty filtered={filtered.length} hasAny={(deals?.length ?? 0) > 0} />
+                  )}
+                </div>
               )}
             </div>
           </>
