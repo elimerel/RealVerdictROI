@@ -14,6 +14,7 @@ import {
 import PanelChat from "./Chat"
 import { ScenarioDisclosure } from "./ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
+import { useEscape } from "@/lib/escapeStack"
 
 // ── Metric card ───────────────────────────────────────────────────────────────
 //
@@ -243,6 +244,10 @@ function SourcesDrawer({
   result:   PanelResult
   onClose:  () => void
 }) {
+  // Esc closes the drawer — registered while it's mounted (drawer is
+  // unmounted entirely when closed, so isOpen=true is implicit). Pushes
+  // onto the global Esc stack as the topmost handler.
+  useEscape(true, onClose)
   const { provenance } = result
   const fmtCurrency = (n: number | null) =>
     n == null ? "—" : new Intl.NumberFormat("en-US", {
@@ -1185,6 +1190,13 @@ export default function Panel({
   // Always closed on mount; opens via the header source-stack button.
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const result = state.phase === "ready" ? state.result : null
+
+  // Esc behavior — layered. The drawer registers its own handler when
+  // open (topmost), then chat-mode does, then the panel itself. Each
+  // layer pops one step back: drawer → chat → metrics → close panel.
+  // Chat-mode Esc returns to metrics view first; another Esc closes panel.
+  useEscape(viewMode === "chat" && !sourcesOpen, () => setViewMode("metrics"))
+  useEscape(viewMode !== "chat" && !sourcesOpen && !!onClose, () => onClose?.())
 
   return (
     <div

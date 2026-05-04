@@ -154,8 +154,9 @@ export default function PipelineMap({
       const color = STAGE_COLOR[deal.stage]
 
       if (existing) {
-        // Update color / selected state by replacing the element's HTML.
-        const el = existing.getElement()
+        // Update color / selected state. getElement() returns HTMLElement;
+        // we cast since we know we always create div elements ourselves.
+        const el = existing.getElement() as HTMLDivElement
         styleMarkerEl(el, color, isSelected)
         return
       }

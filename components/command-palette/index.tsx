@@ -26,6 +26,7 @@ import {
   type RecentListing,
 } from "@/lib/pipeline"
 import type { AskResponse } from "@/lib/electron"
+import { useEscape } from "@/lib/escapeStack"
 
 /**
  * Action in the palette. `run` is what fires on Enter or click. `score`
@@ -134,6 +135,11 @@ export default function CommandPalette() {
       offShortcut?.()
     }
   }, [])
+
+  // Esc closes the palette via the global dismiss stack so it cooperates
+  // with other dismissable surfaces (drawer, panel) — Esc closes the
+  // topmost open thing, not the palette specifically.
+  useEscape(open, () => setOpen(false))
 
   // Re-render when context actions change (mount/unmount of route).
   useEffect(() => {

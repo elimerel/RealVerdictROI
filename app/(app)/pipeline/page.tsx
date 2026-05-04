@@ -34,6 +34,7 @@ import { ScenarioDisclosure } from "@/components/panel/ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
 import PipelineMap from "@/components/PipelineMap"
 import { Map as MapIcon, List as ListIcon } from "lucide-react"
+import { useEscape } from "@/lib/escapeStack"
 
 // ── Format helpers ────────────────────────────────────────────────────────
 
@@ -1279,6 +1280,9 @@ function PipelinePageInner() {
   const [deals,  setDeals]  = useState<SavedDeal[] | null>(null)
   const [error,  setError]  = useState<string | null>(null)
   const [selId,  setSelId]  = useState<string | null>(null)
+  // Esc clears the selection in map mode (collapses the detail rail).
+  // Registers only when a deal is selected AND we're in map mode, so
+  // it won't fight other Esc handlers when no rail is open.
   const [listW,  setListW]  = useState<number>(LIST_W_DEFAULT)
   /** View mode — toggles the main pane between the dense list view
    *  (existing) and the geographic map view (deals as pins on a Mapbox
@@ -1306,6 +1310,11 @@ function PipelinePageInner() {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
     return () => observer.disconnect()
   }, [])
+
+  // Esc deselects the current deal in map mode (collapses the detail rail
+  // back to 0). In list mode there's no equivalent (selection is implicit
+  // in the list focus), so this is map-mode-only.
+  useEscape(viewMode === "map" && !!selId, () => setSelId(null))
   /** Cmd/Ctrl-click toggles deals into this set; the detail pane swaps
    *  to a comparison view when size >= 2. Plain click clears it back to
    *  single-select on the clicked row. Capped at 4 — past that, the
