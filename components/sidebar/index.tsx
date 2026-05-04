@@ -48,6 +48,22 @@ function NavItem({
   iconsOnly: boolean
   badge?: number
 }) {
+  // Pulse the count chip when the badge increments — confirms a save
+  // landed in the pipeline. Pure local state; resets after the
+  // animation completes.
+  const [pulse, setPulse] = useState(false)
+  const lastBadgeRef = useRef<number | undefined>(badge)
+  useEffect(() => {
+    if (badge != null && lastBadgeRef.current != null && badge > lastBadgeRef.current) {
+      setPulse(true)
+      const id = setTimeout(() => setPulse(false), 700)
+      return () => clearTimeout(id)
+    }
+    lastBadgeRef.current = badge
+  }, [badge])
+  // Update the ref AFTER the effect so the comparison above works.
+  useEffect(() => { lastBadgeRef.current = badge }, [badge])
+
   return (
     <Link
       href={href}
@@ -90,7 +106,7 @@ function NavItem({
           <span className="truncate flex-1">{label}</span>
           {badge != null && badge > 0 && (
             <span
-              className="shrink-0 inline-flex items-center justify-center rounded-full text-[10.5px] tabular-nums"
+              className={`shrink-0 inline-flex items-center justify-center rounded-full text-[10.5px] tabular-nums ${pulse ? "rv-count-pulse" : ""}`}
               style={{
                 minWidth:    16,
                 height:      16,

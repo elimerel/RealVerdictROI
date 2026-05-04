@@ -8,6 +8,7 @@ import SidebarToggle from "@/components/sidebar/toggle"
 import { PanelStateProvider } from "@/components/panel/context"
 import PanelToggle from "@/components/browser/PanelToggle"
 import CommandPalette from "@/components/command-palette"
+import ToastHost from "@/components/ToastHost"
 
 /**
  * Wires menu-accelerator IPC events from main.js into the React tree:
@@ -102,6 +103,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <SidebarToggle />
         <PanelToggle />
         <CommandPalette />
+        {/* Buddy toast surface — bottom-right. The buddy's voice in
+            the moment (saved, stage moved, price drop, etc.). */}
+        <ToastHost />
       </PanelStateProvider>
     </SidebarProvider>
   )

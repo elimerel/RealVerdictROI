@@ -35,6 +35,7 @@ import { SourceMark } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
 import type { ScenarioOverrides } from "@/lib/scenario"
 import ActivityFeed from "@/components/ActivityFeed"
+import { showToast } from "@/lib/toast"
 
 const PANEL_W_DEFAULT = 340
 const PANEL_W_MIN     = 280
@@ -491,6 +492,40 @@ function BrowsePageInner() {
     setPendingScenario((prev) => {
       if (!(url in prev)) return prev
       const next = { ...prev }; delete next[url]; return next
+    })
+
+    // Buddy toast — observe something interesting about the save.
+    // Compares the saved deal against the user's portfolio so the
+    // toast reads as a real noticing ("This one's above your average")
+    // not a generic confirmation ("Saved successfully").
+    const savedCount = Object.keys(savedByUrl).length + 1   // +1 for this save
+    const otherDeals = Object.values(savedByUrl)
+    const otherCFs   = otherDeals.map((d) => d.snapshot?.metrics?.monthlyCashFlow).filter((n): n is number => Number.isFinite(n))
+    const avgCF      = otherCFs.length > 0 ? otherCFs.reduce((a, b) => a + b, 0) / otherCFs.length : null
+    const thisCF     = result.metrics?.monthlyCashFlow ?? null
+
+    let detail: string | undefined
+    if (avgCF != null && thisCF != null && otherCFs.length >= 2) {
+      const delta = thisCF - avgCF
+      if (Math.abs(delta) >= 50) {
+        const sign = delta > 0 ? "+" : "−"
+        detail = `${sign}$${Math.abs(Math.round(delta))}/mo vs your portfolio average`
+      }
+    }
+    if (!detail) {
+      detail = savedCount === 1
+        ? "Your first deal."
+        : `${savedCount} in your pipeline now.`
+    }
+
+    showToast({
+      message: "Saved to Watching.",
+      detail,
+      tone:    "pos",
+      action:  {
+        label:   "View →",
+        onClick: () => router.push("/pipeline"),
+      },
     })
 
     const saved = await saveDeal({ sourceUrl: url, result, scenario })
