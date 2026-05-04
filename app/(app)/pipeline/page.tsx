@@ -32,6 +32,8 @@ import {
 import { hasActiveScenario, recomputeMetrics, type ScenarioOverrides } from "@/lib/scenario"
 import { ScenarioDisclosure } from "@/components/panel/ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
+import PipelineMap from "@/components/PipelineMap"
+import { Map as MapIcon, List as ListIcon } from "lucide-react"
 
 // ── Format helpers ────────────────────────────────────────────────────────
 
@@ -1194,6 +1196,59 @@ function DetailEmpty({ filtered, hasAny }: { filtered: number; hasAny: boolean }
   )
 }
 
+// ── View toggle — segmented Map | List pill ─────────────────────────────
+//
+// Modeled after Apple's segmented control + Linear's view toggles.
+// Compact, unmistakably a mode switch (not a button), accent-tinted on
+// the active half. Lives at the start of the page header so it reads as
+// the primary navigation move within the Pipeline page.
+
+function ViewToggle({
+  mode, onChange,
+}: {
+  mode:     "list" | "map"
+  onChange: (m: "list" | "map") => void
+}) {
+  const Btn = ({ value, icon, label }: { value: "list" | "map"; icon: React.ReactNode; label: string }) => {
+    const active = mode === value
+    return (
+      <button
+        onClick={() => onChange(value)}
+        title={`${label} view`}
+        aria-label={`${label} view`}
+        className="inline-flex items-center justify-center transition-colors"
+        style={{
+          width:        28,
+          height:       24,
+          color:        active ? "var(--rv-accent)" : "var(--rv-t3)",
+          background:   active ? "var(--rv-bg)" : "transparent",
+          borderRadius: 5,
+          boxShadow:    active ? "0 1px 2px rgba(0,0,0,0.18), 0 0 0 0.5px var(--rv-border)" : "none",
+        }}
+        onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = "var(--rv-t1)" }}
+        onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = "var(--rv-t3)" }}
+      >
+        {icon}
+      </button>
+    )
+  }
+  return (
+    <div
+      className="inline-flex items-center shrink-0"
+      style={{
+        padding:      2,
+        background:   "var(--rv-elev-2)",
+        border:       "0.5px solid var(--rv-border)",
+        borderRadius: 7,
+        gap:          2,
+      }}
+    >
+      <Btn value="map"  icon={<MapIcon  size={13} strokeWidth={1.8} />} label="Map" />
+      <Btn value="list" icon={<ListIcon size={13} strokeWidth={1.8} />} label="List" />
+    </div>
+  )
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 const STAGES_VALID = new Set<DealStage>(DEAL_STAGES)
@@ -1225,6 +1280,32 @@ function PipelinePageInner() {
   const [error,  setError]  = useState<string | null>(null)
   const [selId,  setSelId]  = useState<string | null>(null)
   const [listW,  setListW]  = useState<number>(LIST_W_DEFAULT)
+  /** View mode — toggles the main pane between the dense list view
+   *  (existing) and the geographic map view (deals as pins on a Mapbox
+   *  surface). Defaults to map for the at-a-glance "where is everything"
+   *  experience that no other tool in the category gives you. Persists
+   *  to localStorage so the user lands in their preferred view next time. */
+  const [viewMode, setViewMode] = useState<"list" | "map">(() => {
+    if (typeof window === "undefined") return "map"
+    return (localStorage.getItem("rv-pipeline-view") as "list" | "map") ?? "map"
+  })
+  useEffect(() => {
+    try { localStorage.setItem("rv-pipeline-view", viewMode) } catch {}
+  }, [viewMode])
+  /** Theme awareness — Mapbox style needs to flip on theme change.
+   *  Subscribes to the html element's class changes so it stays in sync
+   *  if the user switches themes mid-session. */
+  const [mapStyleId, setMapStyleId] = useState<"dark" | "light">(() => {
+    if (typeof document === "undefined") return "dark"
+    return document.documentElement.classList.contains("theme-light") ? "light" : "dark"
+  })
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setMapStyleId(document.documentElement.classList.contains("theme-light") ? "light" : "dark")
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
+    return () => observer.disconnect()
+  }, [])
   /** Cmd/Ctrl-click toggles deals into this set; the detail pane swaps
    *  to a comparison view when size >= 2. Plain click clears it back to
    *  single-select on the clicked row. Capped at 4 — past that, the
@@ -1474,6 +1555,11 @@ function PipelinePageInner() {
         } as React.CSSProperties}
       >
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-3 min-w-0">
+          {/* View toggle — segmented pill (Map | List). Map is the default;
+              the geographic view is RealVerdict's signature in this category.
+              The toggle sits at the front of the header so it reads as the
+              primary mode-switch, not a buried preference. */}
+          <ViewToggle mode={viewMode} onChange={setViewMode} />
           <div className="flex items-baseline gap-2.5 min-w-0">
             <h1 className="text-[15px] font-semibold tracking-tight shrink-0" style={{ color: "var(--rv-t1)" }}>
               {stageTitle}
@@ -1702,58 +1788,89 @@ function PipelinePageInner() {
 
         {!error && deals !== null && (
           <>
-            <div
-              className="shrink-0 flex flex-col h-full overflow-hidden"
-              style={{
-                width:        listW,
-                borderRight:  "0.5px solid var(--rv-border)",
-              }}
-            >
-              <div className="flex-1 overflow-y-auto panel-scroll relative">
-                {/* Drop target — slides in from the top whenever any row
-                    is being dragged, gives a visual landing pad with
-                    "Drop to add to Compare". Hidden otherwise. */}
-                <CompareDropZone
-                  visible={draggingDealId !== null}
-                  onDrop={(id) => onCompareDrop(id)}
+            {/* LEFT pane — map or list, swapped by viewMode. Map gets fluid
+                width (flex-1) since it's a canvas; list gets a fixed width
+                with a draggable splitter. The detail rail on the right
+                stays the same in both modes. */}
+            {viewMode === "map" ? (
+              <div className="flex-1 min-w-0 h-full" style={{ borderRight: selId ? "0.5px solid var(--rv-border)" : "none" }}>
+                <PipelineMap
+                  deals={filtered}
+                  selectedId={selId}
+                  onSelect={setSelId}
+                  styleId={mapStyleId}
                 />
-                {filtered.length === 0 ? (
-                  <ListEmpty stageTitle={stageTitle} hasAny={(deals?.length ?? 0) > 0} onClearStage={() => router.push("/pipeline")} />
-                ) : (
-                  filtered.map((deal) => (
-                    <DealListRow
-                      key={deal.id}
-                      deal={deal}
-                      active={compareIds.size < 2 && selId === deal.id}
-                      multiSelected={compareIds.has(deal.id)}
-                      compareMode={compareMode}
-                      onSelect={(mods) => onRowClick(deal.id, mods)}
-                      onContextMenuAdd={() => onRowToggleCompare(deal.id)}
-                      onDragStartRow={onRowDragStart}
-                      onDragEndRow={onRowDragEnd}
-                    />
-                  ))
-                )}
               </div>
-            </div>
-            {/* Splitter */}
-            <div
-              onPointerDown={onSplitDown}
-              onPointerMove={onSplitMove}
-              onPointerUp={onSplitUp}
-              onPointerCancel={onSplitUp}
-              className="rv-splitter shrink-0 cursor-col-resize select-none"
-              style={{ width: 4 }}
-              title="Drag to resize"
-            />
+            ) : (
+              <>
+                <div
+                  className="shrink-0 flex flex-col h-full overflow-hidden"
+                  style={{
+                    width:        listW,
+                    borderRight:  "0.5px solid var(--rv-border)",
+                  }}
+                >
+                  <div className="flex-1 overflow-y-auto panel-scroll relative">
+                    {/* Drop target — slides in from the top whenever any row
+                        is being dragged, gives a visual landing pad with
+                        "Drop to add to Compare". Hidden otherwise. */}
+                    <CompareDropZone
+                      visible={draggingDealId !== null}
+                      onDrop={(id) => onCompareDrop(id)}
+                    />
+                    {filtered.length === 0 ? (
+                      <ListEmpty stageTitle={stageTitle} hasAny={(deals?.length ?? 0) > 0} onClearStage={() => router.push("/pipeline")} />
+                    ) : (
+                      filtered.map((deal) => (
+                        <DealListRow
+                          key={deal.id}
+                          deal={deal}
+                          active={compareIds.size < 2 && selId === deal.id}
+                          multiSelected={compareIds.has(deal.id)}
+                          compareMode={compareMode}
+                          onSelect={(mods) => onRowClick(deal.id, mods)}
+                          onContextMenuAdd={() => onRowToggleCompare(deal.id)}
+                          onDragStartRow={onRowDragStart}
+                          onDragEndRow={onRowDragEnd}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+                {/* Splitter */}
+                <div
+                  onPointerDown={onSplitDown}
+                  onPointerMove={onSplitMove}
+                  onPointerUp={onSplitUp}
+                  onPointerCancel={onSplitUp}
+                  className="rv-splitter shrink-0 cursor-col-resize select-none"
+                  style={{ width: 4 }}
+                  title="Drag to resize"
+                />
+              </>
+            )}
             {/* Detail — three states:
                   - 2+ deals selected: side-by-side comparison
                   - in compare mode with 0-1 picked: a focused "Selecting"
                     pane with picked-deal previews + instructions, so the
                     detail area becomes part of the selection experience
                     instead of looking like a stale focal deal
-                  - otherwise: single deal detail OR empty state */}
-            <div className="flex-1 min-w-0 h-full">
+                  - otherwise: single deal detail OR empty state
+
+                In MAP mode, the detail rail is fixed-width (440px) and
+                only renders when there's a selection — the map gets the
+                rest of the canvas. In LIST mode, the detail uses flex-1
+                as before. */}
+            <div
+              className={viewMode === "map" ? "shrink-0 h-full" : "flex-1 min-w-0 h-full"}
+              style={viewMode === "map"
+                ? {
+                    width:      selected || compareDeals.length >= 2 || compareMode ? 440 : 0,
+                    overflow:   "hidden",
+                    transition: "width 240ms cubic-bezier(0.32, 0.72, 0, 1)",
+                  }
+                : undefined}
+            >
               {compareDeals.length >= 2 ? (
                 <ComparisonView
                   deals={compareDeals}
