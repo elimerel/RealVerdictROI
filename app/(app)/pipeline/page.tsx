@@ -12,6 +12,7 @@ import {
   X,
   Bell,
   BellOff,
+  Sparkles,
 } from "lucide-react"
 import { useSidebar, SNAP_ICONS } from "@/components/sidebar/context"
 import { SourceMark } from "@/components/source/SourceMark"
@@ -984,26 +985,51 @@ function ComparisonView({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto panel-scroll">
-        {/* AI factual diff — quiet card above the table when available */}
+        {/* AI narration — prominent hero card above the table. The buddy
+            reads the differences and tells you the story in display serif.
+            Sets the frame for what the table below shows. */}
         {(summary || summaryLoading) && (
-          <div className="px-6 pt-5">
+          <div className="px-6 pt-6">
             <div
-              className="flex items-start gap-2.5 rounded-[10px] px-4 py-3"
+              className="flex items-start gap-3.5 rounded-[14px] px-5 py-5"
               style={{
-                background: "rgba(48,164,108,0.06)",
-                border:     "0.5px solid rgba(48,164,108,0.18)",
+                background: "var(--rv-accent-dim)",
+                border:     "0.5px solid var(--rv-accent-border)",
+                boxShadow:  "var(--rv-shadow-inset)",
               }}
             >
               <span
-                className="w-1.5 h-1.5 rounded-full shrink-0 mt-[7px]"
-                style={{ background: summary ? "var(--rv-accent)" : "rgba(48,164,108,0.5)" }}
-              />
-              <p
-                className="text-[12.5px] leading-relaxed"
-                style={{ color: summary ? "var(--rv-t1)" : "var(--rv-t3)" }}
+                className="shrink-0 inline-flex items-center justify-center rounded-full mt-[2px]"
+                style={{
+                  width:      24,
+                  height:     24,
+                  color:      "var(--rv-accent)",
+                  background: "rgba(48,164,108,0.18)",
+                  border:     "0.5px solid var(--rv-accent-border)",
+                }}
               >
-                {summary ?? "Reading the differences…"}
-              </p>
+                <Sparkles size={12} strokeWidth={2} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-[10px] uppercase tracking-widest font-semibold"
+                  style={{ color: "var(--rv-accent)" }}
+                >
+                  AI Noticed
+                </p>
+                <p
+                  className="mt-2 leading-snug"
+                  style={{
+                    color:         summary ? "var(--rv-t1)" : "var(--rv-t3)",
+                    fontSize:      15,
+                    fontFamily:    "var(--rv-font-display)",
+                    fontWeight:    400,
+                    letterSpacing: "-0.012em",
+                  }}
+                >
+                  {summary ?? "Reading the differences…"}
+                </p>
+              </div>
             </div>
           </div>
         )}
