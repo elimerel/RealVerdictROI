@@ -127,12 +127,12 @@ export function SourceMark({
   const dim   = size === "md" ? 22 : 18
 
   // Logo path — circular frame (Mercury / Apple Wallet avatar style). The
-  // brand image sits inside a soft white background with a hairline ring,
-  // so logos with their own backgrounds read consistently and logos with
-  // transparency get a clean substrate. The circle is the brand statement
-  // — every number on the screen has one of these next to it, and they
-  // all read as a unified set of "trust badges" no matter what the
-  // underlying logo's shape is.
+  // brand image fills the full frame; object-fit: cover crops the square
+  // logo to fit the circle so the brand mark dominates the chip instead
+  // of floating inside it with padding. Logos that have their own
+  // background show that background; logos with transparency fall back
+  // to the white substrate. The circle is the brand statement — every
+  // number on the screen has one of these next to it.
   if (logo) {
     return (
       <span
@@ -141,9 +141,6 @@ export function SourceMark({
         style={{
           width:      dim,
           height:     dim,
-          // White substrate so every logo (regardless of its native
-          // background) sits on the same visual base. Tiny shadow lifts
-          // the chip off the surface like a Mercury account avatar.
           background: "#fff",
           border:     "0.5px solid var(--rv-border-mid)",
           boxShadow:  "0 1px 2px rgba(0,0,0,0.25)",
@@ -152,9 +149,17 @@ export function SourceMark({
         <img
           src={logo}
           alt={meta.label}
-          width={dim - 4}
-          height={dim - 4}
-          style={{ display: "block", objectFit: "contain" }}
+          width={dim}
+          height={dim}
+          style={{
+            display:    "block",
+            // cover: fills the circle entirely. Square logos crop their
+            // corners against the circle (good — that's the chip). Logos
+            // with built-in padding still look better than contain.
+            objectFit:  "cover",
+            width:      "100%",
+            height:     "100%",
+          }}
           draggable={false}
         />
       </span>
