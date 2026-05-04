@@ -27,6 +27,18 @@ interface TabStripProps {
 
 const TAB_WIDTH = 222   // 220 + 2px gap
 
+// Pull a 16px favicon from Google's S2 service. Free, no API key, and
+// already cached by Chromium so the request is near-instant after the
+// first load. Returns null when the URL has no host (new tab).
+function faviconUrlFor(url: string | undefined | null): string | null {
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    if (!u.hostname) return null
+    return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`
+  } catch { return null }
+}
+
 export default function TabStrip({
   tabs, activeId, paddingLeft, onActivate, onClose, onNew, onReorder,
 }: TabStripProps) {
@@ -115,7 +127,7 @@ export default function TabStrip({
     <div
       className="flex items-stretch shrink-0 select-none rv-tabstrip relative"
       style={{
-        height:           40,
+        height:           36,
         paddingLeft,
         paddingRight:     8,
         WebkitAppRegion:  "drag",
@@ -164,25 +176,25 @@ export default function TabStrip({
           onClick={onNew}
           title="New tab (⌘T)"
           aria-label="New tab"
-          className="self-center inline-flex items-center justify-center rounded-[6px]"
+          className="self-center inline-flex items-center justify-center rounded-full"
           style={{
-            width:       24,
-            height:      24,
-            marginLeft:  4,
-            color:       "var(--rv-t4)",
+            width:       28,
+            height:      28,
+            marginLeft:  6,
+            color:       "var(--rv-t3)",
             background:  "transparent",
             transition:  "color 100ms cubic-bezier(0.4, 0, 0.2, 1), background-color 100ms cubic-bezier(0.4, 0, 0.2, 1)",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.color      = "var(--rv-t2)"
-            e.currentTarget.style.background = "var(--rv-elev-2)"
+            e.currentTarget.style.color      = "var(--rv-t1)"
+            e.currentTarget.style.background = "rgba(255, 255, 255, 0.08)"
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.color      = "var(--rv-t4)"
+            e.currentTarget.style.color      = "var(--rv-t3)"
             e.currentTarget.style.background = "transparent"
           }}
         >
-          <Plus size={12} strokeWidth={1.6} />
+          <Plus size={14} strokeWidth={2} />
         </button>
       </div>
     </div>
@@ -244,20 +256,23 @@ function TabItem({
         // rounded, bottom corners are square so the active tab's
         // bottom merges flush into AppTopBar. Keeps the "tab is
         // part of the toolbar" reading.
-        borderTopLeftRadius:     8,
-        borderTopRightRadius:    8,
+        // 4px top corners (Wexond / classic-Chrome). Subtle rounding
+        // reads as utilitarian; the bigger 13px curve reads softer
+        // and more "consumer browser." This aesthetic favors tool.
+        borderTopLeftRadius:     4,
+        borderTopRightRadius:    4,
         borderBottomLeftRadius:  0,
         borderBottomRightRadius: 0,
-        // Inactive tabs get a subtle lifted fill + outline so they
-        // read as visible chip containers. Active tab is one step
-        // more lifted (--rv-surface) and merges DOWN into AppTopBar.
-        background:   active ? "var(--rv-surface)" : "rgba(255, 255, 255, 0.035)",
+        // Inactive tabs are FLAT against the band — no chip fill, no
+        // outline. Just dimmer text. The active tab is the only one
+        // that lifts (matches the URL bar surface beneath) and curves
+        // into the AppTopBar via a 2px overlap. This is the Chrome
+        // pattern: one selected card, the rest are labels on a band.
+        background:   active ? "var(--rv-surface)" : "transparent",
         color:        active ? "var(--rv-t1)" : "var(--rv-t3)",
         opacity:      isDragging ? 0.85 : 1,
-        // Dragged tab follows cursor at full transform speed (no
-        // transition); reflowing tabs ease into their new positions.
         transform:    xOffset !== 0 ? `translateX(${xOffset}px)` : undefined,
-        boxShadow:    active ? "none" : "inset 0 0 0 0.5px rgba(255, 255, 255, 0.06)",
+        boxShadow:    "none",
         transition:   isDragging
           ? "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1)"
           : "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), transform 220ms cubic-bezier(0.32, 0.72, 0, 1)",
@@ -265,29 +280,66 @@ function TabItem({
       }}
       onMouseEnter={(e) => {
         if (!active) {
-          e.currentTarget.style.background = "rgba(255, 255, 255, 0.07)"
+          e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"
           e.currentTarget.style.color      = "var(--rv-t1)"
         }
       }}
       onMouseLeave={(e) => {
         if (!active) {
-          e.currentTarget.style.background = "rgba(255, 255, 255, 0.035)"
+          e.currentTarget.style.background = "transparent"
           e.currentTarget.style.color      = "var(--rv-t3)"
         }
       }}
     >
-      {/* Site favicon / busy indicator slot (left). */}
-      {tab.loading && (
+      {/* Chrome-style hairline separator on the right edge of every
+          inactive tab — fades out on hover. Centered ~50% height. */}
+      {!active && (
         <span
           aria-hidden
-          className="shrink-0 rounded-full"
+          className="absolute pointer-events-none rv-tab-divider"
           style={{
-            width: 8, height: 8,
-            background: "var(--rv-accent)",
-            animation: "dotPulse 1.4s ease-in-out infinite",
+            right:      0,
+            top:        "25%",
+            height:     "50%",
+            width:      1,
+            background: "rgba(255, 255, 255, 0.08)",
           }}
         />
       )}
+      {/* Site favicon — pulled from Google's free S2 service so we
+          don't need to extract one ourselves per page. Falls back to
+          a generic globe glyph when the URL is empty (new tab) or
+          while loading replaces it with a pulsing accent dot. */}
+      <span
+        aria-hidden
+        className="shrink-0 inline-flex items-center justify-center"
+        style={{ width: 16, height: 16 }}
+      >
+        {tab.loading ? (
+          <span
+            className="rounded-full"
+            style={{
+              width: 8, height: 8,
+              background: "var(--rv-accent)",
+              animation: "dotPulse 1.4s ease-in-out infinite",
+            }}
+          />
+        ) : faviconUrlFor(tab.url) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={faviconUrlFor(tab.url) ?? undefined}
+            alt=""
+            width={16}
+            height={16}
+            style={{ width: 16, height: 16, borderRadius: 3 }}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden" }}
+          />
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.2" opacity="0.4"/>
+          </svg>
+        )}
+      </span>
       <span className="flex-1 min-w-0 truncate text-[12.5px] tracking-tight">
         {tab.title || tab.url || "New tab"}
       </span>

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useRef, useState, Suspense } from "react"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   Compass, LayoutGrid, Settings,
   Eye, Star, Send, Trophy, CircleSlash,
@@ -64,25 +65,30 @@ function NavItem({
   // Update the ref AFTER the effect so the comparison above works.
   useEffect(() => { lastBadgeRef.current = badge }, [badge])
 
+  // Modernized to align with shadcn's SidebarMenuButton aesthetic:
+  // 8px radius, semantic tokens (accent for hover, primary for the
+  // active rail accent), Inter weight 500 for active items, faster
+  // 120ms transitions. The hand-rolled styles previously read as
+  // "AI-generated bespoke" — this aligns with how every modern app
+  // (Linear / Vercel / Notion) renders nav items.
   return (
     <Link
       href={href}
-      className="relative flex items-center select-none rounded-[7px]"
+      data-active={active}
+      className="group relative flex items-center select-none rounded-md transition-all duration-150"
       style={{
-        height:        36,
-        gap:           iconsOnly ? 0 : 9,
+        height:        34,
+        gap:           iconsOnly ? 0 : 10,
         padding:       iconsOnly ? 0 : "0 10px",
         justifyContent: iconsOnly ? "center" : "flex-start",
         color:         active ? "var(--rv-t1)" : "var(--rv-t2)",
         background:    active ? "var(--rv-accent-dim)" : "transparent",
-        boxShadow:     active ? "inset 0 0 0 0.5px var(--rv-accent-border)" : "none",
         fontSize:      13,
         fontWeight:    active ? 500 : 400,
         letterSpacing: "-0.005em",
         whiteSpace:    "nowrap",
         overflow:      "hidden",
         minWidth:      0,
-        transition:    "color 100ms cubic-bezier(0.4, 0, 0.2, 1), background 100ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 100ms",
       }}
       onMouseEnter={(e) => {
         if (!active) {
@@ -97,6 +103,20 @@ function NavItem({
         }
       }}
     >
+      {/* Active indicator — a thin vertical accent bar at the left,
+          shadcn / VSCode pattern. Shows the active route at a glance
+          even without reading the label. */}
+      {active && !iconsOnly && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full"
+          style={{
+            width:      2,
+            height:     16,
+            background: "var(--rv-accent)",
+          }}
+        />
+      )}
       <span
         className="shrink-0 flex items-center"
         style={{ color: active ? "var(--rv-accent)" : "inherit" }}
@@ -106,14 +126,13 @@ function NavItem({
           <span className="truncate flex-1">{label}</span>
           {badge != null && badge > 0 && (
             <span
-              className={`shrink-0 inline-flex items-center justify-center rounded-full text-[10.5px] tabular-nums ${pulse ? "rv-count-pulse" : ""}`}
+              className={`shrink-0 inline-flex items-center justify-center rounded-full text-[10.5px] tabular-nums font-medium ${pulse ? "rv-count-pulse" : ""}`}
               style={{
-                minWidth:    16,
-                height:      16,
+                minWidth:    18,
+                height:      18,
                 padding:     "0 5px",
-                color:       active ? "var(--rv-accent)" : "var(--rv-t3)",
-                background:  active ? "rgba(48,164,108,0.16)" : "var(--rv-elev-3)",
-                fontWeight:  500,
+                color:       active ? "var(--rv-accent)" : "var(--rv-t2)",
+                background:  active ? "rgba(74, 125, 94, 0.18)" : "var(--rv-elev-3)",
               }}
             >
               {badge}
@@ -219,40 +238,28 @@ function AccountRow() {
   return (
     <Link
       href="/settings"
-      className="shrink-0 flex items-center gap-2.5 px-3 py-2.5 mx-2 mb-2 rounded-[7px] transition-colors"
-      style={{
-        background: "transparent",
-        border:     "0.5px solid transparent",
-      }}
+      className="shrink-0 flex items-center gap-2.5 px-2 py-2 mx-2 mb-2 rounded-md transition-colors hover:bg-[var(--rv-elev-2)]"
       title={email}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background  = "var(--rv-elev-2)"
-        e.currentTarget.style.borderColor = "var(--rv-border)"
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background  = "transparent"
-        e.currentTarget.style.borderColor = "transparent"
-      }}
     >
-      <span
-        className="shrink-0 inline-flex items-center justify-center rounded-full"
-        style={{
-          width:       24,
-          height:      24,
-          background:  "var(--rv-accent)",
-          color:       "rgba(0,0,0,0.85)",
-          fontSize:    11,
-          fontWeight:  600,
-        }}
-      >
-        {initial}
-      </span>
-      <span
-        className="text-[12px] truncate"
-        style={{ color: "var(--rv-t1)", letterSpacing: "-0.005em" }}
-      >
-        {display}
-      </span>
+      <Avatar className="size-7 shrink-0">
+        <AvatarFallback
+          className="text-[11px] font-semibold"
+          style={{ background: "var(--rv-accent)", color: "white" }}
+        >
+          {initial}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0 flex flex-col leading-tight">
+        <span
+          className="text-[12.5px] truncate font-medium"
+          style={{ color: "var(--rv-t1)", letterSpacing: "-0.005em" }}
+        >
+          {display}
+        </span>
+        <span className="text-[10.5px] truncate" style={{ color: "var(--rv-t3)" }}>
+          Open settings
+        </span>
+      </div>
     </Link>
   )
 }

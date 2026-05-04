@@ -31,6 +31,14 @@ const CHROME_DESKTOP_UA =
 // Chrome user-agent. Must run BEFORE app.whenReady() to take effect.
 app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled")
 
+// Force the macOS menu-bar label and Dock title to "RealVerdict".
+// In dev (`electron .`), Electron defaults app.name to the package.json
+// "name" field — "realverdict-desktop" — which makes the macOS app menu
+// say "Realverdict-Desktop". Setting it explicitly ensures the dev
+// build matches the production build (which uses productName via
+// electron-builder). Must run BEFORE app.whenReady().
+app.setName("RealVerdict")
+
 // Load .env.local from the repo root in dev so the Anthropic / OpenAI keys
 // reach the main process. Without this, only the Next.js renderer sees env
 // vars and the Electron-side extractor falls back to "no_key".
@@ -745,19 +753,19 @@ function shrinkToLogin() {
 //   - BrowseTabsRow: 40px (always 40 in Browse mode — collapses to 0
 //     on other routes, but BrowserView is only shown on Browse so
 //     we always assume the 40 here).
-// Total chrome above the BrowserView = 92px in Browse.
-const TOOLBAR_H   = 52
-const TAB_STRIP_H = 40
+// Total chrome above the BrowserView = 110px in Browse:
+//   36px tab strip + 42px URL toolbar + 32px bookmarks bar.
+//   Wexond / classic-Chrome proportions — denser, more tool-like.
+const TOOLBAR_H        = 42
+const TAB_STRIP_H      = 36
+const BOOKMARKS_BAR_H  = 32
 
 // Total chrome height above the embedded BrowserView in Browse mode.
-// The new architecture (AppTopBar + BrowseTabsRow at the layout
-// level) renders BOTH bars unconditionally when in Browse — the
-// previous "hide tab strip when only one empty tab" optimization no
-// longer applies because the BrowseTabsRow is always 40px in Browse
-// and just shows the (single) tab inside it. So chrome is always
-// 92px (40 tabs + 52 toolbar) when the BrowserView is shown.
+// AppTopBar + BrowseTabsRow + BookmarksBar all live at the layout
+// level and are unconditionally laid out when in Browse, so chrome
+// is always 124px when the BrowserView is shown.
 function activeChromeHeight() {
-  return TOOLBAR_H + TAB_STRIP_H
+  return TAB_STRIP_H + TOOLBAR_H + BOOKMARKS_BAR_H
 }
 
 // Cached layout state. React (the renderer) pushes settled values via
@@ -766,7 +774,12 @@ function activeChromeHeight() {
 // animations themselves run as pure CSS in the React tree.
 let sidebarWidth = 220
 let panelWidth   = 0
-let browserViewHidden = false
+// Start parked. The native BrowserView is composited above the renderer,
+// so any incidental applyBrowserViewLayout() before the renderer
+// explicitly calls browser:show would put it on screen — regardless of
+// what route the user is currently viewing. The renderer's gated show
+// effect (routeActive && hasUrl) is the only thing that should reveal it.
+let browserViewHidden = true
 
 // Inset for the embedded BrowserView. Creates a thin RealVerdict-colored
 // frame between the embedded site (Zillow / Redfin / etc.) and the app
@@ -1209,22 +1222,33 @@ function readLayoutInto(layout) {
 }
 
 ipcMain.handle("browser:create", (_e, layout) => {
+  // Ensure-exists semantics ONLY. Do NOT show the view here.
+  //
+  // History: this used to set browserViewHidden=false + apply layout
+  // because /browse was a remounting route — every entry to /browse
+  // called create and "expected" the view visible. Now that routes
+  // are always-mounted, BrowsePage calls create ONCE at app boot
+  // (even when the user is on /pipeline). If we showed on create,
+  // the native BrowserView would composite over Pipeline / Settings
+  // immediately. The renderer is responsible for calling browser:show
+  // explicitly, gated on routeActive && hasUrl.
   const { sb, pw } = readLayoutInto(layout)
   sidebarWidth = sb
   panelWidth   = pw
-  // ALWAYS reset the hidden flag — a re-mounted /browse calls create
-  // expecting the view to be visible, but a previous unmount may have
-  // parked all tabs at 1×1 via hideBrowser. Without this, the view
-  // would stay invisible after navigation and the user would see the
-  // page load but never appear on screen.
-  browserViewHidden = false
-  if (browserView) {
-    applyBrowserViewLayout()
-    return { reused: true }
-  }
+  if (browserView) return { reused: true }
   createBrowserView()
-  applyBrowserViewLayout()
   return { reused: false }
+})
+// Pull OS keyboard focus out of the embedded WebContentsView and into
+// the main window's webContents (where the URL bar input lives).
+// Electron WebContentsView focus is a separate stack from DOM focus —
+// even after a click on the renderer, the embedded view can keep
+// keyboard focus, so typed characters disappear into the embedded page
+// instead of the URL bar. This handler is called by the renderer
+// startEdit() path to make the focus transfer deterministic.
+ipcMain.handle("urlbar:focus-renderer", () => {
+  if (!appWindow || appWindow.isDestroyed()) return
+  appWindow.webContents.focus()
 })
 ipcMain.handle("browser:destroy",      () => destroyBrowserView())
 ipcMain.handle("browser:hide",         () => hideBrowserView())

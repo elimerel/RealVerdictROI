@@ -103,6 +103,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("browser:nav-update", h)
   },
 
+  // Renderer → main: blur whatever WebContentsView currently holds the
+  // OS keyboard focus (typically the visible BrowserView), and move it
+  // to the main window's webContents so the URL bar input actually
+  // receives keystrokes. Without this, clicking the URL bar can leave
+  // focus stuck inside the embedded page intermittently.
+  focusRenderer: () => ipcRenderer.invoke("urlbar:focus-renderer"),
+
   onFocusUrlbar: (cb) => {
     const h = () => cb()
     ipcRenderer.on("browser:focus-urlbar", h)

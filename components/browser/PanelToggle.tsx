@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { usePanelState } from "@/components/panel/context"
+import { Button } from "@/components/ui/button"
 
 /**
  * PanelToggle — single window-level button at the top-right of the app
@@ -74,48 +75,19 @@ export default function PanelToggle() {
         : "var(--rv-elev-3)"
 
   return (
-    <button
+    <Button
       onClick={toggle}
       title={isOpen ? "Hide analysis (⌘\\\\)" : "Show analysis (⌘\\\\)"}
       aria-label={isOpen ? "Hide analysis panel" : "Show analysis panel"}
-      className="rv-panel-toggle inline-flex items-center gap-1.5"
+      variant="secondary"
+      size="default"
+      className="rv-panel-toggle relative h-9 gap-1.5 rounded-lg"
       style={{
-        // Inline now — lives in the toolbar, no longer window-fixed.
-        // Matches URL bar height (36px) for visual balance.
-        height:          36,
-        padding:         "0 14px 0 12px",
-        borderRadius:    10,
-        flexShrink:      0,
-        border:          "0.5px solid var(--rv-border-mid)",
         background:      restBg,
         color:           iconColor,
-        cursor:          "default",
-        zIndex:          50,
+        border:          "0.5px solid var(--rv-border-mid)",
         WebkitAppRegion: "no-drag",
-        boxShadow:       isOpen
-          ? "inset 0 1px 0 rgba(255,255,255,0.06)"
-          : "0 1px 2px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.04)",
-        transition:
-          "color 220ms cubic-bezier(0.4,0,0.2,1), background-color 120ms cubic-bezier(0.4,0,0.2,1), transform 90ms cubic-bezier(0.4,0,0.2,1), box-shadow 160ms",
-        fontSize:        12,
-        fontWeight:      500,
-        letterSpacing:   "-0.005em",
-      } as React.CSSProperties}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = isOpen
-          ? "var(--rv-accent-border)"
-          : "var(--rv-elev-4)"
-        if (!isOpen && !(isReady && showReadyBadge)) {
-          e.currentTarget.style.color = "var(--rv-t1)"
-        }
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = restBg
-        e.currentTarget.style.color      = iconColor
-      }}
-      onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.97)" }}
-      onMouseUp={(e)   => { e.currentTarget.style.transform = "scale(1)" }}
-    >
+      } as React.CSSProperties}>
       <svg width="22" height="22" viewBox="0 0 28 28" aria-hidden style={{ overflow: "visible" }}>
         {/* Perimeter arc — only renders while analyzing. The svg group
             rotates continuously; the arc itself is a partial circle
@@ -167,6 +139,6 @@ export default function PanelToggle() {
           }}
         />
       )}
-    </button>
+    </Button>
   )
 }

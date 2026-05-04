@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react"
 import { createPortal } from "react-dom"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams, usePathname } from "next/navigation"
+import { Card } from "@/components/ui/card"
 import { useTopBarSlots } from "@/lib/topBarSlots"
 import {
   ChevronRight,
@@ -41,7 +42,7 @@ import { useBuyBar } from "@/lib/useBuyBar"
 import { geocode } from "@/lib/mapbox"
 import Panel from "@/components/panel"
 import { useEscape } from "@/lib/escapeStack"
-import { Button } from "@/components/ui/Button"
+import { Button } from "@/components/ui/button"
 
 // ── Format helpers ────────────────────────────────────────────────────────
 
@@ -291,17 +292,13 @@ function StageMenu({
           }}
         >
           {DEAL_STAGES.map((s) => (
-            <button
+            <Button
               key={s}
               onClick={() => { onChange(s); setOpen(false) }}
-              className="text-left rounded-[6px] text-[12px] transition-colors"
-              style={{
-                padding:    "6px 9px",
-                color:      s === stage ? "var(--rv-accent)" : "var(--rv-t2)",
-                background: "transparent",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-3)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+              variant="ghost"
+              size="sm"
+              className="justify-start"
+              style={{ color: s === stage ? "var(--rv-accent)" : "var(--rv-t2)" }}
             >
               {STAGE_LABEL[s]}
               {s === stage && (
@@ -310,7 +307,7 @@ function StageMenu({
                   style={{ background: "var(--rv-accent)" }}
                 />
               )}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -329,6 +326,13 @@ function DealDetail({
 }) {
   const router = useRouter()
   const buyBar = useBuyBar()
+  const pathname = usePathname()
+  // Pipeline is always-mounted at layout level. The browseAux slot is
+  // SHARED with Browse's Save/Stage buttons. If we portal here while
+  // the user is on /browse, two routes' content collides in one DOM
+  // node — clicks fight, layout flickers, the URL bar can become
+  // unclickable. Gate every cross-route portal on routeActive.
+  const routeActive = pathname.startsWith("/pipeline")
   const { browseAux: auxSlot } = useTopBarSlots()
   const snapshot = deal.snapshot
   const provenance = snapshot.provenance
@@ -421,7 +425,7 @@ function DealDetail({
           content in the top bar, instead of consuming a row of space
           above the analysis content. The Panel below renders directly
           with its hero, no preceding strip. */}
-      {auxSlot && createPortal(
+      {auxSlot && routeActive && createPortal(
         <div className="flex items-center gap-2">
           <Button
             variant={deal.watching ? "primary" : "secondary"}
@@ -656,27 +660,23 @@ function DealDetail({
               >
                 {usingScenario ? "Your scenario" : "Default analysis"}
               </span>
-              <div className="flex items-center gap-3">
-                <button
+              <div className="flex items-center gap-1">
+                <Button
                   onClick={() => setShowDefault((v) => !v)}
-                  className="text-[11px] tracking-tight transition-colors"
-                  style={{ color: "var(--rv-t3)" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
+                  variant="ghost"
+                  size="xs"
                   title={usingScenario ? "Show the original analysis" : "Show your scenario"}
                 >
                   {usingScenario ? "Show default" : "Show scenario"}
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={() => setOverrides({})}
-                  className="text-[11px] tracking-tight transition-colors"
-                  style={{ color: "var(--rv-t3)" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
+                  variant="ghost"
+                  size="xs"
                   title="Clear all overrides and return to the default analysis"
                 >
                   Reset
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -869,13 +869,9 @@ function DetailMetric({
   label, value, sub, color, delta,
 }: {
   label: string
-  /** Accepts either string or rich JSX (e.g. <Currency> for the cash-flow
-   *  value with Mercury-style superscript decimals). */
   value: React.ReactNode
   sub?: string
   color: string
-  /** Small "+$650/mo vs default" line beneath the value when the user is
-   *  viewing their scenario. Color follows tone (positive = green). */
   delta?: { text: string; tone: "pos" | "neg" | "neutral" } | null
 }) {
   const deltaColor =
@@ -883,37 +879,34 @@ function DetailMetric({
     delta?.tone === "neg" ? "var(--rv-neg)" :
                             "var(--rv-t4)"
   return (
-    <div
-      className="flex flex-col gap-1 rounded-[10px] min-w-0 overflow-hidden"
-      style={{
-        padding:   "10px 14px 11px",
-        background: "var(--rv-elev-2)",
-        border:     "0.5px solid var(--rv-border-mid)",
-        boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
-      }}
-    >
-      <p className="text-[9.5px] uppercase tracking-widest font-medium truncate" style={{ color: "var(--rv-t4)" }}>
+    <Card className="rounded-[10px] gap-0 p-3 min-w-0 overflow-hidden hover:shadow-md transition-shadow">
+      <div
+        className="text-[9.5px] uppercase tracking-widest font-medium truncate"
+        style={{ color: "var(--rv-t4)" }}
+      >
         {label}
-      </p>
-      <p
-        className="font-bold tabular-nums leading-none truncate"
-        style={{ color, fontSize: 22, letterSpacing: "-0.02em", marginTop: 2 }}
+      </div>
+      <div
+        className="font-bold tabular-nums leading-none truncate mt-1"
+        style={{ color, fontSize: 22, letterSpacing: "-0.02em" }}
       >
         {value}
-      </p>
+      </div>
       {delta && (
-        <p
-          className="text-[10px] leading-none tabular-nums truncate"
-          style={{ color: deltaColor, marginTop: 1 }}
+        <div
+          className="text-[10px] leading-none tabular-nums truncate mt-1 inline-flex items-center gap-0.5"
+          style={{ color: deltaColor }}
           title="vs default analysis"
         >
+          {delta.tone === "pos" && "↑"}
+          {delta.tone === "neg" && "↓"}
           {delta.text}
-        </p>
+        </div>
       )}
       {sub && (
-        <p className="text-[10.5px] leading-none truncate" style={{ color: "var(--rv-t3)", marginTop: 1 }}>{sub}</p>
+        <div className="text-[10.5px] leading-none truncate mt-1" style={{ color: "var(--rv-t3)" }}>{sub}</div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -1074,15 +1067,9 @@ function ComparisonView({
             {deals.length} deals
           </span>
         </div>
-        <button
-          onClick={onClear}
-          className="inline-flex items-center gap-1 text-[12px]"
-          style={{ color: "var(--rv-t3)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
-        >
+        <Button onClick={onClear} variant="ghost" size="xs">
           Done comparing
-        </button>
+        </Button>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto panel-scroll">
@@ -1154,16 +1141,15 @@ function ComparisonView({
                         <p className="text-[12.5px] font-semibold leading-tight tabular-nums truncate" style={{ color: "var(--rv-t1)" }}>
                           {d.list_price ? fmtCurrency(d.list_price) : "—"}
                         </p>
-                        <button
+                        <Button
                           onClick={() => onRemove(d.id)}
                           aria-label="Remove from comparison"
-                          className="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded transition-colors"
-                          style={{ color: "var(--rv-t4)" }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)"; e.currentTarget.style.background = "var(--rv-elev-3)" }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)"; e.currentTarget.style.background = "transparent" }}
+                          variant="ghost"
+                          size="icon-xs"
+                          className="size-5"
                         >
                           <X size={11} strokeWidth={1.8} />
-                        </button>
+                        </Button>
                       </div>
                       {(d.address || d.city) && (
                         <p
@@ -1174,14 +1160,16 @@ function ComparisonView({
                           {[d.address, d.city, d.state].filter(Boolean).join(", ")}
                         </p>
                       )}
-                      <button
+                      <Button
                         onClick={() => onOpenInBrowse(d.source_url)}
-                        className="inline-flex items-center gap-1 text-[10.5px] mt-0.5 self-start"
+                        variant="link"
+                        size="xs"
+                        className="self-start mt-0.5 p-0 h-auto text-[10.5px]"
                         style={{ color: "var(--rv-accent)" }}
                       >
                         <ExternalLink size={9} strokeWidth={2} />
                         Open
-                      </button>
+                      </Button>
                     </div>
                   </th>
                 ))}
@@ -1364,9 +1352,13 @@ const LIST_W_DEFAULT = 360
 const LIST_W_MIN     = 280
 const LIST_W_MAX     = 520
 
-export default function PipelinePage() {
+// Named export — imported by AppLayout for always-mounted rendering.
+// Default export below is a stub returning null (Next.js routing
+// needs it; actual content lives at layout level).
+export function PipelinePage() {
   return <Suspense><PipelinePageInner /></Suspense>
 }
+export default function PipelineRouteStub() { return null }
 
 function PipelinePageInner() {
   const router        = useRouter()
@@ -1673,7 +1665,14 @@ function PipelinePageInner() {
   // changes via createPortal. The bar itself doesn't re-mount on
   // route change.
   const pipelineHeaderContent = (
-    <div className="flex items-center w-full px-3 gap-3" style={{ pointerEvents: "auto" }}>
+    // No explicit pointerEvents — inherit from the AppTopBar
+    // ModeLayer's `pointer-events: none/auto` based on whether
+    // /pipeline is the active route. Setting auto here overrode the
+    // ModeLayer's none and made this slot intercept clicks across the
+    // adaptive center even when sitting under Browse's URL bar
+    // (Browse's URL toolbar lives in the same adaptive-center area
+    // via the browse slot). The intermittent "URL bar dead" bug.
+    <div className="flex items-center w-full px-3 gap-3">
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-3 min-w-0">
           <div className="flex items-baseline gap-2.5 min-w-0">
             <h1 className="text-[15px] font-semibold tracking-tight shrink-0" style={{ color: "var(--rv-t1)" }}>
@@ -1761,30 +1760,22 @@ function PipelinePageInner() {
                     ? "1 picked · need one more"
                     : `${compareIds.size} of 4 picked`}
                 </span>
-                <button
+                <Button
                   onClick={() => { setCompareMode(false); setCompareIds(new Set()) }}
-                  className="text-[11.5px] tracking-tight rounded-[6px] px-2 py-[3px] transition-colors"
-                  style={{ color: "var(--rv-t3)" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
+                  variant="ghost"
+                  size="xs"
                 >
                   Cancel
-                </button>
+                </Button>
                 {compareIds.size >= 2 && (
-                  <button
+                  <Button
                     onClick={() => setCompareMode(false)}
-                    className="inline-flex items-center gap-1.5 rounded-[7px] text-[12px] font-medium tracking-tight"
-                    style={{
-                      padding:    "5px 11px",
-                      color:      "white",
-                      background: "var(--rv-accent)",
-                      border:     "0.5px solid rgba(0,0,0,0.16)",
-                      boxShadow:  "0 1px 0 rgba(255,255,255,0.10) inset, 0 1px 2px rgba(0,0,0,0.16)",
-                    }}
+                    variant="default"
+                    size="sm"
                     title="View the side-by-side comparison"
                   >
                     Compare {compareIds.size}
-                  </button>
+                  </Button>
                 )}
               </>
             ) : compareIds.size > 0 ? (
@@ -1800,15 +1791,13 @@ function PipelinePageInner() {
                   <GitCompareArrows size={11} strokeWidth={2} />
                   {compareIds.size === 1 ? "1 selected" : `Comparing ${compareIds.size}`}
                 </span>
-                <button
+                <Button
                   onClick={() => setCompareIds(new Set())}
-                  className="text-[11.5px] tracking-tight rounded-[6px] px-2 py-[3px] transition-colors"
-                  style={{ color: "var(--rv-t3)" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
+                  variant="ghost"
+                  size="xs"
                 >
                   Clear
-                </button>
+                </Button>
               </>
             ) : (
               <Button

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import "@/lib/electron";
+import { Button } from "@/components/ui/button";
 
 // Google "G" logo SVG — official brand colour
 function GoogleIcon() {
@@ -219,16 +220,18 @@ export default function LoginForm({
           <span className="font-mono rv-t1">{email}</span>
           . Click it to activate your account, then sign in.
         </p>
-        <button
+        <Button
           type="button"
           onClick={() => {
             setMode("signin");
             setStatus({ state: "idle" });
           }}
-          className="mt-6 text-[13px] font-medium rv-t1 underline underline-offset-2"
+          variant="link"
+          size="sm"
+          className="mt-6 px-0"
         >
           Back to sign in
-        </button>
+        </Button>
       </div>
     );
   }
@@ -244,19 +247,16 @@ export default function LoginForm({
         </p>
 
         {/* Google OAuth */}
-        <button
+        <Button
           type="button"
           onClick={signInWithGoogle}
           disabled={busy || oauthBusy}
-          className="mb-3 inline-flex w-full items-center justify-center gap-2.5 rounded-lg px-4 py-2.5 text-[13px] font-medium rv-t1 transition disabled:cursor-not-allowed disabled:opacity-60"
-          style={{
-            background: "var(--rv-fill-2)",
-            border: "1px solid var(--rv-fill-border)",
-          }}
+          variant="outline"
+          className="mb-3 w-full"
         >
           <GoogleIcon />
           {oauthBusy ? "Redirecting…" : "Continue with Google"}
-        </button>
+        </Button>
 
         {/* Divider */}
         <div className="mb-3 flex items-center gap-3">
@@ -339,23 +339,26 @@ export default function LoginForm({
             </div>
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={busy || (mode === "signup" && !termsAccepted)}
-            className="mt-1 rv-pill disabled:opacity-60 disabled:cursor-not-allowed"
+            variant="default"
+            className="mt-1 w-full"
           >
             {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
-          </button>
+          </Button>
         </form>
 
         <div className="mt-3 text-center">
-          <button
+          <Button
             type="button"
             onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setStatus({ state: "idle" }); }}
-            className="text-[11px] rv-t4 hover:rv-t2 transition"
+            variant="link"
+            size="xs"
+            className="text-[11px]"
           >
             {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -379,18 +382,16 @@ export default function LoginForm({
       </div>
 
       {/* Google OAuth */}
-      <button
+      <Button
         type="button"
         onClick={signInWithGoogle}
         disabled={busy || oauthBusy}
-        className="mb-4 inline-flex w-full items-center justify-center gap-2.5 rounded-lg px-4 py-2.5 text-[13px] font-medium rv-t1 transition disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ background: "var(--rv-fill-1)", border: "1px solid var(--rv-fill-border)" }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--rv-fill-2)")}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "var(--rv-fill-1)")}
+        variant="outline"
+        className="mb-4 w-full"
       >
         <GoogleIcon />
         {oauthBusy ? "Redirecting…" : "Continue with Google"}
-      </button>
+      </Button>
 
       {/* Divider */}
       <div className="mb-4 flex items-center gap-3">
@@ -480,23 +481,26 @@ export default function LoginForm({
           </div>
         )}
 
-        <button
+        <Button
           type="submit"
           disabled={busy || (mode === "signup" && !termsAccepted)}
-          className="mt-1 rv-pill disabled:opacity-60 disabled:cursor-not-allowed"
+          variant="default"
+          className="mt-1 w-full"
         >
           {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
-        </button>
+        </Button>
       </form>
 
       <div className="mt-4 flex items-center justify-between text-[13px]">
-        <button
+        <Button
           type="button"
           onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setStatus({ state: "idle" }); }}
-          className="rv-t3 hover:rv-t1 transition-colors"
+          variant="link"
+          size="sm"
+          className="px-0"
         >
           {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
-        </button>
+        </Button>
         <Link href="/" className="rv-t4 hover:rv-t2 transition-colors">
           Back home
         </Link>

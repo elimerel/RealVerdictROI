@@ -194,18 +194,28 @@
   --card-foreground:      var(--rv-t1);
   --popover:              var(--rv-overlay);
   --popover-foreground:   var(--rv-t1);
-  --primary:              var(--rv-t1);
-  --primary-foreground:   var(--rv-bg);
-  --secondary:            var(--rv-raised);
+  /* shadcn semantic tokens — primary == brand accent (forest green),
+     secondary == neutral lifted surface, muted == subtler than the
+     surface for slider tracks / disabled states / placeholder fills.
+     Was previously mapping primary → text color, which rendered all
+     shadcn primary buttons as white-on-white. */
+  --primary:              var(--rv-accent);
+  --primary-foreground:   #f8f8fa;
+  --secondary:            var(--rv-elev-3);
   --secondary-foreground: var(--rv-t1);
-  --muted:                var(--rv-raised);
+  --muted:                var(--rv-elev-3);
   --muted-foreground:     var(--rv-t3);
+  --accent:               var(--rv-elev-3);
+  --accent-foreground:    var(--rv-t1);
   --destructive:          var(--rv-bad);
   --destructive-foreground: #fff;
   --border:               var(--rv-border);
   --input:                var(--rv-surface);
   --ring:                 var(--rv-accent-border);
-  --radius:               0.625rem;
+  /* 0.5rem (8px) — modern 2026 default. Tighter than 0.625rem;
+     Linear / Vercel / Cursor all sit in the 6-10px range. The
+     "soft consumer" feel comes from going higher (12-16px). */
+  --radius:               0.5rem;
   --sidebar:              var(--rv-surface);
   --sidebar-foreground:   var(--rv-t1);
   --sidebar-border:       var(--rv-border);
@@ -505,6 +515,39 @@
   display: none;
   width: 0;
   height: 0;
+}
+
+/* ── Chrome-style inverse-curve tab corners ───────────────────────────────
+   Reference: chrome-tabs (Adam Schwartz). The active tab needs to
+   "merge" into the URL band below — the bottom corners of the tab
+   curve OUTWARD into the band, not inward. A pure border-radius
+   gives concave (inward) corners, which is wrong.
+
+   Technique: render two 12×12 boxes positioned just OUTSIDE the
+   bottom corners of the active tab, filled with the URL band color
+   (var(--rv-surface)). Mask out the inner quarter-circle so each
+   box becomes a convex L-shape that visually fuses with both the
+   tab above and the URL band below — the chrome-tabs silhouette.
+
+   --rv-curve-bg is set per-instance so the corner color matches
+   whatever surface the tab merges into (URL band or hover state). */
+.rv-tab-corner {
+  position: absolute;
+  bottom:   0;
+  width:    12px;
+  height:   12px;
+  background: var(--rv-curve-bg, var(--rv-surface));
+  pointer-events: none;
+}
+.rv-tab-corner-left {
+  left: -12px;
+  -webkit-mask: radial-gradient(circle 12px at 0 0, transparent 12px, black 12.5px);
+          mask: radial-gradient(circle 12px at 0 0, transparent 12px, black 12.5px);
+}
+.rv-tab-corner-right {
+  right: -12px;
+  -webkit-mask: radial-gradient(circle 12px at 100% 0, transparent 12px, black 12.5px);
+          mask: radial-gradient(circle 12px at 100% 0, transparent 12px, black 12.5px);
 }
 
 /* ── Panel slide animations ─────────────────────────────────────────────────

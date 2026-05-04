@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react"
 import { X } from "lucide-react"
 import { geocode, type Coords } from "@/lib/mapbox"
+import { Button } from "@/components/ui/button"
 
 const GOOGLE_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? ""
 
@@ -127,30 +128,24 @@ export default function PropertyView({
             style={{ background: "var(--rv-elev-2)", border: "0.5px solid var(--rv-border)" }}
           >
             {(["aerial", "street"] as const).map((m) => (
-              <button
+              <Button
                 key={m}
                 onClick={() => setMode(m)}
-                className="text-[11.5px] uppercase tracking-widest font-medium transition-colors"
+                variant="ghost"
+                size="sm"
+                className="rounded-none text-[11.5px] uppercase tracking-widest font-medium"
                 style={{
                   color:      mode === m ? "var(--rv-t1)" : "var(--rv-t3)",
                   background: mode === m ? "var(--rv-elev-4)" : "transparent",
-                  padding:    "6px 14px",
                 }}
               >
                 {m === "aerial" ? "Aerial" : "Street view"}
-              </button>
+              </Button>
             ))}
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-[8px] transition-colors"
-            style={{ color: "var(--rv-t2)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-3)"; e.currentTarget.style.color = "var(--rv-t1)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--rv-t2)" }}
-          >
+          <Button onClick={onClose} aria-label="Close" variant="ghost" size="icon-sm">
             <X size={15} strokeWidth={2} />
-          </button>
+          </Button>
         </div>
 
         {/* Both iframes always rendered, opacity-toggled — switching

@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useTopBarSlots } from "@/lib/topBarSlots"
+import { Slider } from "@/components/ui/slider"
+import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import {
   Check,
   ChevronDown,
@@ -44,13 +47,11 @@ function SettingsSection({
       <div className="flex items-center gap-3">
         {icon && <span style={{ color: "var(--rv-accent)" }}>{icon}</span>}
         <h2
-          className="leading-tight"
+          className="leading-tight font-semibold tracking-tight"
           style={{
-            color:      "var(--rv-t1)",
-            fontSize:   22,
-            fontFamily: "var(--rv-font-display)",
-            fontWeight: 500,
-            letterSpacing: "-0.020em",
+            color:    "var(--rv-t1)",
+            fontSize: 20,
+            letterSpacing: "-0.02em",
           }}
         >
           {title}
@@ -61,17 +62,9 @@ function SettingsSection({
           {description}
         </p>
       )}
-      <div
-        className="flex flex-col gap-5 rounded-[14px] mt-1"
-        style={{
-          padding:    "20px 22px",
-          background: "var(--rv-elev-1)",
-          border:     "0.5px solid var(--rv-border)",
-          boxShadow:  "var(--rv-shadow-inset)",
-        }}
-      >
+      <Card className="flex flex-col gap-5 mt-1 p-5">
         {children}
-      </div>
+      </Card>
     </section>
   )
 }
@@ -89,10 +82,6 @@ function PercentRow({
   step:      number
   onChange:  (v: number) => void
 }) {
-  // Percent of the way through the range — drives the slider's filled
-  // portion via the `--fill` CSS variable. Computed on every render so
-  // the green tint tracks the thumb in lockstep without JS rAF.
-  const fillPct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))
   return (
     <div className="flex items-center gap-5">
       <div className="flex-1 min-w-0">
@@ -105,15 +94,13 @@ function PercentRow({
           </p>
         )}
       </div>
-      <input
-        type="range"
+      <Slider
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="rv-slider flex-1 max-w-[200px]"
-        style={{ "--fill": `${fillPct}%` } as React.CSSProperties}
+        value={[value]}
+        onValueChange={(v) => onChange(Array.isArray(v) ? (v[0] ?? value) : v)}
+        className="flex-1 max-w-[200px]"
       />
       <span
         className="w-[56px] text-right tabular-nums text-[13px] font-medium"
@@ -133,7 +120,6 @@ function BpsRow({
   value:    number
   onChange: (v: number) => void
 }) {
-  const fillPct = Math.max(0, Math.min(100, (value / 150) * 100))
   return (
     <div className="flex items-center gap-5">
       <div className="flex-1 min-w-0">
@@ -146,15 +132,13 @@ function BpsRow({
           </p>
         )}
       </div>
-      <input
-        type="range"
+      <Slider
         min={0}
         max={150}
         step={5}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="rv-slider flex-1 max-w-[200px]"
-        style={{ "--fill": `${fillPct}%` } as React.CSSProperties}
+        value={[value]}
+        onValueChange={(v) => onChange(Array.isArray(v) ? (v[0] ?? value) : v)}
+        className="flex-1 max-w-[200px]"
       />
       <span
         className="w-[56px] text-right tabular-nums text-[13px] font-medium"
@@ -715,47 +699,23 @@ function DataRow({
       <div className="shrink-0 flex items-center gap-2">
         {confirming ? (
           <>
-            <button
+            <Button
               onClick={onConfirm}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] font-medium tracking-tight transition-colors disabled:opacity-50"
-              style={{
-                color:      destructive ? "var(--rv-bad)" : "var(--rv-t1)",
-                background: destructive ? "rgba(255,87,87,0.10)" : "var(--rv-elev-3)",
-                border:     `0.5px solid ${destructive ? "rgba(255,87,87,0.25)" : "var(--rv-border)"}`,
-              }}
+              variant={destructive ? "destructive" : "secondary"}
+              size="sm"
             >
               {loading ? "Working…" : "Confirm"}
-            </button>
-            <button
-              onClick={onCancel}
-              className="text-[12px] tracking-tight px-2 py-2"
-              style={{ color: "var(--rv-t3)" }}
-            >
+            </Button>
+            <Button onClick={onCancel} variant="ghost" size="sm">
               Cancel
-            </button>
+            </Button>
           </>
         ) : (
-          <button
-            onClick={onAction}
-            className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] font-medium tracking-tight transition-colors"
-            style={{
-              color:      destructive ? "var(--rv-t3)" : "var(--rv-t2)",
-              background: "var(--rv-elev-2)",
-              border:     "0.5px solid var(--rv-border)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "var(--rv-elev-4)"
-              if (destructive) e.currentTarget.style.color = "var(--rv-bad)"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "var(--rv-elev-2)"
-              if (destructive) e.currentTarget.style.color = "var(--rv-t3)"
-            }}
-          >
+          <Button onClick={onAction} variant="secondary" size="sm">
             {destructive && <Trash2 size={11} strokeWidth={2} />}
             {actionLabel}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -863,20 +823,10 @@ function AccountSection() {
           </div>
         </div>
         {email && (
-          <button
-            onClick={onSignOut}
-            className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] font-medium tracking-tight transition-colors"
-            style={{
-              color:      "var(--rv-t2)",
-              background: "var(--rv-elev-2)",
-              border:     "0.5px solid var(--rv-border)",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-4)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--rv-elev-2)" }}
-          >
+          <Button onClick={onSignOut} variant="secondary" size="sm">
             <LogOut size={11} strokeWidth={2} />
             Sign out
-          </button>
+          </Button>
         )}
       </div>
     </SettingsSection>
@@ -942,13 +892,13 @@ function KeyField({ label, hint, hasValueFn, saveFn, consoleUrl }: KeyFieldProps
           <span className="text-[12px] tabular-nums flex-1" style={{ color: "var(--rv-t2)" }}>
             ••••••••••••••••••••
           </span>
-          <button
+          <Button
             onClick={() => { setEditing(true); setTimeout(() => inputRef.current?.focus(), 0) }}
-            className="text-[11.5px]"
-            style={{ color: "var(--rv-t3)" }}
+            variant="ghost"
+            size="xs"
           >
             Replace
-          </button>
+          </Button>
         </div>
       ) : (
         <div
@@ -967,22 +917,22 @@ function KeyField({ label, hint, hasValueFn, saveFn, consoleUrl }: KeyFieldProps
             spellCheck={false}
             autoComplete="off"
           />
-          <button
+          <Button
             onClick={() => setShowChars((v) => !v)}
-            className="w-7 h-7 inline-flex items-center justify-center rounded-[6px]"
-            style={{ color: "var(--rv-t3)" }}
+            variant="ghost"
+            size="icon-xs"
             aria-label={showChars ? "Hide key" : "Show key"}
           >
             {showChars ? <EyeOff size={12} strokeWidth={1.8} /> : <Eye size={12} strokeWidth={1.8} />}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={onSave}
             disabled={!value.trim()}
-            className="rounded-[6px] px-3 h-7 text-[12px] font-medium disabled:opacity-30 disabled:pointer-events-none"
-            style={{ color: "var(--rv-accent)", background: "rgba(48,164,108,0.10)", border: "0.5px solid rgba(48,164,108,0.22)" }}
+            variant="default"
+            size="xs"
           >
             Save
-          </button>
+          </Button>
         </div>
       )}
       <p className="text-[11px] leading-relaxed" style={{ color: "var(--rv-t4)" }}>
@@ -1006,9 +956,10 @@ function AdvancedSection() {
 
   return (
     <section className="flex flex-col gap-3">
-      <button
+      <Button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center justify-between text-left"
+        variant="ghost"
+        className="justify-between text-left h-auto py-2"
       >
         <span className="text-[12px] font-medium tracking-tight" style={{ color: "var(--rv-t3)" }}>
           Advanced
@@ -1020,7 +971,7 @@ function AdvancedSection() {
             style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 200ms cubic-bezier(0.32, 0.72, 0, 1)" }}
           />
         </span>
-      </button>
+      </Button>
       {open && (
         <div
           className="flex flex-col gap-5 rounded-[10px] rv-advanced-pop"
@@ -1079,7 +1030,8 @@ function AboutSection() {
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
-export default function SettingsPage() {
+// Named export — imported by AppLayout for always-mounted rendering.
+export function SettingsPage() {
   const { settings: settingsSlot } = useTopBarSlots()
 
   return (
@@ -1087,7 +1039,10 @@ export default function SettingsPage() {
       className="flex flex-col h-full overflow-hidden"
       style={{
         background: "var(--rv-bg)",
-        pointerEvents: "auto",
+        // No explicit pointerEvents — AlwaysMountedRoutes' active
+        // layer handles pe. Setting auto here would make Settings
+        // intercept clicks on /browse / /pipeline because Settings
+        // stays mounted underneath them.
       }}
     >
       {/* Title portals into the persistent AppTopBar's settings slot
@@ -1154,4 +1109,9 @@ export default function SettingsPage() {
       </div>
     </div>
   )
+}
+
+// Route stub — actual content rendered always-mounted at layout level.
+export default function SettingsRouteStub() {
+  return null
 }

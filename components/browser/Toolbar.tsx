@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react"
+import { Button } from "@/components/ui/button"
 import type { NavUpdate } from "@/lib/electron"
 // Sidebar imports dropped — Toolbar lives inside AppTopBar now and
 // no longer derives its left padding from sidebar state.
@@ -34,6 +35,24 @@ function ReloadIcon({ spinning }: { spinning?: boolean }) {
         d="M11.5 7A4.5 4.5 0 1 1 9.2 3.2M11.5 2v3h-3"
         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
       />
+    </svg>
+  )
+}
+
+function LockIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="3" y="6.5" width="8" height="5.5" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
+      <path d="M4.6 6.5V4.7a2.4 2.4 0 1 1 4.8 0v1.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function GlobeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.3"/>
+      <path d="M2 7h10M7 2c1.6 1.5 2.5 3 2.5 5S8.6 10.5 7 12M7 2C5.4 3.5 4.5 5 4.5 7S5.4 10.5 7 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
     </svg>
   )
 }
@@ -98,11 +117,15 @@ export default function Toolbar({
     if (editing) return
     setDraft(displayUrl)
     setEditing(true)
-    // Focus + select on the next paint. .select() alone doesn't move
-    // focus; without explicit .focus(), clicking the wrapper leaves
-    // focus on whatever had it before (often browserView), and typed
-    // characters go there instead of the URL bar — which is why hitting
-    // Enter sometimes did nothing.
+    // Two focus stacks fight here: DOM focus inside the renderer, and
+    // OS-level keyboard focus across WebContentsViews (the embedded
+    // BrowserView holds its own focus separate from the renderer).
+    // Telling main to move OS focus to the main webContents FIRST,
+    // then focusing the input, makes this deterministic — without it,
+    // ~50% of clicks left focus on the embedded page and keystrokes
+    // disappeared into the wrong view.
+    const api = window.electronAPI
+    api?.focusRenderer?.()
     setTimeout(() => {
       const el = resolvedRef.current
       if (!el) return
@@ -178,18 +201,16 @@ export default function Toolbar({
     title: string
     children: React.ReactNode
   }) => (
-    <button
+    <Button
       onClick={onClick}
       disabled={disabled}
       title={title}
+      variant="ghost"
+      size="icon-xs"
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-all duration-100
-                 text-[var(--rv-t2)] hover:text-[var(--rv-t1)] hover:bg-[var(--rv-elev-4)]
-                 active:bg-[var(--rv-elev-5)]
-                 disabled:opacity-25 disabled:pointer-events-none"
     >
       {children}
-    </button>
+    </Button>
   )
 
   return (
@@ -212,37 +233,60 @@ export default function Toolbar({
           <ReloadIcon spinning={nav.loading} />
         </NavBtn>
 
-        <div className="flex-1 mx-1.5 relative">
+        <div className="flex-1 mx-[7px] relative">
           <div
-            className="w-full h-[36px] flex items-center gap-2 rounded-[9px] px-4 cursor-text
-                       transition-all duration-150"
+            className="w-full h-[30px] flex items-center gap-2 cursor-text
+                       transition-colors duration-150"
             style={{
-              // Default state: FLAT — same surface as the toolbar (rv-surface),
-              // no inset shadow, no border. Reads as part of the toolbar
-              // chrome, no chrome competing for attention.
-              //
-              // Editing state: recessed — darker bg (rv-bg) with a subtle
-              // dark inset shadow at the top. Now it reads as a depression
-              // you're filling in. This is the moment when the input matters.
-              background: editing ? "var(--rv-bg)" : "transparent",
-              border:     editing
-                ? "0.5px solid var(--rv-border-mid)"
-                : "0.5px solid transparent",
-              boxShadow:  editing ? "inset 0 1px 1px rgba(0, 0, 0, 0.18)" : "none",
+              // Wexond / classic-Chrome address bar:
+              //   30px tall, 4px corner radius (rectangular feel),
+              //   transparent border at rest with a subtle drop
+              //   shadow that lifts the bar off the toolbar without
+              //   making it a "pill". Border becomes the accent
+              //   color on focus + a 1px halo. Reads as utilitarian.
+              borderRadius: 4,
+              padding:      "0 10px",
+              background:   "var(--rv-bg)",
+              border:       editing
+                ? "1px solid var(--rv-accent)"
+                : "1px solid transparent",
+              boxShadow:    editing
+                ? "0 0 0 1px var(--rv-accent)"
+                : "0 0 5px 0 rgba(0, 0, 0, 0.10)",
               WebkitAppRegion: "no-drag",
             } as React.CSSProperties}
             onClick={startEdit}
             onMouseEnter={(e) => {
               if (editing) return
-              e.currentTarget.style.background = "var(--rv-elev-3)"
-              e.currentTarget.style.borderColor = "var(--rv-border-mid)"
+              e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.12)"
             }}
             onMouseLeave={(e) => {
               if (editing) return
-              e.currentTarget.style.background = "var(--rv-elev-2)"
-              e.currentTarget.style.borderColor = "var(--rv-elev-3)"
+              e.currentTarget.style.borderColor = "transparent"
             }}
           >
+            {/* Leading site-info icon — Chrome shows a lock for https
+                and a globe for other schemes. Sits in a small rounded
+                pad at the left so it reads as a Chrome "site info"
+                affordance. Hidden while editing so the cursor gets
+                the full pill width. */}
+            {!editing && (
+              <span
+                aria-hidden
+                className="shrink-0 inline-flex items-center justify-center"
+                style={{
+                  width:      14,
+                  height:     14,
+                  color:      "var(--rv-t2)",
+                }}
+              >
+                {displayUrl?.startsWith("https://") ? (
+                  <LockIcon />
+                ) : (
+                  <GlobeIcon />
+                )}
+              </span>
+            )}
             {editing ? (
               <input
                 ref={resolvedRef as React.RefObject<HTMLInputElement>}
@@ -251,7 +295,7 @@ export default function Toolbar({
                 onKeyDown={handleKey}
                 onClick={(e) => e.stopPropagation()}
                 onBlur={() => setEditing(false)}
-                className="flex-1 bg-transparent border-none outline-none text-[13px] leading-none"
+                className="flex-1 bg-transparent border-none outline-none text-[14px] leading-none"
                 style={{ color: "var(--rv-t1)" }}
                 spellCheck={false}
                 autoComplete="off"
@@ -259,10 +303,10 @@ export default function Toolbar({
             ) : (
               <>
                 <span
-                  className="flex-1 text-[13px] truncate leading-none"
+                  className="flex-1 text-[14px] truncate leading-none"
                   style={{ color: displayUrl ? "var(--rv-t1)" : "var(--rv-t3)" }}
                 >
-                  {displayUrl || "Navigate to any listing…"}
+                  {displayUrl || "Search Google or type a URL"}
                 </span>
                 {isAnalyzing && <AnalyzingDots />}
               </>

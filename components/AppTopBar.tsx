@@ -18,6 +18,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { usePathname } from "next/navigation"
 import { useTopBarSlots } from "@/lib/topBarSlots"
+import { useSidebar } from "@/components/sidebar/context"
 
 type Mode = "browse" | "pipeline" | "settings" | "other"
 
@@ -38,6 +39,14 @@ export default function AppTopBar({
   const pathname = usePathname()
   const mode = modeForPath(pathname)
   const { setBrowse, setPipeline, setSettings, setBrowseAux } = useTopBarSlots()
+  const { open: sidebarOpen } = useSidebar()
+  // When the sidebar is OPEN (default state), the floating
+  // SidebarToggle is hidden behind it, so the brand zone only needs
+  // to clear the macOS traffic lights (~80px). When CLOSED, the
+  // toggle floats at x=86..114 and we need 124px to keep toolbar
+  // content from sliding under it. The previous fixed 124px created
+  // a dead 44px gap on the left for the common case (sidebar open).
+  const brandZonePadL = sidebarOpen ? 80 : 124
 
   // Persist mode for cross-fade easing — both old and new layers stay
   // mounted; only opacity flips.
@@ -48,7 +57,11 @@ export default function AppTopBar({
     <header
       className="shrink-0 relative flex items-stretch select-none"
       style={{
-        height:          52,
+        // 42px — Wexond / classic-Chrome toolbar height. Reads as
+        // utilitarian rather than consumer-soft. The bookmarks bar
+        // (32) sits underneath; tab strip (36) sits above. Total
+        // chrome stack: 110px.
+        height:          42,
         background:      "var(--rv-surface)",
         // No border, no shadow. The previous hairline + shadow
         // combination read as a faint lighter line between chrome
@@ -65,14 +78,15 @@ export default function AppTopBar({
       <div
         className="flex items-center shrink-0"
         style={{
-          // Reserves space for the macOS traffic lights (x=16..72)
-          // AND the fixed-positioned SidebarToggle button (x=86..114).
-          // 124 = 114 + 10px breath. Without this clearance, the
-          // adaptive center's content (Pipeline's "All Active" title,
-          // Browse's URL toolbar) gets covered by the toggle.
-          paddingLeft:  124,
+          // Sidebar-aware: 80px clears just the traffic lights when
+          // the sidebar is open (toggle is hidden behind sidebar);
+          // 124px clears traffic lights + toggle when sidebar is
+          // collapsed. Animated alongside the sidebar's own width
+          // transition so the chrome contracts in lockstep.
+          paddingLeft:  brandZonePadL,
           paddingRight: 12,
           gap:          10,
+          transition:   "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
           WebkitAppRegion: "no-drag",
         } as React.CSSProperties}
       >
@@ -98,27 +112,24 @@ export default function AppTopBar({
         </ModeLayer>
       </div>
 
-      {/* Browse-aux slot — pinned right, sits between the adaptive
-          center and global cluster. Hosts route-specific contextual
-          buttons (Save / Stage / Open for Browse when a listing is
-          loaded). Empty for non-Browse routes. */}
+      {/* Browse-aux slot + Global cluster wrapped together so they
+          read as a single Chrome-style right cluster. Tight 4px gap
+          between buttons — that visual rhythm is what makes the
+          group feel like a unit, not a row of detached chrome. */}
       <div
         ref={setBrowseAux}
         className="flex items-center shrink-0"
         style={{
-          gap: 6,
+          gap: 4,
           WebkitAppRegion: "no-drag",
         } as React.CSSProperties}
       />
-
-      {/* Global cluster — right, fixed. Always-reachable controls
-          regardless of route. */}
       <div
         className="flex items-center shrink-0"
         style={{
-          paddingLeft:  10,
-          paddingRight: 12,
-          gap:          6,
+          paddingLeft:  6,
+          paddingRight: 10,
+          gap:          4,
           WebkitAppRegion: "no-drag",
         } as React.CSSProperties}
       >

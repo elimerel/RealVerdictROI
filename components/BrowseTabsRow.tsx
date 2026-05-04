@@ -28,8 +28,15 @@ export default function BrowseTabsRow() {
         // (which fires once after the layout settles). Net effect:
         // smooth chrome on route change, single map redraw at the
         // end, no per-frame flicker.
-        height:          isBrowse ? 40 : 0,
-        background:      "color-mix(in srgb, var(--rv-bg) 92%, black)",
+        // 36px — Wexond's titlebar height (4 margin + 32 tab). Reads
+        // as a denser, more tool-like tab strip than the 40px softer
+        // modern-Chrome height.
+        height:          isBrowse ? 36 : 0,
+        // Distinctly darker than the AppTopBar's --rv-surface beneath.
+        // The contrast is what creates Chrome's three-band layered
+        // chrome — when the active tab lifts up to the URL band's
+        // tone, it must look like a different surface from this one.
+        background:      "color-mix(in srgb, var(--rv-bg) 78%, black)",
         WebkitAppRegion: "drag",
         zIndex:          51,
         // 160ms — synced with AppTopBar's mode cross-fade so both

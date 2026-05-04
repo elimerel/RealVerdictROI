@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { memo, useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import Sidebar from "@/components/sidebar"
 import { SidebarProvider, useSidebar } from "@/components/sidebar/context"
@@ -15,8 +15,22 @@ import { MapShellProvider, useMapShell } from "@/lib/mapShell"
 import { fetchPipeline, DEALS_CHANGED_EVENT } from "@/lib/pipeline"
 import AppTopBar from "@/components/AppTopBar"
 import BrowseTabsRow from "@/components/BrowseTabsRow"
+import BookmarksBar from "@/components/BookmarksBar"
 import PanelToggle from "@/components/browser/PanelToggle"
 import { TopBarSlotsProvider } from "@/lib/topBarSlots"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { BrowsePage as BrowsePageRaw } from "./browse/page"
+import { PipelinePage as PipelinePageRaw } from "./pipeline/page"
+import { SettingsPage as SettingsPageRaw } from "./settings/page"
+
+// Memoize the three always-mounted pages so AlwaysMountedRoutes'
+// pathname re-render doesn't cascade into a full re-render of all
+// three large trees on every nav click. Without this, switching
+// sections walks ~6,000 lines of React component each time. None of
+// the pages take props, so memo's default shallow compare is enough.
+const BrowsePage   = memo(BrowsePageRaw)
+const PipelinePage = memo(PipelinePageRaw)
+const SettingsPage = memo(SettingsPageRaw)
 
 /**
  * Wires menu-accelerator IPC events from main.js into the React tree:
@@ -66,34 +80,40 @@ function ThemeHydrator() {
  *  (180ms) and small (4px) — present enough that surface swaps feel
  *  intentional, quiet enough that it never feels like the app is
  *  showing off. Same easing as the rest of the chrome. */
-function RouteFader({ children }: { children: React.ReactNode }) {
+/** AlwaysMountedRoutes — keep all three top-level surfaces alive at
+ *  layout level and toggle visibility via CSS based on pathname.
+ *  Switching between Browse and Pipeline no longer remounts; tabs,
+ *  scroll, panel state, list selection all survive. The {children}
+ *  Next.js renders for the matched route is a stub returning null. */
+function AlwaysMountedRoutes() {
   const pathname = usePathname()
+  const route =
+    pathname.startsWith("/pipeline") ? "pipeline"
+    : pathname.startsWith("/settings") ? "settings"
+    : "browse"
   // Stamp a data attribute on <body> so route-dependent chrome (the
-  // sidebar's top strip color, which must match whatever bar sits to
-  // its right at y=0..52) can adapt via CSS. Browse has a darker
-  // TabStrip up there; Pipeline/Settings have lighter --rv-surface
-  // headers. Without this signal the sidebar-top would look like an
-  // off-colored rectangle next to one of the two.
+  // sidebar's top strip color) can adapt via CSS.
   useEffect(() => {
     if (typeof document === "undefined") return
-    const route =
-      pathname.startsWith("/pipeline") ? "pipeline"
-      : pathname.startsWith("/settings") ? "settings"
-      : pathname.startsWith("/browse")   ? "browse"
-      : "other"
     document.body.dataset.rvRoute = route
-  }, [pathname])
+  }, [route])
+  const layerStyle = (active: boolean): React.CSSProperties => ({
+    position:      "absolute",
+    inset:         0,
+    display:       "flex",
+    flexDirection: "column",
+    minHeight:     0,
+    visibility:    active ? "visible" : "hidden",
+    pointerEvents: active ? "auto"    : "none",
+  })
   return (
     <div
-      key={pathname}
-      className="flex flex-col flex-1 min-h-0 rv-route-fade"
-      // pointer-events:none so any transparent gap inside a route's
-      // tree (e.g., Pipeline's exposed map middle) lets drags fall
-      // through to the persistent MapShell behind. Opaque surfaces
-      // inside each route opt back in with pointer-events:auto.
+      className="relative flex flex-col flex-1 min-h-0"
       style={{ pointerEvents: "none" }}
     >
-      {children}
+      <div style={layerStyle(route === "browse")}><BrowsePage /></div>
+      <div style={layerStyle(route === "pipeline")}><PipelinePage /></div>
+      <div style={layerStyle(route === "settings")}><SettingsPage /></div>
     </div>
   )
 }
@@ -203,8 +223,12 @@ function MapShellLayer() {
   return (
     <div
       style={{
+        // 42 — matches the AppTopBar height. Map sits behind the
+        // toolbar; routes that don't show tab strip / bookmarks
+        // bar (Pipeline / Settings) reveal the map starting at the
+        // bottom edge of the toolbar.
         position: "fixed",
-        top:      52,
+        top:      42,
         left,
         right:    0,
         bottom:   0,
@@ -218,13 +242,63 @@ function MapShellLayer() {
 }
 
 /** TopBarGlobalCluster — pinned to the FAR right of the AppTopBar.
- *  Always-reachable controls regardless of route. Currently just the
- *  PanelToggle (Analysis button) which is meaningful in Browse;
- *  routes where the analysis panel doesn't apply just don't show it. */
+ *  Houses persistent controls. The Chrome reference for this region
+ *  is profile/extensions/menu — a small rhythm of round icon
+ *  buttons that anchors the right side of the chrome. We keep ours
+ *  sparse but real: PanelToggle on Browse (the analysis surface) +
+ *  a profile avatar that links to Settings on every route. No
+ *  decorative-only icons. */
 function TopBarGlobalCluster() {
   const pathname = usePathname()
   const inBrowse = pathname.startsWith("/browse")
-  return inBrowse ? <PanelToggle /> : null
+  return (
+    <>
+      {inBrowse && <PanelToggle />}
+      <ProfileAvatar />
+    </>
+  )
+}
+
+/** Round 28px button at the far right of the AppTopBar — visual
+ *  weight + a quick path to Settings (the Chrome equivalent of the
+ *  profile circle that opens account / sync). Reads the signed-in
+ *  email and uses the first letter as the initial; falls back to a
+ *  generic glyph if Supabase isn't configured. */
+function ProfileAvatar() {
+  const router = useRouter()
+  const [email, setEmail] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    import("@/lib/supabase/client").then(({ createClient }) => {
+      createClient().auth.getUser().then(({ data }) => {
+        if (!cancelled) setEmail(data.user?.email ?? null)
+      })
+    }).catch(() => { /* unconfigured — leave null */ })
+    return () => { cancelled = true }
+  }, [])
+  const initial = email ? (email[0] ?? "?").toUpperCase() : null
+  // shadcn Avatar inside a button so it's clickable + reads as the
+  // canonical "profile chip" from the design system. Same primitive
+  // the sidebar's AccountRow uses, so the two profile surfaces feel
+  // unified.
+  return (
+    <button
+      onClick={() => router.push("/settings")}
+      title={email ?? "Settings"}
+      aria-label="Account & settings"
+      className="shrink-0 transition-opacity hover:opacity-90"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+    >
+      <Avatar className="size-7">
+        <AvatarFallback
+          className="text-[11px] font-semibold"
+          style={{ background: "var(--rv-accent)", color: "white" }}
+        >
+          {initial ?? "?"}
+        </AvatarFallback>
+      </Avatar>
+    </button>
+  )
 }
 
 /** Brand removed from AppTopBar — moved into the sidebar at the top
@@ -260,6 +334,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <AppTopBar
                 globalCluster={<TopBarGlobalCluster />}
               />
+              {/* BookmarksBar — Chrome's third chrome row. Sits
+                  directly below the URL toolbar; collapses to 0
+                  height on non-Browse routes. */}
+              <BookmarksBar />
               <div className="flex flex-1 min-h-0 overflow-hidden">
                 <Sidebar />
                 <main className="flex flex-col flex-1 min-w-0 h-full relative">
@@ -271,7 +349,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     className="relative flex flex-col flex-1 min-h-0"
                     style={{ zIndex: 2, pointerEvents: "none" }}
                   >
-                    <RouteFader>{children}</RouteFader>
+                    <AlwaysMountedRoutes />
+                    {/* Next.js still renders the matched route's
+                        default export here (each is a stub returning
+                        null). Keeps routing/URL behavior intact while
+                        the actual content lives in AlwaysMountedRoutes
+                        above. */}
+                    <div style={{ display: "none" }}>{children}</div>
                   </div>
                 </main>
               </div>

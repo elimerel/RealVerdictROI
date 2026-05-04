@@ -367,6 +367,7 @@ export interface ElectronAPI {
   // Panel state events — main → renderer
   onNavUpdate:     (cb: (payload: NavUpdate) => void) => () => void
   onFocusUrlbar:   (cb: () => void) => () => void
+  focusRenderer:   () => Promise<void>
   onPanelAnalyzing:(cb: () => void) => () => void
   onPanelReady:    (cb: (result: PanelPayload) => void) => () => void
   onPanelHide:     (cb: () => void) => () => void

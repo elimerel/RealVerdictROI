@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
 import mapboxgl, { type Map as MapboxMap, type Marker } from "mapbox-gl"
+import { Button } from "@/components/ui/button"
 import { geocode, type Coords } from "@/lib/mapbox"
 import { STAGE_COLOR, type SavedDeal } from "@/lib/pipeline"
 import { useMapShell } from "@/lib/mapShell"
@@ -323,28 +324,26 @@ export default function MapShell() {
         }}
       />
       {placedDeals.length >= 2 && (
-        <button
+        <Button
           onClick={fitAll}
           title="Fit all your deals"
-          className="absolute z-10 inline-flex items-center gap-1.5 rounded-full text-[10.5px] uppercase tracking-widest font-medium transition-colors"
+          variant="secondary"
+          size="xs"
+          className="absolute z-10 rounded-full text-[10.5px] uppercase tracking-widest"
           style={{
             top:        12,
             left:       12,
-            padding:    "5px 10px 5px 8px",
             color:      "rgba(245, 245, 247, 0.92)",
             background: "rgba(15, 15, 18, 0.62)",
             backdropFilter: "blur(10px)",
             WebkitBackdropFilter: "blur(10px)",
             border:     "0.5px solid rgba(255, 255, 255, 0.10)",
             boxShadow:  "0 2px 8px rgba(0, 0, 0, 0.30)",
-            cursor:     "pointer",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(15, 15, 18, 0.78)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(15, 15, 18, 0.62)" }}
         >
           <span style={{ width: 6, height: 6, borderRadius: 99, background: "var(--rv-accent)" }} />
           Fit all · {placedDeals.length}
-        </button>
+        </Button>
       )}
     </>
   )

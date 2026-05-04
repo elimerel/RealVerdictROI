@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react"
 import { createPortal } from "react-dom"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { useTopBarSlots } from "@/lib/topBarSlots"
 import type { ChatContext, ChatMessage, NavUpdate, PanelPayload, PanelResult, TabInfo } from "@/lib/electron"
 import Toolbar from "@/components/browser/Toolbar"
@@ -12,7 +12,8 @@ import Panel, { type PanelContentState, type ManualFacts } from "@/components/pa
 // chrome padding from sidebar state (tabs live above the sidebar in
 // BrowseTabsRow now).
 import { Bookmark, BookmarkCheck, ExternalLink, RefreshCw, PanelRight, GitCompareArrows, FilePlus } from "lucide-react"
-import { Button } from "@/components/ui/Button"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import StageMenu from "@/components/StageMenu"
 import { usePaletteActions, type Action as PaletteAction } from "@/components/command-palette"
 import {
@@ -82,14 +83,36 @@ function extractSiteName(url: string): string | null {
   }
 }
 
-export default function BrowsePage() {
+// BrowsePage as a NAMED export so AppLayout can import it directly
+// and keep it mounted across route changes. The default export below
+// returns null — page.tsx still satisfies Next.js routing for /browse,
+// but the actual content lives at the layout level (always mounted,
+// visibility toggled by pathname). This is what "always loaded in"
+// requires structurally — without this, every Pipeline → Browse
+// navigation tears down BrowsePageInner and rebuilds it.
+export function BrowsePage() {
   return <Suspense><BrowsePageInner /></Suspense>
 }
+
+// Stub default export — Next.js requires page.tsx to have a default
+// export to register the route. Returning null means page.tsx adds
+// no content to the route; the always-mounted BrowsePage at the
+// layout level renders it (visibility-gated by pathname).
+export default function BrowseRouteStub() { return null }
 
 function BrowsePageInner() {
   const urlbarRef     = useRef<HTMLInputElement>(null)
   const searchParams  = useSearchParams()
   const router        = useRouter()
+  const pathname      = usePathname()
+  // Browse stays mounted at layout level even when the user is on
+  // Pipeline / Settings (always-mounted routes architecture). The
+  // embedded BrowserView is a NATIVE Chromium overlay composited
+  // ABOVE the renderer DOM — visibility:hidden on our React tree
+  // doesn't hide it. So we gate every show/setLayout call on this
+  // route-active flag, and explicitly hide the native view whenever
+  // the user navigates away.
+  const routeActive   = pathname.startsWith("/browse")
 
   const [nav,           setNav]           = useState<NavUpdate>({})
   const [panelOpen,     setPanelOpen]     = useState(false)
@@ -186,18 +209,26 @@ function BrowsePageInner() {
     if (!api) return
     let cancelled = false
     if (!browserReady) {
+      // Create the BrowserView the first time Browse is rendered, even
+      // if the user landed on Pipeline / Settings first — main parks it
+      // at 1×1 until we explicitly show it, so this is cheap and means
+      // the first /browse navigation doesn't pay the create cost.
       api.createBrowser({ panelWidth: reservedRight }).then(() => {
         if (!cancelled) setBrowserReady(true)
       })
-    } else {
-      api.showBrowser({ panelWidth: reservedRight })
     }
-    return () => {
-      cancelled = true
-      api.hideBrowser()
-    }
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api])
+
+  // Hide the native BrowserView whenever the user is on a non-Browse
+  // route. Replaces the unmount-cleanup that used to run when Browse
+  // was a remounting route — now that Browse is always mounted, we
+  // need an explicit signal tied to pathname.
+  useEffect(() => {
+    if (!api || !browserReady) return
+    if (!routeActive) api.hideBrowser()
+  }, [api, browserReady, routeActive])
 
   // Deep-link from Pipeline card click: /browse?url=...
   // Once the embedded browser is ready, navigate it to the requested URL,
@@ -219,9 +250,9 @@ function BrowsePageInner() {
   // the now-empty area. The brief moment where the dark frame area is wider
   // than the still-sliding panel is the tradeoff, and it reads cleanly.
   useEffect(() => {
-    if (!browserReady || !api) return
+    if (!browserReady || !api || !routeActive) return
     api.setLayout({ panelWidth: reservedRight, animate: false })
-  }, [api, browserReady, reservedRight])
+  }, [api, browserReady, reservedRight, routeActive])
 
   // Hide the embedded WebContentsView whenever the start screen is showing
   // (no URL loaded). The native view is composed *over* React's DOM, so even
@@ -236,6 +267,7 @@ function BrowsePageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!api || !browserReady) return
+    if (!routeActive) return  // hidden by the route-leave effect above
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const hasUrl = !!(nav.url || activeTab?.url)
     if (!hasUrl) {
@@ -243,7 +275,7 @@ function BrowsePageInner() {
     } else {
       api.showBrowser({ panelWidth: reservedRight })
     }
-  }, [api, browserReady, nav.url, tabs, activeTabId])
+  }, [api, browserReady, nav.url, tabs, activeTabId, routeActive, reservedRight])
 
   // Subscribe to tab state. Main broadcasts on every change (create, close,
   // activate, navigate). We mirror it locally for the strip + active-tab
@@ -971,10 +1003,10 @@ function BrowsePageInner() {
     // pattern Cursor / Linear / VS Code use.
     <div
       className="flex w-full h-full overflow-hidden"
-      // RouteFader sets pe:none so Pipeline's exposed map middle lets
-      // drags fall through. Browse re-enables pe so its chrome and
-      // start-screen content are clickable.
-      style={{ pointerEvents: "auto" }}
+      // No explicit pointerEvents — AlwaysMountedRoutes' active layer
+      // sets pe:auto, inactive sets pe:none. Re-enabling here would
+      // make this content intercept clicks on /pipeline / /settings
+      // because Browse stays mounted underneath them.
     >
       {/* Panel-action buttons portaled into the AppTopBar's browseAux
           slot — Save / Stage / Re-analyze live pinned right of the
@@ -983,7 +1015,7 @@ function BrowsePageInner() {
           whether the panel is open) when there's a ready result, so
           the user can save / change stage from the top bar even
           when the panel is collapsed. */}
-      {browseAuxSlot && panelContent.phase === "ready" && createPortal(
+      {browseAuxSlot && routeActive && panelContent.phase === "ready" && createPortal(
         <div className="flex items-center gap-2">
           {isCurrentSaved && currentSaved ? (
             <>
@@ -1583,42 +1615,36 @@ function HeroStatCard({
 }: {
   label:        string
   value:        string
-  /** Tiny suffix appended after the main value at smaller weight (e.g. "/mo"). */
   valueSuffix?: string
   sub?:         string
   trend:        { text: string; tone: "pos" | "neg" | "neutral" } | null
   tone?:        "neg" | "neutral"
 }) {
+  // Tremor / Linear 2026 metrics-card aesthetic. shadcn Card under
+  // the hood (uses our themed --card / --border / --foreground
+  // tokens), Inter for the value (no display serif — feels editorial,
+  // not data-app), tabular numerals, tight 16px padding, 12px radius.
+  // Reads as a tool, not a marketing card.
   const valueColor = tone === "neg" ? "var(--rv-neg)" : "var(--rv-t1)"
   const trendColor =
     trend?.tone === "pos" ? "var(--rv-pos)" :
     trend?.tone === "neg" ? "var(--rv-neg)" :
-                            "var(--rv-t4)"
+                            "var(--rv-t3)"
   return (
-    <div
-      className="rounded-[14px] flex flex-col"
-      style={{
-        padding:    "16px 18px 18px",
-        background: "var(--rv-elev-3)",
-        border:     "0.5px solid var(--rv-border-mid)",
-        boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.07), 0 6px 20px rgba(0,0,0,0.36)",
-      }}
-    >
-      <p
-        className="text-[10px] uppercase tracking-widest font-medium"
-        style={{ color: "var(--rv-t4)" }}
+    <Card className="rounded-[12px] gap-0 p-4 shadow-sm hover:shadow-md transition-shadow">
+      <div
+        className="text-[11px] uppercase tracking-wider font-medium"
+        style={{ color: "var(--rv-t3)" }}
       >
         {label}
-      </p>
+      </div>
       <div className="flex items-baseline gap-1 mt-3">
         <span
-          className="tabular-nums leading-none"
+          className="font-semibold tabular-nums leading-none"
           style={{
             color:         valueColor,
-            fontSize:      32,
-            letterSpacing: "-0.025em",
-            fontFamily:    "var(--rv-font-display)",
-            fontWeight:    500,
+            fontSize:      28,
+            letterSpacing: "-0.02em",
           }}
         >
           {value}
@@ -1632,7 +1658,7 @@ function HeroStatCard({
           </span>
         )}
       </div>
-      <div className="flex items-baseline justify-between mt-2.5 gap-2 min-h-[14px]">
+      <div className="flex items-baseline justify-between mt-2 gap-2 min-h-[16px]">
         {sub && (
           <span className="text-[11px] truncate" style={{ color: "var(--rv-t3)" }}>
             {sub}
@@ -1640,14 +1666,16 @@ function HeroStatCard({
         )}
         {trend && (
           <span
-            className="text-[11px] tracking-tight tabular-nums shrink-0 ml-auto"
+            className="text-[11px] tracking-tight tabular-nums shrink-0 ml-auto inline-flex items-center gap-0.5"
             style={{ color: trendColor }}
           >
+            {trend.tone === "pos" && "↑"}
+            {trend.tone === "neg" && "↓"}
             {trend.text}
           </span>
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -1660,18 +1688,11 @@ function DashboardCard({
   className?: string
 }) {
   return (
-    <div
-      className={`rounded-[14px] flex flex-col ${className ?? ""}`}
-      style={{
-        background: "var(--rv-elev-3)",
-        border:     "0.5px solid var(--rv-border-mid)",
-        boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.07), 0 6px 20px rgba(0,0,0,0.36)",
-      }}
-    >
+    <Card className={`gap-0 p-0 flex flex-col ${className ?? ""}`}>
       <div className="flex items-center justify-between px-5 pt-4 pb-3">
         <p
-          className="text-[9.5px] uppercase tracking-widest font-medium"
-          style={{ color: "var(--rv-t4)" }}
+          className="text-[10px] uppercase tracking-widest font-medium"
+          style={{ color: "var(--rv-t3)" }}
         >
           {title}
         </p>
@@ -1680,7 +1701,7 @@ function DashboardCard({
       <div className="flex-1 min-h-0">
         {children}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -1700,75 +1721,52 @@ function ActionButtonRow({
   canReanalyze?:  boolean
   onManual?:      () => void
 }) {
+  // Mercury Send/Transfer/Deposit pattern, but rendered through the
+  // shadcn-backed canonical Button. Primary (Save) gets variant="default"
+  // → bg-primary (forest green); the rest are variant="secondary" so
+  // they read as neutral chips in the row. Single action surface, all
+  // through the same primitive — automatically modern.
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <button
+      <Button
         onClick={canSave ? onSaveCurrent : undefined}
         disabled={!canSave}
-        className="inline-flex items-center gap-1.5 rounded-full text-[12.5px] font-medium tracking-tight transition-all duration-100 disabled:cursor-default"
-        style={{
-          padding:    "7px 14px",
-          color:      canSave ? "#0a0a0c" : "var(--rv-t4)",
-          background: canSave ? "var(--rv-accent)" : "var(--rv-elev-2)",
-          border:     "0.5px solid transparent",
-          opacity:    canSave ? 1 : 0.55,
-        }}
-        onMouseEnter={(e) => { if (canSave) e.currentTarget.style.transform = "scale(1.02)" }}
-        onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)" }}
+        variant="default"
+        size="sm"
         title={canSave ? "Save the current listing to Watching (⌘S)" : "Open a listing first to save it"}
       >
-        <Bookmark size={12} strokeWidth={2.2} />
+        <Bookmark size={14} strokeWidth={2.2} />
         Save current
-      </button>
-      <ActionPill onClick={onCompare} icon={<GitCompareArrows size={11} strokeWidth={2} />} title="Compare deals in your pipeline">
+      </Button>
+      <Button
+        onClick={onCompare}
+        variant="secondary"
+        size="sm"
+        title="Compare deals in your pipeline"
+      >
+        <GitCompareArrows size={13} strokeWidth={2} />
         Compare
-      </ActionPill>
-      <ActionPill onClick={canReanalyze ? onReanalyze : undefined} disabled={!canReanalyze} icon={<RefreshCw size={11} strokeWidth={2} />} title={canReanalyze ? "Re-run analysis on the current listing" : "Open a listing first"}>
+      </Button>
+      <Button
+        onClick={canReanalyze ? onReanalyze : undefined}
+        disabled={!canReanalyze}
+        variant="secondary"
+        size="sm"
+        title={canReanalyze ? "Re-run analysis on the current listing" : "Open a listing first"}
+      >
+        <RefreshCw size={13} strokeWidth={2} />
         Re-analyze
-      </ActionPill>
-      <ActionPill onClick={onManual} icon={<FilePlus size={11} strokeWidth={2} />} title="Enter listing facts manually">
+      </Button>
+      <Button
+        onClick={onManual}
+        variant="secondary"
+        size="sm"
+        title="Enter listing facts manually"
+      >
+        <FilePlus size={13} strokeWidth={2} />
         Add manually
-      </ActionPill>
+      </Button>
     </div>
-  )
-}
-
-function ActionPill({
-  onClick, disabled, icon, children, title,
-}: {
-  onClick?:  () => void
-  disabled?: boolean
-  icon?:     React.ReactNode
-  children:  React.ReactNode
-  title?:    string
-}) {
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      title={title}
-      className="inline-flex items-center gap-1.5 rounded-full text-[12px] font-medium tracking-tight transition-colors disabled:cursor-default"
-      style={{
-        padding:    "6px 12px",
-        color:      "var(--rv-t2)",
-        background: "var(--rv-elev-2)",
-        border:     "0.5px solid var(--rv-border)",
-        opacity:    disabled ? 0.45 : 1,
-      }}
-      onMouseEnter={(e) => {
-        if (disabled) return
-        e.currentTarget.style.background = "var(--rv-elev-3)"
-        e.currentTarget.style.color      = "var(--rv-t1)"
-      }}
-      onMouseLeave={(e) => {
-        if (disabled) return
-        e.currentTarget.style.background = "var(--rv-elev-2)"
-        e.currentTarget.style.color      = "var(--rv-t2)"
-      }}
-    >
-      {icon}
-      {children}
-    </button>
   )
 }
 
@@ -1788,16 +1786,14 @@ function PipelineDashCard({
     <DashboardCard
       title={`Your pipeline · ${deals.length} active`}
       action={
-        <button
+        <Button
           onClick={() => onOpenInPipeline("")}
-          className="text-[11px] tracking-tight transition-colors"
-          style={{ color: "var(--rv-t3)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
+          variant="ghost"
+          size="xs"
           title="Open the full Pipeline view"
         >
           View all →
-        </button>
+        </Button>
       }
     >
       <div className="flex flex-col">
@@ -1960,16 +1956,15 @@ function QuickSearchesCard({ onNavigate }: { onNavigate: (url: string) => void }
     <DashboardCard title="Quick searches">
       <div className="flex flex-col gap-1 px-3 pb-3">
         {items.map((q) => (
-          <button
+          <Button
             key={q.id}
             onClick={() => onNavigate(q.url)}
-            className="text-left rounded-[7px] px-2 py-1.5 transition-colors text-[12.5px]"
-            style={{ color: "var(--rv-t1)", background: "transparent" }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-2)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+            variant="ghost"
+            size="sm"
+            className="justify-start text-[12.5px]"
           >
             {q.label}
-          </button>
+          </Button>
         ))}
       </div>
     </DashboardCard>
@@ -2294,29 +2289,16 @@ function StartScreen({
               </p>
               <div className="flex flex-wrap items-center justify-center gap-1.5 w-full max-w-[460px] mx-auto">
                 {SUGGESTED.map(({ label, url, desc }) => (
-                  <button
+                  <Button
                     key={url}
                     onClick={() => onNavigate(url)}
                     title={desc}
-                    className="text-[12px] font-medium tracking-tight rounded-full transition-all duration-100"
-                    style={{
-                      color:      "var(--rv-t2)",
-                      background: "var(--rv-elev-2)",
-                      border:     "0.5px solid var(--rv-border)",
-                      padding:    "5px 11px",
-                      lineHeight: 1.1,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "var(--rv-elev-4)"
-                      e.currentTarget.style.color      = "var(--rv-t1)"
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "var(--rv-elev-2)"
-                      e.currentTarget.style.color      = "var(--rv-t2)"
-                    }}
+                    variant="secondary"
+                    size="sm"
+                    className="rounded-full"
                   >
                     {label}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -2428,16 +2410,15 @@ function WeeklyDigestCard({ onPick }: { onPick: (url: string) => void }) {
         >
           Past 7 days
         </p>
-        <button
+        <Button
           onClick={onDismiss}
-          className="text-[10px] tracking-tight transition-colors"
-          style={{ color: "var(--rv-t4)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t2)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)" }}
+          variant="ghost"
+          size="xs"
+          className="text-[10px] h-6"
           title="Hide for the rest of the week"
         >
           Dismiss
-        </button>
+        </Button>
       </div>
 
       {/* Stat row — only renders the chips that have non-zero counts */}
@@ -2556,22 +2537,17 @@ function WatchNoticeBanner({
           · net {sign}{fmtCurrency(notice.deltaTotal)}
         </span>
       </button>
-      <button
+      <Button
         onClick={onDismiss}
         aria-label="Dismiss"
-        className="shrink-0 inline-flex items-center justify-center rounded transition-colors"
-        style={{
-          width:  18,
-          height: 18,
-          color:  "var(--rv-t4)",
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t2)" }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)" }}
+        variant="ghost"
+        size="icon-xs"
+        className="size-[18px]"
       >
         <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
           <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
         </svg>
-      </button>
+      </Button>
     </div>
   )
 }

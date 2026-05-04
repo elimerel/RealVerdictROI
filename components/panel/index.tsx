@@ -6,7 +6,9 @@ import type { ChatContext, ChatMessage, PanelResult, SourceField, SourceKind } f
 import type { PipelineAverages } from "@/lib/pipeline"
 import { SourceMark, sourceMeta, freshnessLabel } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
-import { Button } from "@/components/ui/Button"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import {
   hasActiveScenario,
   recomputeMetrics,
@@ -80,64 +82,55 @@ function MetricCard({
   }, [flashKey])
 
   return (
-    <div
-      className="flex flex-col gap-1 rounded-xl min-w-0 overflow-hidden relative"
-      style={{
-        padding:    "13px 15px 14px",
-        background: "var(--rv-elev-2)",
-        border:     "0.5px solid var(--rv-border-mid)",
-        boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
-      }}
-    >
+    <Card className="gap-0 p-3.5 min-w-0 overflow-hidden relative hover:shadow-md transition-shadow">
       {flashTick > 0 && (
         <span
           key={flashTick}
           aria-hidden
-          className="rv-metric-flash absolute inset-0 rounded-xl pointer-events-none"
+          className="rv-metric-flash absolute inset-0 rounded-[var(--radius)] pointer-events-none"
         />
       )}
-      <span
-        className="text-[10px] uppercase tracking-widest font-medium truncate"
-        style={{ color: "var(--rv-t4)" }}
+      <div
+        className="text-[10.5px] uppercase tracking-wider font-medium truncate"
+        style={{ color: "var(--rv-t3)" }}
       >
         {label}
-      </span>
-      <span
-        className="tabular-nums leading-none truncate"
+      </div>
+      <div
+        className="font-semibold tabular-nums leading-none truncate mt-2.5"
         style={{
           color:              valueColor,
           fontVariantNumeric: "tabular-nums",
-          fontSize:           28,
-          fontFamily:         "var(--rv-font-display)",
-          fontWeight:         500,
-          letterSpacing:      "-0.025em",
-          marginTop:          5,
+          fontSize:           26,
+          letterSpacing:      "-0.02em",
         }}
       >
         {value}
-      </span>
+      </div>
       {delta && (
-        <span
-          className="text-[10px] leading-none tabular-nums truncate"
-          style={{ color: deltaColor, marginTop: 1 }}
+        <div
+          className="text-[10.5px] leading-none tabular-nums truncate mt-1.5 inline-flex items-center gap-0.5"
+          style={{ color: deltaColor }}
           title="vs default analysis"
         >
+          {delta.tone === "pos" && "↑"}
+          {delta.tone === "neg" && "↓"}
           {delta.text}
-        </span>
+        </div>
       )}
       {sub && (
-        <span className="text-[11px] leading-none truncate" style={{ color: "var(--rv-t2)", marginTop: 4 }}>
+        <div className="text-[11.5px] leading-none truncate mt-2" style={{ color: "var(--rv-t2)" }}>
           {sub}
-        </span>
+        </div>
       )}
       {bar && (
-        <span
-          className="inline-flex items-center gap-1 mt-2 self-start text-[10px] uppercase tracking-widest font-semibold rounded-full"
+        <Badge
+          variant="outline"
+          className="mt-2.5 self-start text-[9.5px] uppercase tracking-widest font-semibold gap-1"
           style={{
             color:      bar.passed ? "var(--rv-pos)" : "var(--rv-neg)",
             background: bar.passed ? "var(--rv-pos-bg)" : "var(--rv-neg-bg)",
-            border:     `0.5px solid ${bar.passed ? "var(--rv-pos)" : "var(--rv-neg)"}33`,
-            padding:    "3px 7px",
+            borderColor: bar.passed ? "var(--rv-pos)" : "var(--rv-neg)",
           }}
           title={bar.passed ? "Above your buy bar" : "Below your buy bar"}
         >
@@ -146,9 +139,9 @@ function MetricCard({
             style={{ width: 5, height: 5, background: bar.passed ? "var(--rv-pos)" : "var(--rv-neg)" }}
           />
           {bar.passed ? "above bar" : "below bar"}
-        </span>
+        </Badge>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -436,16 +429,9 @@ function SourcesDrawer({
           className="flex items-center justify-end px-3 shrink-0"
           style={{ height: 40 }}
         >
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-colors"
-            style={{ color: "var(--rv-t3)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)"; e.currentTarget.style.background = "var(--rv-elev-3)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)"; e.currentTarget.style.background = "transparent" }}
-          >
+          <Button onClick={onClose} aria-label="Close" variant="ghost" size="icon-xs">
             <X size={13} strokeWidth={2} />
-          </button>
+          </Button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto panel-scroll">
@@ -598,15 +584,12 @@ function HeaderSourceStack({
   if (provenance.hoa) push(provenance.hoa.source)
 
   return (
-    <button
+    <Button
       onClick={onClick}
       title="See where every number comes from"
-      className="inline-flex items-center gap-1 px-1.5 py-[3px] rounded-[6px] transition-colors shrink-0"
-      style={{
-        background: active ? "var(--rv-elev-3)" : "transparent",
-      }}
-      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "var(--rv-elev-2)" }}
-      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent" }}
+      variant={active ? "secondary" : "ghost"}
+      size="xs"
+      className="px-1.5 gap-1"
     >
       {sources.slice(0, 3).map(({ key, source }) => (
         <SourceMark key={key} source={source} siteName={result.siteName} />
@@ -616,7 +599,7 @@ function HeaderSourceStack({
           +{sources.length - 3}
         </span>
       )}
-    </button>
+    </Button>
   )
 }
 
@@ -631,30 +614,34 @@ function HeaderIconBtn({
   active?: boolean
   children: React.ReactNode
 }) {
+  // Migrated to canonical Button. Active state stays custom (accent-tinted)
+  // because shadcn's `default` would make it filled-green, which is too
+  // loud for an "active toggle" affordance in dense chrome.
   return (
-    <button
+    <Button
       onClick={onClick}
       disabled={disabled}
       title={title}
       aria-label={title}
-      className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-colors duration-100
-                 disabled:opacity-30 disabled:pointer-events-none"
-      style={{
-        color: active ? "var(--rv-accent)" : "var(--rv-t3)",
-        background: active ? "rgba(48,164,108,0.12)" : "transparent",
-      }}
+      variant="ghost"
+      size="icon-xs"
+      style={
+        active
+          ? { color: "var(--rv-accent)", background: "rgba(74, 125, 94, 0.16)" }
+          : undefined
+      }
       onMouseEnter={(e) => {
         if (disabled) return
         e.currentTarget.style.color = active ? "var(--rv-accent)" : "var(--rv-t1)"
-        e.currentTarget.style.background = active ? "rgba(48,164,108,0.18)" : "var(--rv-elev-3)"
+        e.currentTarget.style.background = active ? "rgba(74, 125, 94, 0.22)" : "var(--rv-elev-3)"
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.color = active ? "var(--rv-accent)" : "var(--rv-t3)"
-        e.currentTarget.style.background = active ? "rgba(48,164,108,0.12)" : "transparent"
+        e.currentTarget.style.background = active ? "rgba(74, 125, 94, 0.16)" : "transparent"
       }}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 
@@ -790,35 +777,15 @@ function ErrorPane({
       <p className="text-[12px] leading-relaxed" style={{ color: "var(--rv-t2)" }}>{message}</p>
       <div className="flex items-center gap-2 mt-1">
         {onRetry && (
-          <button
-            onClick={onRetry}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[7px] text-[12px] font-medium transition-colors"
-            style={{
-              color: "var(--rv-t1)",
-              background: "var(--rv-elev-3)",
-              border: "1px solid var(--rv-border)",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-4)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--rv-elev-3)" }}
-          >
+          <Button onClick={onRetry} variant="secondary" size="sm">
             <RefreshCw size={11} strokeWidth={2} />
             Try again
-          </button>
+          </Button>
         )}
         {onManualEntry && (
-          <button
-            onClick={onManualEntry}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[7px] text-[12px] font-medium transition-colors"
-            style={{
-              color: "var(--rv-accent)",
-              background: "rgba(48,164,108,0.10)",
-              border: "1px solid rgba(48,164,108,0.22)",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.18)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.10)" }}
-          >
+          <Button onClick={onManualEntry} variant="default" size="sm">
             Enter manually
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -879,9 +846,7 @@ function ManualEntryPane({
         <p className="text-[12px] font-medium" style={{ color: "var(--rv-t1)" }}>
           Tell us about this listing
         </p>
-        <button onClick={onCancel} className="text-[11.5px]" style={{ color: "var(--rv-t3)" }}>
-          Cancel
-        </button>
+        <Button onClick={onCancel} variant="ghost" size="xs">Cancel</Button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto panel-scroll">
         <div className="px-4 py-4 flex flex-col gap-4">
@@ -943,20 +908,9 @@ function ManualEntryPane({
         className="px-4 py-3 shrink-0 flex items-center justify-end gap-2"
         style={{ borderTop: "0.5px solid var(--rv-border)" }}
       >
-        <button
-          onClick={() => onSubmit(facts)}
-          disabled={!canSubmit}
-          className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] font-medium tracking-tight transition-colors disabled:opacity-40 disabled:pointer-events-none"
-          style={{
-            color:      "var(--rv-accent)",
-            background: "rgba(48,164,108,0.10)",
-            border:     "0.5px solid rgba(48,164,108,0.22)",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.18)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.10)" }}
-        >
+        <Button onClick={() => onSubmit(facts)} disabled={!canSubmit} variant="default" size="sm">
           Analyze
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -1060,19 +1014,9 @@ function EmptyPane({ onAnalyze, hasListing }: { onAnalyze: () => void; hasListin
         </p>
       </div>
       {hasListing && (
-        <button
-          onClick={onAnalyze}
-          className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[7px] text-[12px] font-medium transition-colors"
-          style={{
-            color: "var(--rv-accent)",
-            background: "rgba(48,164,108,0.10)",
-            border: "1px solid rgba(48,164,108,0.22)",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.18)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.10)" }}
-        >
+        <Button onClick={onAnalyze} variant="default" size="sm" className="mt-1">
           Analyze
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -1346,20 +1290,15 @@ function ResultPane({
                 When a scenario is active it shifts to "Adjusting · N
                 changed" so the hero itself communicates whether the user
                 is on default or custom numbers. */}
-            <button
+            <Button
               onClick={openEditorAndScroll}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-full font-semibold tracking-tight shrink-0 transition-colors"
+              variant="secondary"
+              size="sm"
+              className="ml-auto rounded-full"
               style={{
-                // Bumped from 10.5px tiny chip → 12px, accent-tinted
-                // even when no scenario is active. The Adjust verb is
-                // central to the panel's value (model alternatives on
-                // any listing) — making it look like the link it
-                // actually is, not an afterthought next to the price.
-                fontSize:   12,
                 color:      "var(--rv-accent)",
                 background: "var(--rv-accent-dim)",
                 border:     "0.5px solid var(--rv-accent-border)",
-                padding:    "5px 12px 5px 10px",
               }}
               title={scenarioActive ? "You've adjusted assumptions — click to edit" : "Adjust price, rate, rent, etc."}
             >
@@ -1367,8 +1306,8 @@ function ResultPane({
               {scenarioActive
                 ? `Adjusting · ${Object.keys(overrides).filter((k) => (overrides as Record<string, unknown>)[k] !== undefined).length} changed`
                 : "Adjust"}
-              <ChevronDown size={11} strokeWidth={2.2} style={{ marginLeft: 1 }} />
-            </button>
+              <ChevronDown size={11} strokeWidth={2.2} />
+            </Button>
           </div>
         )}
 
@@ -1516,16 +1455,14 @@ function ResultPane({
       <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
         {scenarioActive && (
           <div className="flex items-center justify-end mb-2">
-            <button
+            <Button
               onClick={() => setOverrides({})}
-              className="text-[11px] tracking-tight transition-colors"
-              style={{ color: "var(--rv-t3)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
+              variant="ghost"
+              size="xs"
               title="Clear all overrides and return to the default analysis"
             >
               Reset scenario
-            </button>
+            </Button>
           </div>
         )}
         {/* Cash Flow lives in the hero — no need to repeat it as a card.
@@ -1666,16 +1603,16 @@ function ResultPane({
           is where the brand promise gets shown in detail. */}
       {onOpenSources && (
         <div className="px-4 pt-3 pb-1">
-          <button
+          <Button
             onClick={onOpenSources}
-            className="inline-flex items-center gap-1.5 text-[12px] tracking-tight transition-colors"
+            variant="link"
+            size="xs"
+            className="px-0 h-auto text-[12px]"
             style={{ color: "var(--rv-t3)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-accent)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
           >
             <Sparkles size={11} strokeWidth={2} style={{ color: "var(--rv-accent)" }} />
             Where every number comes from →
-          </button>
+          </Button>
         </div>
       )}
     </div>

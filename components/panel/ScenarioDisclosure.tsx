@@ -8,6 +8,7 @@
 // host — the disclosure itself just owns the form UI.
 
 import React, { useRef, useState } from "react"
+import { Button } from "@/components/ui/button"
 import type { ScenarioOverrides } from "@/lib/scenario"
 import type { PanelResult, SourceKind } from "@/lib/electron"
 
@@ -35,13 +36,11 @@ export function ScenarioDisclosure({
 
   return (
     <div style={{ borderBottom: "1px solid var(--rv-border)" }}>
-      <button
+      <Button
         onClick={() => setOpen((v) => !v)}
         title={SCENARIO_TIP}
-        className="w-full flex items-center justify-between px-4 py-3 transition-colors"
-        style={{ background: "transparent" }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-1)" }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+        variant="ghost"
+        className="w-full flex items-center justify-between px-4 py-3 h-auto rounded-none"
       >
         <span
           className="text-[10px] uppercase tracking-widest font-medium"
@@ -59,7 +58,7 @@ export function ScenarioDisclosure({
         >
           <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-      </button>
+      </Button>
 
       {open && (
         <div className="px-4 pb-3 flex flex-col gap-2">
@@ -104,15 +103,14 @@ export function ScenarioDisclosure({
             onChange={(v) => update("vacancyPct", v ?? undefined)}
           />
 
-          <button
+          <Button
             onClick={() => setShowAdvanced((v) => !v)}
-            className="self-start text-[10.5px] tracking-tight transition-colors mt-0.5"
-            style={{ color: "var(--rv-t3)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
+            variant="ghost"
+            size="xs"
+            className="self-start mt-0.5 text-[10.5px]"
           >
             {showAdvanced ? "Hide advanced" : "Advanced (loan term, taxes, reserves)"}
-          </button>
+          </Button>
 
           {showAdvanced && (
             <div className="flex flex-col gap-2 pt-0.5">

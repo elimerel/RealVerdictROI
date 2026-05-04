@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Send, Sparkles } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { ChatContext, ChatMessage } from "@/lib/electron"
 import { applyScenarioFromBus, type ScenarioOverrides } from "@/lib/scenario"
 import { showToast } from "@/lib/toast"
@@ -172,28 +173,19 @@ export default function PanelChat({
             </span>
             <div className="flex items-center gap-1">
               {onClear && (
-                <button
-                  onClick={onClear}
-                  className="text-[10.5px] tracking-tight"
-                  style={{ color: "var(--rv-t4)" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t2)" }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)" }}
-                >
-                  Clear
-                </button>
+                <Button onClick={onClear} variant="ghost" size="xs">Clear</Button>
               )}
-              <button
+              <Button
                 onClick={() => setShowHistory(false)}
                 aria-label="Hide conversation"
-                className="w-5 h-5 inline-flex items-center justify-center rounded-[5px] transition-colors"
-                style={{ color: "var(--rv-t4)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)"; e.currentTarget.style.background = "var(--rv-elev-3)" }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)"; e.currentTarget.style.background = "transparent" }}
+                variant="ghost"
+                size="icon-xs"
+                className="size-5"
               >
                 <svg width="10" height="10" viewBox="0 0 11 11" fill="none" aria-hidden>
                   <path d="M2.5 2.5L8.5 8.5M8.5 2.5L2.5 8.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                 </svg>
-              </button>
+              </Button>
             </div>
           </div>
           <div
@@ -240,7 +232,7 @@ export default function PanelChat({
       >
         {/* ✦ Sparkle button — toggles the suggestions popover. Doubles
             as a "show conversation" button when there are messages. */}
-        <button
+        <Button
           onClick={(e) => {
             e.stopPropagation()
             if (messages.length > 0) {
@@ -252,21 +244,16 @@ export default function PanelChat({
           disabled={disabled}
           title={messages.length > 0 ? "Toggle conversation" : "Show suggestions"}
           aria-label={messages.length > 0 ? "Toggle conversation" : "Show suggestions"}
-          className="shrink-0 inline-flex items-center justify-center rounded-[7px] transition-colors"
-          style={{
-            width:      28,
-            height:     28,
-            color:      (showSuggestions || (messages.length > 0 && showHistory)) ? "var(--rv-accent)" : "var(--rv-t3)",
-            background: (showSuggestions || (messages.length > 0 && showHistory)) ? "var(--rv-accent-dim)" : "transparent",
-          }}
-          onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = "var(--rv-elev-3)" }}
-          onMouseLeave={(e) => {
-            const active = showSuggestions || (messages.length > 0 && showHistory)
-            e.currentTarget.style.background = active ? "var(--rv-accent-dim)" : "transparent"
-          }}
+          variant="ghost"
+          size="icon-xs"
+          style={
+            (showSuggestions || (messages.length > 0 && showHistory))
+              ? { color: "var(--rv-accent)", background: "var(--rv-accent-dim)" }
+              : undefined
+          }
         >
           <Sparkles size={12} strokeWidth={2} />
-        </button>
+        </Button>
         <textarea
           ref={inputRef}
           rows={1}
@@ -283,21 +270,15 @@ export default function PanelChat({
           }}
           spellCheck
         />
-        <button
+        <Button
           onClick={handleSend}
           disabled={disabled || loading || !draft.trim()}
           aria-label="Send message"
-          className="shrink-0 inline-flex items-center justify-center rounded-[7px] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          style={{
-            width:      28,
-            height:     28,
-            color:      draft.trim() ? "var(--rv-accent)" : "var(--rv-t4)",
-            background: draft.trim() ? "var(--rv-accent-dim)" : "transparent",
-            border:     `0.5px solid ${draft.trim() ? "var(--rv-accent-border)" : "transparent"}`,
-          }}
+          variant={draft.trim() ? "default" : "ghost"}
+          size="icon-xs"
         >
           <Send size={11} strokeWidth={2} />
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -317,33 +298,23 @@ function ChatSuggestions({
       {SUGGESTIONS.map((s) => {
         const isAction = !!s.scenario
         return (
-          <button
+          <Button
             key={s.label}
             onClick={() => onPick(s)}
-            className="text-left rounded-[7px] px-3 py-2 text-[12px] transition-colors flex items-center gap-2"
-            style={{
-              color:      "var(--rv-t2)",
-              background: isAction ? "var(--rv-accent-dim)" : "var(--rv-elev-2)",
-              border:     `0.5px solid ${isAction ? "var(--rv-accent-border)" : "var(--rv-border)"}`,
-            }}
-            onMouseEnter={(e) => {
-              if (isAction) {
-                e.currentTarget.style.background = "var(--rv-accent-border)"
-              } else {
-                e.currentTarget.style.background = "var(--rv-elev-4)"
-              }
-              e.currentTarget.style.color = "var(--rv-t1)"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = isAction ? "var(--rv-accent-dim)" : "var(--rv-elev-2)"
-              e.currentTarget.style.color      = "var(--rv-t2)"
-            }}
+            variant={isAction ? "secondary" : "outline"}
+            size="sm"
+            className="justify-start text-left text-[12px] whitespace-normal h-auto py-2"
+            style={
+              isAction
+                ? { color: "var(--rv-t1)", background: "var(--rv-accent-dim)", borderColor: "var(--rv-accent-border)" }
+                : undefined
+            }
           >
             {isAction && (
               <Sparkles size={10} strokeWidth={2} style={{ color: "var(--rv-accent)", flexShrink: 0 }} />
             )}
             <span className="flex-1">{s.label}</span>
-          </button>
+          </Button>
         )
       })}
     </>
