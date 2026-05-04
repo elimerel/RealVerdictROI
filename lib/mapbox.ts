@@ -97,9 +97,9 @@ export function staticMapUrl({
   width:   number
   height:  number
   zoom?:   number
-  /** One of Mapbox's standard styles: dark-v11, light-v11, streets-v12,
-   *  outdoors-v12, navigation-night-v1. */
-  style?:  "dark-v11" | "light-v11" | "streets-v12" | "outdoors-v12" | "navigation-night-v1"
+  /** One of Mapbox's standard styles. satellite-v9 + satellite-streets-v12
+   *  give the aerial-photo look used for the in-panel property view. */
+  style?:  "dark-v11" | "light-v11" | "streets-v12" | "outdoors-v12" | "navigation-night-v1" | "satellite-v9" | "satellite-streets-v12"
   /** Whether to show the accent-colored pin at the center. */
   marker?: boolean
 }): string {

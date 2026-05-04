@@ -71,23 +71,30 @@
   --rv-toast-bg:        rgba(22, 22, 26, 0.92);
   --rv-badge-ring:      rgba(15, 15, 18, 0.85);  /* badge boundary on PanelToggle */
 
-  /* Text */
-  --rv-t1: rgba(245, 245, 247, 0.95);
-  --rv-t2: rgba(245, 245, 247, 0.58);
-  --rv-t3: rgba(245, 245, 247, 0.33);
-  --rv-t4: rgba(245, 245, 247, 0.16);
+  /* Text — bumped for readability after user feedback that body text and
+     secondary labels were too dim. t2 went 0.58→0.74, t3 0.33→0.50,
+     t4 0.16→0.30. Still keeps the hierarchy (primary > secondary >
+     tertiary > quaternary) but every level is now legible at small
+     sizes against the dark canvas. */
+  --rv-t1: rgba(245, 245, 247, 1.00);
+  --rv-t2: rgba(245, 245, 247, 0.74);
+  --rv-t3: rgba(245, 245, 247, 0.50);
+  --rv-t4: rgba(245, 245, 247, 0.30);
 
   /* Borders — hairline style (pair with border-width: 0.5px) */
   --rv-border:     rgba(255, 255, 255, 0.09);
   --rv-border-mid: rgba(255, 255, 255, 0.14);
   --rv-border-hi:  rgba(255, 255, 255, 0.22);
 
-  /* Accent — forest green
-     The brand color. Signals growth, money, go. Used for primary actions,
-     active nav, the saved-deal chip, etc. */
-  --rv-accent:        #30a46c;
-  --rv-accent-dim:    rgba(48, 164, 108, 0.14);
-  --rv-accent-border: rgba(48, 164, 108, 0.26);
+  /* Accent — deep moss / forest green.
+     Was the brighter Radix green-9 (#30a46c) which read as candy/neon
+     against the warm canvas. Shifted to a deeper, lower-saturation
+     moss so the brand color sits in the surface like a finished
+     material instead of a glowing button. Premium-finance palette
+     (Ramp, deep banking) tends to live in this range. */
+  --rv-accent:        #4a7d5e;
+  --rv-accent-dim:    rgba(74, 125, 94, 0.10);
+  --rv-accent-border: rgba(74, 125, 94, 0.22);
 
   /* Secondary accent — clay / terracotta
      The "physical / attention warranted" tone. Real-estate-specific:
@@ -118,8 +125,8 @@
                     failed fetch. When you see full alarm-red, something's
                     actually broken in the data, not in the deal.
      Legacy --rv-good / --rv-bad kept as aliases so older call sites compile. */
-  --rv-pos:     #2f9c69;
-  --rv-pos-bg:  rgba(47, 156, 105, 0.12);
+  --rv-pos:     #5b9077;
+  --rv-pos-bg:  rgba(91, 144, 119, 0.10);
   --rv-neg:     #d4596d;
   --rv-neg-bg:  rgba(212, 89, 109, 0.10);
   --rv-warn:    #f59e0b;
@@ -216,22 +223,29 @@
    reads as a real second variant, not "dark with the warmth turned up
    slightly." Same vibrancy material as Dark. */
 .theme-charcoal-warm {
-  --rv-bg:       #16120e;
-  --rv-surface:  #221c16;
-  --rv-raised:   #2c241c;
-  --rv-overlay:  #382e23;
+  /* Real charcoal — sits in the neutral-grey family. Multiple passes:
+     v1 was too brown, v2 still tipped warm. This version uses
+     equal-channel grey (R=G=B) for the bg and adds a hair of warmth
+     ONLY on the higher elevations, so the canvas reads as honest
+     charcoal grey while raised surfaces breathe slightly warmer. */
+  --rv-bg:       #2a2a2a;
+  --rv-surface:  #353433;
+  --rv-raised:   #3f3e3c;
+  --rv-overlay:  #4a4847;
 
-  /* Warmer text white — lifts the bg's earth tones instead of fighting them. */
-  --rv-t1: rgba(248, 244, 236, 0.95);
-  --rv-t2: rgba(248, 244, 236, 0.58);
-  --rv-t3: rgba(248, 244, 236, 0.33);
-  --rv-t4: rgba(248, 244, 236, 0.16);
+  /* Text — neutral white (matches the neutral-grey body). Was tilting
+     warm earlier and that was carrying the surface back toward earth-
+     tone whenever the eye averaged the two. */
+  --rv-t1: rgba(248, 248, 248, 1.00);
+  --rv-t2: rgba(248, 248, 248, 0.76);
+  --rv-t3: rgba(248, 248, 248, 0.52);
+  --rv-t4: rgba(248, 248, 248, 0.32);
 
-  --rv-panel-bg:   rgba(28, 22, 16, 0.78);
-  --rv-drawer-bg:  rgba(38, 30, 22, 0.90);
-  --rv-popover-bg: rgba(34, 27, 20, 0.96);
-  --rv-toast-bg:   rgba(38, 30, 22, 0.92);
-  --rv-badge-ring: rgba(28, 22, 16, 0.85);
+  --rv-panel-bg:   rgba(46, 46, 46, 0.80);
+  --rv-drawer-bg:  rgba(53, 52, 51, 0.92);
+  --rv-popover-bg: rgba(50, 49, 48, 0.96);
+  --rv-toast-bg:   rgba(53, 52, 51, 0.94);
+  --rv-badge-ring: rgba(40, 40, 40, 0.85);
 }
 
 /* Light — full inversion. Vibrancy switches to "light" material; window
@@ -264,10 +278,10 @@
 
   --rv-hairline-gradient: linear-gradient(90deg, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.06) 60%, transparent 100%);
 
-  --rv-t1: rgba(15, 15, 18, 0.95);
-  --rv-t2: rgba(15, 15, 18, 0.62);
-  --rv-t3: rgba(15, 15, 18, 0.42);
-  --rv-t4: rgba(15, 15, 18, 0.22);
+  --rv-t1: rgba(15, 15, 18, 1.00);
+  --rv-t2: rgba(15, 15, 18, 0.78);
+  --rv-t3: rgba(15, 15, 18, 0.56);
+  --rv-t4: rgba(15, 15, 18, 0.36);
 
   /* Light-mode borders bumped a notch — at the same alphas as dark mode's
      white-on-dark borders, dark-on-light reads as too faint and panel
@@ -434,13 +448,12 @@
      toolbar visually spans corner-to-corner.
    - HIDDEN (0px):    sidebar element collapses; toggle button stays put. */
 .rv-sidebar-body {
+  /* Sidebar tint IS the boundary — no hairline. The slight glass-tint
+     against the content's bare canvas creates a tonal step the eye
+     reads as separation without a visible seam. In light mode the
+     tint is a touch darker (set in .theme-light) to keep the boundary
+     legible without resorting to a stitched-on border. */
   background: var(--rv-glass-tint);
-  /* Right-edge separator — uses --rv-border so it flips per theme.
-     In dark themes this reads as a faint white inset highlight; in
-     light mode it becomes a subtle dark hairline that visually
-     separates the sidebar from the content area. Without this the
-     sidebar and main content blur into each other on light. */
-  box-shadow: inset -1px 0 0 var(--rv-border);
 }
 .rv-sidebar-top {
   background: var(--rv-glass-tint);
@@ -639,6 +652,33 @@
 }
 .rv-count-pulse {
   animation: rv-count-pulse 700ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Map-pin pulse — fires when a saved deal becomes the selected pin.
+   Brighter + larger ring than the first attempt so the eye actually
+   catches the transition. Pairs with the camera pan so the moment
+   feels coordinated, not subtle. */
+@keyframes rv-pin-pulse {
+  0%   { box-shadow: 0 2px 6px rgba(0,0,0,0.45), 0 0 0 0  rgba(255,255,255,0.85); }
+  55%  { box-shadow: 0 2px 6px rgba(0,0,0,0.45), 0 0 0 22px rgba(255,255,255,0.00); }
+  100% { box-shadow: 0 2px 6px rgba(0,0,0,0.45), 0 0 0 0  rgba(255,255,255,0.00); }
+}
+.rv-pin-pulse {
+  animation: rv-pin-pulse 600ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Metric flash — fires when a card's value changes (scenario edit, AI
+   tool use). Sits as an absolute overlay over the card, fading an
+   accent tint + ring in then out. No transform — tabular layout stays
+   put. The overlay re-mounts on every change so the animation restarts
+   cleanly. */
+@keyframes rv-metric-flash {
+  0%   { background-color: rgba(48,164,108, 0.00); box-shadow: 0 0 0 0 rgba(48,164,108, 0.00) inset; }
+  20%  { background-color: rgba(48,164,108, 0.16); box-shadow: 0 0 0 1px rgba(48,164,108, 0.50) inset; }
+  100% { background-color: rgba(48,164,108, 0.00); box-shadow: 0 0 0 0 rgba(48,164,108, 0.00) inset; }
+}
+.rv-metric-flash {
+  animation: rv-metric-flash 850ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
 /* Route surface transitions — tiny Y-translate + opacity fade when

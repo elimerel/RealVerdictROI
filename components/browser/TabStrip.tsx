@@ -62,11 +62,8 @@ export default function TabStrip({
         paddingRight:     8,
         WebkitAppRegion:  "drag",
         // Strip is the DARK back layer (in shadow). Toolbar + active
-        // tab are LIGHTER (alive, forward). Using rv-surface for the
-        // toolbar gives a stronger color shift than the previous
-        // elev-3 over the warm-charcoal canvas — the hierarchy now
-        // reads clearly: dark strip → lighter active tab merging into
-        // lighter toolbar. Same as Chrome.
+        // tab are LIGHTER (alive, forward). Same Chrome-style
+        // hierarchy as before.
         background:       "var(--rv-bg)",
         transition:       "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       } as React.CSSProperties}

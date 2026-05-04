@@ -771,8 +771,12 @@ let browserViewHidden = false
 // Top stays at chromeH so the BrowserView meets the toolbar cleanly
 // (toolbar IS the chrome above). Left/right/bottom each pick up 6px of
 // dark frame, just visible enough to separate the surfaces.
-const BV_INSET_SIDES  = 6
-const BV_INSET_BOTTOM = 6
+// BrowserView insets — were 6px on every side (creating a visible
+// "frame" around the embedded page that the user called sloppy). Set
+// to 0 so the web content runs edge-to-edge against the chrome and
+// panel, with no exposed scrim band wrapping it.
+const BV_INSET_SIDES  = 0
+const BV_INSET_BOTTOM = 0
 
 // Compute browserView bounds from cached state + the live window size.
 // Called on every animation tick, on settled layout updates, and on
@@ -1633,6 +1637,19 @@ async function callAnthropicHaiku(apiKey, dom) {
 // Prevents concurrent auto-analysis runs (one at a time)
 let autoAnalyzing = false
 
+// Skip-list — URLs the renderer has told us already have a saved
+// snapshot. tryAnalyze() short-circuits on these to avoid paying
+// Anthropic + extraction costs for analyses we already have. The
+// renderer is the source of truth (it knows savedByUrl); main just
+// honors the list. Registered/unregistered via IPC.
+const _skipAnalysisUrls = new Set()
+ipcMain.handle("analysis:set-skip-urls", (_evt, urls) => {
+  if (!Array.isArray(urls)) return false
+  _skipAnalysisUrls.clear()
+  for (const u of urls) if (typeof u === "string") _skipAnalysisUrls.add(u)
+  return true
+})
+
 // ---------------------------------------------------------------------------
 // Auto-analysis — fires on every did-stop-loading.
 //
@@ -1679,6 +1696,18 @@ async function autoAnalyze(opts = {}) {
   // renderer if THAT tab is still active.
   const startedTabId = activeTabId
   const startedTab   = startedTabId ? tabs.get(startedTabId) : null
+
+  // Skip-list: the renderer can register URLs that already have a
+  // saved snapshot in the user's pipeline. We honor that registration
+  // and short-circuit the entire analyze pipeline (no Anthropic call,
+  // no FRED/HUD lookups, no extraction). The renderer hydrates the
+  // panel from the saved snapshot so the user still sees content;
+  // we just avoid paying for a fresh scan they didn't ask for.
+  // `force` (from the panel's Re-analyze button) bypasses this so
+  // the user can always trigger a fresh pass on demand.
+  if (!force && _skipAnalysisUrls.has(url)) {
+    return
+  }
 
   // Dedupe: SPA listing pages (Zillow, Redfin) fire did-stop-loading
   // multiple times per page (initial load + lazy-loaded sections + XHR

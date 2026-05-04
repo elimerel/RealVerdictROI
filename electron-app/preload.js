@@ -69,6 +69,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // from the renderer's perspective — listen for panel:ready / panel:error.
   reanalyze:    () => ipcRenderer.invoke("browser:reanalyze"),
   extractDebug: () => ipcRenderer.invoke("extract:debug:last"),
+  // Skip-list — renderer registers URLs that already have a saved
+  // snapshot, main short-circuits auto-analyze on those URLs.
+  // Pass an array of URLs (full list, not deltas) to replace the set.
+  setSkipAnalysisUrls: (urls) => ipcRenderer.invoke("analysis:set-skip-urls", urls),
 
   // ── AI tagging — fire-and-forget after a save to enrich the deal ─────────
   tagDeal:      (payload) => ipcRenderer.invoke("ai:tag-deal", payload),

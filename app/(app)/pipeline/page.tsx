@@ -34,7 +34,9 @@ import {
 import { hasActiveScenario, recomputeMetrics, type ScenarioOverrides } from "@/lib/scenario"
 import { ScenarioDisclosure } from "@/components/panel/ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
-import PipelineMap from "@/components/PipelineMap"
+import { useMapShell } from "@/lib/mapShell"
+import { geocode } from "@/lib/mapbox"
+import Panel from "@/components/panel"
 import { useEscape } from "@/lib/escapeStack"
 import { Button } from "@/components/ui/Button"
 
@@ -399,7 +401,97 @@ function DealDetail({
 
   const cfTone = cashFlowTone(metrics.monthlyCashFlow)
 
+  // ── Pipeline detail rail = shared Panel + a slim pipeline-actions
+  //    strip on top. The custom "DealDetail body" that used to live
+  //    here was a hand-rolled clone of Panel/ResultPane that drifted
+  //    over time. By rendering the same Panel that Browse uses, both
+  //    surfaces share one source of truth for the analysis layout.
+  //    Only Pipeline-specific affordances (stage move, watch, delete)
+  //    sit outside Panel.
   return (
+    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
+      {/* Slim pipeline-actions header — stage chip + watch toggle +
+          stage-move menu + delete. The analysis (price hero, satellite
+          view, cash flow, metrics, sources, scenario editor) lives
+          inside the Panel body below. */}
+      <div
+        className="flex items-center gap-2 px-4 py-3 shrink-0 relative"
+        style={{
+          background:   "var(--rv-bg)",
+          boxShadow:    "inset 0 -1px 0 rgba(255,255,255,0.04)",
+          zIndex:       2,
+        }}
+      >
+        <Button
+          variant={deal.watching ? "primary" : "secondary"}
+          size="sm"
+          onClick={async () => {
+            const next = !deal.watching
+            const ok = await setDealWatching(deal.id, next)
+            if (ok) onChange({ ...deal, watching: next })
+          }}
+          title={deal.watching ? "Stop watching this deal" : "Watch — get notified on price changes"}
+          icon={deal.watching ? <Bell size={11} strokeWidth={2} /> : <BellOff size={11} strokeWidth={2} />}
+        >
+          {deal.watching ? "Watching" : "Watch"}
+        </Button>
+        <StageMenu stage={deal.stage} onChange={onMoveStage} />
+        <span className="flex-1" />
+        {confirmDelete ? (
+          <>
+            <span className="text-[11.5px]" style={{ color: "var(--rv-t3)" }}>Delete this deal?</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onDelete}
+              style={{ color: "var(--rv-neg)", borderColor: "var(--rv-neg-bg)" }}
+            >
+              Delete
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+          </>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setConfirmDelete(true)}
+            icon={<Trash2 size={11} strokeWidth={2} />}
+            title="Delete this deal"
+          />
+        )}
+      </div>
+
+      {/* The Panel renders the same analysis surface as Browse: hero
+          (satellite + price + cash flow), action row, AI Noticed,
+          metric cards, secondary metrics, scenario editor, sources.
+          Pipeline-specific behavior:
+            - state.phase = "ready" with the persisted snapshot
+            - isSaved = true so the action row's primary shows
+              "{stage}" disabled instead of "Save deal"
+            - onScenarioChange persists to the saved_deals row
+            - onOpenSource opens the listing's source URL in Browse */}
+      <div className="flex-1 min-h-0 relative" style={{ zIndex: 1 }}>
+        <Panel
+          state={{ phase: "ready", result: deal.snapshot }}
+          isSaved
+          savedStage={STAGE_LABEL[deal.stage]}
+          initialScenario={deal.scenario ?? null}
+          onScenarioChange={(s) => {
+            void updateDealScenario(deal.id, s)
+            onChange({ ...deal, scenario: s })
+          }}
+          onOpenSource={onOpenInBrowse}
+        />
+      </div>
+    </div>
+  )
+
+  // ── Legacy hand-rolled body retained below as `_legacyDealDetailBody`
+  //    purely for diff context; it's never returned. Will be removed in
+  //    a follow-up cleanup pass once the Panel-based detail rail has
+  //    settled in production.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function _legacyDealDetailBody() { return (
     <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
       {/* Property location banner — slim Mapbox static-image preview that
           grounds the deal in physical space. Sits above the financial
@@ -414,6 +506,7 @@ function DealDetail({
             zip={deal.zip}
             size="banner"
             radius={10}
+            view="satellite"
           />
         </div>
       )}
@@ -754,7 +847,7 @@ function DealDetail({
         </div>
       </div>
     </div>
-  )
+  ) }
 }
 
 function DetailMetric({
@@ -938,14 +1031,23 @@ function ComparisonView({
   ]
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: "var(--rv-bg)" }}>
+    <div
+      className="flex flex-col h-full overflow-hidden"
+      // Transparent + pe:none so the empty middle column lets drags
+      // fall through to the persistent MapShell underneath. Each
+      // opaque surface inside (header, list, splitter, detail rail,
+      // compare panes) opts back in with pointer-events: auto.
+      style={{ background: "transparent", pointerEvents: "none" }}
+    >
       {/* Header */}
       <div
         className="flex items-center justify-between gap-3 px-6 py-4 shrink-0"
         style={{
-          borderBottom: "0.5px solid var(--rv-border)",
-          background:   "var(--rv-elev-1)",
-          boxShadow:    "inset 0 1px 0 rgba(255,255,255,0.04)",
+          background:    "var(--rv-bg)",
+          borderBottom:  "0.5px solid var(--rv-border)",
+          position:      "relative",
+          zIndex:        3,
+          pointerEvents: "auto",
         }}
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -1274,20 +1376,9 @@ function PipelinePageInner() {
   // Registers only when a deal is selected AND we're in map mode, so
   // it won't fight other Esc handlers when no rail is open.
   const [listW,  setListW]  = useState<number>(LIST_W_DEFAULT)
-  /** Theme awareness — Mapbox style needs to flip on theme change.
-   *  Subscribes to the html element's class changes so it stays in sync
-   *  if the user switches themes mid-session. */
-  const [mapStyleId, setMapStyleId] = useState<"dark" | "light">(() => {
-    if (typeof document === "undefined") return "dark"
-    return document.documentElement.classList.contains("theme-light") ? "light" : "dark"
-  })
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setMapStyleId(document.documentElement.classList.contains("theme-light") ? "light" : "dark")
-    })
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
-    return () => observer.disconnect()
-  }, [])
+  // Theme-aware Mapbox style is now owned by the persistent MapShell —
+  // the local mapStyleId observer was removed when the local
+  // PipelineMap mount went away.
 
   // Esc deselects the current deal — collapses the detail rail back to 0
   // and gives the map full canvas. Available whenever a deal is selected
@@ -1360,6 +1451,48 @@ function PipelinePageInner() {
     () => (deals ?? []).find((d) => d.id === selId) ?? null,
     [deals, selId]
   )
+
+  // ── Persistent map shell wiring ────────────────────────────────────
+  // Pipeline drops the scrim entirely (the shell map IS the canvas
+  // here), narrows the visible pins to the current stage filter, and
+  // syncs selection both ways (shell click → selId; selId change →
+  // shell selectedId so the marker style updates without re-render).
+  // When the user lands here from a Browse pin click, the shell's
+  // camera is already gliding to the right deal — we don't need to
+  // trigger another flyTo.
+  // Destructure stable callbacks so effects don't re-fire when any
+  // OTHER piece of shell state (cameraTarget, scrimOpacity) changes.
+  // The setters/flyTo/onPinClick are useCallbacked in the provider so
+  // their identity is stable across renders.
+  const {
+    setScrimOpacity:    shellSetScrim,
+    setVisibleDealIds:  shellSetVisible,
+    setSelectedId:      shellSetSelected,
+    onPinClick:         shellOnPinClick,
+    flyTo:              shellFlyTo,
+  } = useMapShell()
+
+  useEffect(() => {
+    shellSetScrim(0)
+    return () => { shellSetScrim(0.92) }
+  }, [shellSetScrim])
+  useEffect(() => {
+    shellSetVisible(new Set(filtered.map((d) => d.id)))
+  }, [filtered, shellSetVisible])
+  useEffect(() => {
+    shellSetSelected(selId)
+  }, [selId, shellSetSelected])
+  useEffect(() => {
+    // Pin click → select the deal. The shell does NOT auto-fly the
+    // camera; the user keeps their portfolio overview unless they
+    // explicitly request a recenter (via the "fit all / focus pin"
+    // controls). Auto-flying on every selection blew away the very
+    // overview the user wanted preserved.
+    return shellOnPinClick((id) => setSelId(id))
+  }, [shellOnPinClick])
+  // Intentionally NO auto-flyTo on `selected` change. The map stays
+  // at its current camera; the marker style updates to reflect the
+  // selection (handled inside MapShell). Users zoom/pan freely.
 
   // Resolved comparison set in list order (stable column layout).
   const compareDeals = useMemo<SavedDeal[]>(
@@ -1529,9 +1662,16 @@ function PipelinePageInner() {
           paddingLeft:     headerPadL,
           paddingRight:    16,
           WebkitAppRegion: "drag",
+          // Hard-coded opaque hex — was missing entirely, which let
+          // the macOS vibrancy material show through (THIS is the
+          // "see-through bar at the top" bug). Bottom shadow seals
+          // the boundary against the map.
+          background:      "#1f1f1f",
           borderBottom:    "0.5px solid var(--rv-border)",
+          boxShadow:       "0 8px 22px rgba(0,0,0,0.45)",
+          pointerEvents:   "auto",
           transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
-          zIndex: 1,
+          zIndex:          3,
         } as React.CSSProperties}
       >
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-3 min-w-0">
@@ -1723,7 +1863,9 @@ function PipelinePageInner() {
           (max-height 0). The same accent system as the header chip,
           but spread across the full width so it reads as a state, not a
           control. */}
-      <CompareModeBanner active={compareMode} count={compareIds.size} />
+      <div style={{ pointerEvents: "auto" }}>
+        <CompareModeBanner active={compareMode} count={compareIds.size} />
+      </div>
 
       {/* Body — list (always) + map (always) + detail rail (slides in)
           OR comparison view (replaces map when comparing 2+).
@@ -1733,7 +1875,17 @@ function PipelinePageInner() {
           SAME TIME, never one OR the other. Selecting a deal highlights
           it in both surfaces; the detail rail slides in over the right
           portion of the map (map stays visible underneath). */}
-      <div className="flex flex-1 min-h-0 relative" style={{ zIndex: 1 }}>
+      <div
+        className="flex flex-1 min-h-0 relative"
+        style={{
+          zIndex: 1,
+          // pe:none on the body — every actual surface (list, detail
+          // rail, compare panes) re-enables pointer-events on itself.
+          // This lets drags in the empty middle region fall all the
+          // way through to the MapShell at z-0 of <main>.
+          pointerEvents: "none",
+        }}
+      >
         {error && (
           <div className="flex items-center justify-center w-full">
             <p className="text-[13px]" style={{ color: "var(--rv-bad)" }}>{error}</p>
@@ -1747,7 +1899,9 @@ function PipelinePageInner() {
               className="shrink-0 flex flex-col h-full overflow-hidden"
               style={{
                 width:        listW,
-                borderRight:  "0.5px solid var(--rv-border)",
+                background:   "var(--rv-bg)",
+                boxShadow:    "1px 0 0 rgba(255,255,255,0.04), 10px 0 30px rgba(0,0,0,0.30)",
+                pointerEvents: "auto",
               }}
             >
               <div className="flex-1 overflow-y-auto panel-scroll relative">
@@ -1781,35 +1935,45 @@ function PipelinePageInner() {
               onPointerUp={onSplitUp}
               onPointerCancel={onSplitUp}
               className="rv-splitter shrink-0 cursor-col-resize select-none"
-              style={{ width: 4 }}
+              style={{ width: 4, pointerEvents: "auto" }}
               title="Drag to resize"
             />
 
-            {/* RIGHT area — vertical split when comparing (map on top
-                with selected pins highlighted, comparison table below);
-                horizontal split otherwise (map + detail rail). The map
-                is ALWAYS visible — the geography is half the value of
-                comparing in real estate. */}
-            <div className={`flex flex-1 min-w-0 h-full ${compareDeals.length >= 2 ? "flex-col" : "flex-row"}`}>
-              {/* Map — always visible. In normal mode it's the dominant
-                  surface (flex-1). In compare mode it gets the top
-                  portion so you can see all compared pins together
-                  while the comparison details sit below. */}
+            {/* MIDDLE — map + (in compare mode) selecting/comparison pane.
+                The detail rail is hoisted OUT to be a top-level sibling so
+                it spans the full pipeline body height — same architecture
+                as the Browse panel. The map keeps the leftover space.
+                pointer-events:none lets drags fall through to the map
+                shell underneath; the compare panes (when present) re-
+                enable pointer-events on themselves. */}
+            <div
+              className={`flex flex-1 min-w-0 h-full ${compareDeals.length >= 2 ? "flex-col" : "flex-row"}`}
+              style={{ pointerEvents: "none" }}
+            >
               <div
                 className={compareDeals.length >= 2 ? "shrink-0 w-full" : "flex-1 min-w-0 h-full"}
-                style={compareDeals.length >= 2 ? { height: "45%" } : undefined}
+                style={{
+                  ...(compareDeals.length >= 2 ? { height: "45%" } : null),
+                  // CRITICAL — let pointer events fall through to the
+                  // MapShell underneath. Without this, the empty
+                  // route-content layer at z-index 2 was eating every
+                  // drag/click and the map became unpannable.
+                  pointerEvents: "none",
+                }}
               >
-                <PipelineMap
-                  deals={filtered}
-                  selectedId={selId}
-                  onSelect={setSelId}
-                  styleId={mapStyleId}
-                />
+                {/* The map used to be a local PipelineMap mount here.
+                    It's now the persistent MapShell rendered behind
+                    the entire app — Pipeline drops the scrim to 0 so
+                    the shell's map shows through this transparent
+                    region. Same Mapbox instance Browse uses; no
+                    re-mount on route change. */}
               </div>
 
-              {/* Body content next to / below the map */}
               {compareDeals.length >= 2 ? (
-                <div className="flex-1 min-h-0 w-full" style={{ borderTop: "0.5px solid var(--rv-border)" }}>
+                <div
+                  className="flex-1 min-h-0 w-full"
+                  style={{ borderTop: "0.5px solid var(--rv-border)", pointerEvents: "auto" }}
+                >
                   <ComparisonView
                     deals={compareDeals}
                     onClear={() => setCompareIds(new Set())}
@@ -1826,7 +1990,9 @@ function PipelinePageInner() {
                   className="shrink-0 h-full"
                   style={{
                     width:        320,
-                    borderLeft:   "0.5px solid var(--rv-border)",
+                    background:   "var(--rv-bg)",
+                    boxShadow:    "-1px 0 0 rgba(255,255,255,0.04), -10px 0 30px rgba(0,0,0,0.30)",
+                    pointerEvents: "auto",
                   }}
                 >
                   <CompareSelectingPane
@@ -1836,24 +2002,33 @@ function PipelinePageInner() {
                     })}
                   />
                 </div>
-              ) : (
-                <div
-                  className="shrink-0 h-full"
-                  style={{
-                    width:        selected ? 440 : 0,
-                    overflow:     "hidden",
-                    borderLeft:   selected ? "0.5px solid var(--rv-border)" : "none",
-                    transition:   "width 240ms cubic-bezier(0.32, 0.72, 0, 1), border-left-color 240ms",
-                  }}
-                >
-                  {selected ? (
-                    <DealDetail deal={selected} onChange={onDealChange} />
-                  ) : (
-                    <DetailEmpty filtered={filtered.length} hasAny={(deals?.length ?? 0) > 0} />
-                  )}
-                </div>
-              )}
+              ) : null}
             </div>
+
+            {/* RIGHT — full-height detail rail. Sibling of the list and
+                map area, NOT nested inside the map column, so it spans the
+                entire pipeline body height the same way the Browse panel
+                does. Hidden during compare mode (the comparison view is
+                the focus then). */}
+            {!compareMode && compareDeals.length < 2 && (
+              <div
+                className="shrink-0 h-full"
+                style={{
+                  width:        selected ? 460 : 0,
+                  overflow:     "hidden",
+                  background:   "var(--rv-bg)",
+                  boxShadow:    "-1px 0 0 rgba(255,255,255,0.04), -10px 0 30px rgba(0,0,0,0.30)",
+                  transition:   "width 240ms cubic-bezier(0.32, 0.72, 0, 1)",
+                  pointerEvents: "auto",
+                }}
+              >
+                {selected ? (
+                  <DealDetail deal={selected} onChange={onDealChange} />
+                ) : (
+                  <DetailEmpty filtered={filtered.length} hasAny={(deals?.length ?? 0) > 0} />
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

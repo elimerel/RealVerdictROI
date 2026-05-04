@@ -335,6 +335,10 @@ export interface ElectronAPI {
    *  flow — listen for panel:ready / panel:error to receive the result. */
   reanalyze:       () => Promise<{ ok: boolean }>
   extractDebug:    () => Promise<Record<string, unknown>>
+  /** Register URLs that already have a saved snapshot. main short-
+   *  circuits auto-analyze on these so we don't pay backend costs for
+   *  analyses we already have. Pass the FULL list each time. */
+  setSkipAnalysisUrls?: (urls: string[]) => Promise<boolean>
 
   // AI tagging — Haiku call in main, returns 0-3 short factual tags.
   tagDeal:         (payload: TagDealInput) => Promise<{ ok: boolean; tags: string[]; reason?: string }>

@@ -35,6 +35,7 @@ import { SourceMark } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
 import { applyScenarioFromBus, resetScenarioFromBus, type ScenarioOverrides } from "@/lib/scenario"
 import ActivityFeed from "@/components/ActivityFeed"
+import { useMapShell } from "@/lib/mapShell"
 import { showToast } from "@/lib/toast"
 
 // Default width matches the Pipeline detail rail (440px) so the panel
@@ -260,8 +261,25 @@ function BrowsePageInner() {
     // when there's a fully-formed result (panel:ready) or an error
     // (panel:error). Drive-by browsing on a real-estate site no longer
     // jolts the user with an empty analyzing pane.
+    //
+    // ALSO: if the listing's URL is already saved in the user's
+    // pipeline, we don't dive into "analyzing" — the panel stays
+    // hydrated with the saved snapshot. The user explicitly asked for
+    // this: opening a previously-analyzed listing should land
+    // instantly on the saved analysis, not re-run a fresh scan
+    // (Anthropic + FRED + extraction). They can tap Re-analyze in the
+    // panel header to force a fresh pass.
     const offAnalyzing = api.onPanelAnalyzing(() => {
-      setPanelContent({ phase: "analyzing" })
+      setPanelContent((prev) => {
+        // If we're already showing a saved snapshot for the current URL,
+        // don't transition to "analyzing" — keep the saved view.
+        if (prev.phase === "ready") {
+          // We're effectively saying "I already have content, don't
+          // blank it out for a fresh-scan animation."
+          return prev
+        }
+        return { phase: "analyzing" }
+      })
     })
 
     const offReady = api.onPanelReady((payload: PanelPayload) => {
@@ -628,6 +646,39 @@ function BrowsePageInner() {
   const currentSaved      = nav.url ? savedByUrl[nav.url] : undefined
   const currentSavedStage = currentSaved ? STAGE_LABEL[currentSaved.stage] : undefined
   const isCurrentSaved    = !!currentSaved
+
+  // ── Saved-snapshot hydration ───────────────────────────────────────
+  // When the user navigates to a URL that's already in their pipeline,
+  // hydrate the panel with the saved snapshot immediately — no
+  // re-analyze, no spinner. This is what "open something I've already
+  // worked on" should feel like: the analysis is already there, you
+  // see it the moment the page loads. If they want fresh data, the
+  // panel header still has Re-analyze.
+  //
+  // Tracks the last URL we hydrated for so we don't fight subsequent
+  // panel:ready events from the main process (which may still be
+  // running its own scan in the background — known limitation; a
+  // future pass can add an IPC skip-list to also save backend cost).
+  const lastHydratedUrlRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!nav.url) return
+    const saved = savedByUrl[nav.url]
+    if (!saved) return
+    if (lastHydratedUrlRef.current === nav.url) return
+    lastHydratedUrlRef.current = nav.url
+    setPanelContent({ phase: "ready", result: saved.snapshot })
+  }, [nav.url, savedByUrl])
+
+  // Push the saved-URL set to the Electron main process so it skips
+  // auto-analysis on already-saved listings. This is what closes the
+  // backend-cost loop: previously we hydrated the panel locally but
+  // main was still running Anthropic + extraction in the background.
+  // With the skip-list registered, those calls don't fire at all
+  // unless the user hits Re-analyze (which routes through `force`).
+  useEffect(() => {
+    const urls = Object.keys(savedByUrl)
+    void api?.setSkipAnalysisUrls?.(urls)
+  }, [savedByUrl, api])
   // Hydrate the scenario editor: prefer the saved row's stored scenario;
   // fall back to anything the user was modeling on this URL pre-save.
   const currentInitialScenario =
@@ -830,6 +881,35 @@ function BrowsePageInner() {
   // The start screen renders these as the visual centerpiece — the user's
   // own portfolio is the surface, not a generic greeting + launcher.
   const [activeDeals, setActiveDeals] = useState<SavedDeal[]>(_cachedActiveDeals)
+
+  // ── Persistent map shell wiring ────────────────────────────────────
+  // Browse keeps the scrim ALMOST opaque so the map reads as an ambient
+  // hint (premium-app trick: hint the geography exists without making
+  // the start screen a literal map view). When a pin is clicked, fly
+  // the camera to it AND route into Pipeline — the user feels one
+  // continuous motion because the SAME map is already underneath.
+  const {
+    setScrimOpacity:   shellSetScrim,
+    setVisibleDealIds: shellSetVisible,
+    onPinClick:        shellOnPinClick,
+  } = useMapShell()
+  useEffect(() => {
+    // 0.86 — map reads as an ambient layer behind the start-screen
+    // content (visible enough that the geography signals "this is your
+    // app", quiet enough that text stays readable). The "see all your
+    // listings" overview moment lives in /pipeline, where scrim drops
+    // to 0 and the map IS the canvas with the auto-fit-bounds view.
+    shellSetScrim(0.86)
+    shellSetVisible(null)
+  }, [shellSetScrim, shellSetVisible])
+  useEffect(() => {
+    return shellOnPinClick((id) => {
+      // The shell's camera + selection update happens inside MapShell.
+      // Routing into /pipeline lets the Pipeline page take ownership;
+      // the same map continues underneath, no remount.
+      router.push(`/pipeline?id=${id}`)
+    })
+  }, [shellOnPinClick, router])
   useEffect(() => {
     let cancelled = false
     const refresh = () => {
@@ -862,7 +942,13 @@ function BrowsePageInner() {
     // the analysis panel is its sibling on the right, full window height.
     // Treats the panel as a primary surface like the sidebar — same
     // pattern Cursor / Linear / VS Code use.
-    <div className="flex w-full h-full overflow-hidden">
+    <div
+      className="flex w-full h-full overflow-hidden"
+      // RouteFader sets pe:none so Pipeline's exposed map middle lets
+      // drags fall through. Browse re-enables pe so its chrome and
+      // start-screen content are clickable.
+      style={{ pointerEvents: "auto" }}
+    >
       {/* Left column — tabs + toolbar + browser content */}
       <div className="flex flex-col flex-1 min-w-0">
         <TabStrip
@@ -893,11 +979,16 @@ function BrowsePageInner() {
           urlbarRef={urlbarRef}
         />
 
-        {/* Browser pane — fills remaining vertical space in this column */}
+        {/* Browser pane — fills remaining vertical space in this column.
+            Background stays transparent so the embedded web view runs
+            edge-to-edge against the chrome. The previous dark scrim
+            painted a visible frame around the browser whenever the
+            BrowserView's bounds didn't perfectly match (resize, panel
+            slide, etc). No scrim, no frame. */}
         <div
           className="flex-1 min-h-0 relative"
           style={{
-            background: nav.url ? "var(--rv-scrim-strong)" : "transparent",
+            background: "transparent",
           }}
         >
           <div className="absolute inset-0">
@@ -1963,6 +2054,15 @@ function StartScreen({
               canReanalyze={canReanalyze}
               onManual={onManual}
             />
+
+            {/* The saved-deals map used to live here as a separate
+                Mapbox instance. It's now lifted into the persistent
+                MapShell at the app-shell level, rendered behind the
+                start screen. The Browse start screen sits OVER it
+                with a high-opacity scrim, so the map reads as a quiet
+                ambient presence; clicking a pin still flies the camera
+                + routes to /pipeline (handled at the start-screen
+                container level). */}
 
             {/* Today feed — what changed since you last looked. Only
                 renders when there's actual recent activity. Generous

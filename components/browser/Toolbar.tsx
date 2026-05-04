@@ -203,11 +203,13 @@ export default function Toolbar({
       style={{
         height:          52,
         WebkitAppRegion: "drag",
+        // --rv-surface so the toolbar matches the ACTIVE tab's bg
+        // exactly. That's the visual handoff: the active tab "merges"
+        // into the toolbar (same color), inactive tabs sit on the
+        // darker strip behind. Chrome's pattern. The previous attempt
+        // to push the toolbar onto --rv-bg broke that handoff.
         background:      "var(--rv-surface)",
-        // Hairline at the bottom defines the chrome → content boundary.
-        // Was missing — content below was bleeding into the toolbar's
-        // bg, looking like a harsh cutoff. Subtle border keeps it clean.
-        borderBottom:    "0.5px solid var(--rv-border)",
+        boxShadow:       "0 1px 0 rgba(0,0,0,0.30), 0 6px 18px rgba(0,0,0,0.30)",
         paddingLeft:     toolbarPadL,
         paddingRight:    8,
         transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",

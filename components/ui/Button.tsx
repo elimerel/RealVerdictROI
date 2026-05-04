@@ -51,18 +51,23 @@ export function Button({
   // Per-size dimensions. md is the default for actions; sm is for compact
   // inline contexts (toolbar chips, list rows).
   const dims = size === "sm"
-    ? { height: 26, padding: "0 10px",   fontSize: 11.5, radius: 6, gap: 4 }
-    : { height: 32, padding: "0 14px",   fontSize: 12.5, radius: 7, gap: 6 }
+    ? { height: 30, padding: "0 12px",   fontSize: 12.5, radius: 7, gap: 5 }
+    : { height: 36, padding: "0 16px",   fontSize: 13.5, radius: 8, gap: 7 }
 
   // Per-variant base styles. Primary is the only one with shadow; the
   // others stay flat to read as "secondary intent." Hover is a small
   // brightness shift, not a color change.
   const variantStyles: Record<Variant, React.CSSProperties> = {
     primary: {
-      color:      "#0a0a0c",
+      // White text on the deeper moss green — black on the old neon
+      // green looked like a candy chip, white on this deeper tone
+      // reads as a finished material (think Linear / Mercury CTAs).
+      color:      "rgba(248, 248, 250, 0.98)",
       background: "var(--rv-accent)",
-      border:     "0.5px solid transparent",
-      boxShadow:  "0 1px 2px rgba(0, 0, 0, 0.20)",
+      border:     "0.5px solid rgba(255, 255, 255, 0.08)",
+      // Subtle inner top-light gives a hint of dimensional finish; no
+      // outer glow — premium primaries don't bloom.
+      boxShadow:  "inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 1px 1px rgba(0, 0, 0, 0.18)",
       fontWeight: 600,
     },
     secondary: {

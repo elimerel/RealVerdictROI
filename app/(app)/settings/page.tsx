@@ -875,7 +875,16 @@ export default function SettingsPage() {
     :                                  120
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: "var(--rv-bg)" }}>
+    <div
+      className="flex flex-col h-full overflow-hidden"
+      style={{
+        background: "var(--rv-bg)",
+        // RouteFader sets pe:none so transparent regions in other
+        // routes (Pipeline's exposed map middle) let drags fall
+        // through. Settings is fully opaque chrome — opt back in.
+        pointerEvents: "auto",
+      }}
+    >
       <div
         className="flex items-center shrink-0"
         style={{

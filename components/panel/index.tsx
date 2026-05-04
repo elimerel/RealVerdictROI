@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { RefreshCw, Bookmark, BookmarkCheck, Eye, ExternalLink, MessagesSquare, BarChart3, X, Sparkles } from "lucide-react"
+import { RefreshCw, Bookmark, BookmarkCheck, Eye, ExternalLink, MessagesSquare, BarChart3, X, Sparkles, SlidersHorizontal, ChevronDown } from "lucide-react"
 import type { ChatContext, ChatMessage, PanelResult, SourceField, SourceKind } from "@/lib/electron"
 import type { PipelineAverages } from "@/lib/pipeline"
 import { SourceMark, sourceMeta, freshnessLabel } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
+import { Button } from "@/components/ui/Button"
 import {
   hasActiveScenario,
   recomputeMetrics,
@@ -16,6 +17,7 @@ import {
 import PanelChat from "./Chat"
 import { ScenarioDisclosure } from "./ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
+import PropertyView, { hasGoogleMapsKey } from "@/components/PropertyView"
 import { useEscape } from "@/lib/escapeStack"
 
 // ── Metric card ───────────────────────────────────────────────────────────────
@@ -33,7 +35,7 @@ import { useEscape } from "@/lib/escapeStack"
 // widths.
 
 function MetricCard({
-  label, value, sub, delta, tone = "neutral",
+  label, value, sub, delta, tone = "neutral", flashKey,
 }: {
   label: string
   /** Accepts plain string or rich JSX (e.g. <Currency>) — Mercury-style
@@ -45,6 +47,10 @@ function MetricCard({
    *  = red, neutral = dim). Hidden when omitted. */
   delta?: { text: string; tone: "pos" | "neg" | "neutral" } | null
   tone?: "neg" | "neutral"
+  /** When this value changes, the card briefly flashes accent tint so
+   *  the user can see "this just recomputed." Pass any stable stringified
+   *  representation of the displayed number. */
+  flashKey?: string | number
 }) {
   const valueColor = tone === "neg" ? "var(--rv-neg)" : "var(--rv-t1)"
   const deltaColor =
@@ -52,30 +58,52 @@ function MetricCard({
     delta?.tone === "neg" ? "var(--rv-neg)" :
                             "var(--rv-t4)"
 
+  // Flash trigger — when flashKey changes (skip first paint), increment a
+  // tick used to re-mount an absolutely-positioned overlay that runs the
+  // accent-tint animation. The card itself stays mounted, so card state
+  // and the prev-key ref survive across changes.
+  const prevKey = useRef(flashKey)
+  const [flashTick, setFlashTick] = useState(0)
+  useEffect(() => {
+    if (flashKey === undefined) return
+    if (prevKey.current === flashKey) return
+    prevKey.current = flashKey
+    setFlashTick((t) => t + 1)
+  }, [flashKey])
+
   return (
     <div
-      className="flex flex-col gap-1 rounded-xl min-w-0 overflow-hidden"
+      className="flex flex-col gap-1 rounded-xl min-w-0 overflow-hidden relative"
       style={{
-        padding:    "10px 12px 11px",
+        padding:    "13px 15px 14px",
         background: "var(--rv-elev-2)",
         border:     "0.5px solid var(--rv-border-mid)",
         boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
       }}
     >
+      {flashTick > 0 && (
+        <span
+          key={flashTick}
+          aria-hidden
+          className="rv-metric-flash absolute inset-0 rounded-xl pointer-events-none"
+        />
+      )}
       <span
-        className="text-[9.5px] uppercase tracking-widest font-medium truncate"
+        className="text-[10px] uppercase tracking-widest font-medium truncate"
         style={{ color: "var(--rv-t4)" }}
       >
         {label}
       </span>
       <span
-        className="font-bold tabular-nums leading-none truncate"
+        className="tabular-nums leading-none truncate"
         style={{
           color:              valueColor,
           fontVariantNumeric: "tabular-nums",
-          fontSize:           21,
-          letterSpacing:      "-0.02em",
-          marginTop:          2,
+          fontSize:           28,
+          fontFamily:         "var(--rv-font-display)",
+          fontWeight:         500,
+          letterSpacing:      "-0.025em",
+          marginTop:          5,
         }}
       >
         {value}
@@ -90,7 +118,7 @@ function MetricCard({
         </span>
       )}
       {sub && (
-        <span className="text-[10.5px] leading-none truncate" style={{ color: "var(--rv-t3)", marginTop: 1 }}>
+        <span className="text-[11px] leading-none truncate" style={{ color: "var(--rv-t2)", marginTop: 4 }}>
           {sub}
         </span>
       )}
@@ -188,6 +216,45 @@ function RiskFlag({ text }: { text: string }) {
   )
 }
 
+// ── Property surface (Mapbox inline + Google modal) ─────────────────────────
+//
+// Combines PropertyMap (fast Mapbox satellite static, no third-party
+// branding) as the inline panel hero with PropertyView (Google Maps
+// Embed in a modal) for the "click to expand" path. Google's required
+// "Maps" badge only appears in the modal — so the everyday panel UI
+// stays clean, and switching between deals doesn't cold-load a 2-
+// second iframe each time (the Mapbox <img> swaps in <100ms).
+
+function PropertyMapWithExpand({ result }: { result: PanelResult }) {
+  const [expanded, setExpanded] = useState(false)
+  const canExpand = hasGoogleMapsKey()
+  return (
+    <>
+      <PropertyMap
+        address={result.address}
+        city={result.city}
+        state={result.state}
+        zip={result.zip}
+        size="inline"
+        radius={10}
+        className="w-full"
+        view="satellite"
+        onExpand={canExpand ? () => setExpanded(true) : undefined}
+      />
+      {expanded && (
+        <PropertyView
+          address={result.address}
+          city={result.city}
+          state={result.state}
+          zip={result.zip}
+          initialMode="street"
+          onClose={() => setExpanded(false)}
+        />
+      )}
+    </>
+  )
+}
+
 // ── Provenance row ────────────────────────────────────────────────────────────
 
 function ProvenanceRow({
@@ -208,12 +275,12 @@ function ProvenanceRow({
   const tooltip = tooltipParts.join(" · ")
   return (
     <div
-      className="flex items-center justify-between gap-3 py-2 last:border-0"
+      className="flex items-center justify-between gap-3 py-2.5 last:border-0"
       style={{ borderBottom: "1px solid var(--rv-border)" }}
     >
-      <span className="text-[12px] shrink-0" style={{ color: "var(--rv-t3)" }}>{label}</span>
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="text-[12px] tabular-nums truncate" style={{ color: "var(--rv-t2)" }}>{value}</span>
+      <span className="text-[12.5px] shrink-0" style={{ color: "var(--rv-t2)" }}>{label}</span>
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className="text-[13px] tabular-nums truncate font-medium" style={{ color: "var(--rv-t1)" }}>{value}</span>
         <SourceMark source={field.source} siteName={siteName} title={tooltip} />
       </div>
     </div>
@@ -999,6 +1066,7 @@ function formatDelta(
 
 function ResultPane({
   result, pipelineAverages, initialScenario, onScenarioChange, onOpenSources,
+  isSaved, savedStage, onSave, onOpenSource,
 }: {
   result:            PanelResult
   pipelineAverages?: PipelineAverages
@@ -1007,7 +1075,19 @@ function ResultPane({
   /** Open the Sources drawer — wired by the parent Panel which owns
    *  the drawer's open state. */
   onOpenSources?:    () => void
+  /** Pipeline-status flag wired from Panel — toggles the action row's
+   *  primary CTA between "Save deal" and "Saved · {stage}". */
+  isSaved?:          boolean
+  savedStage?:       string
+  /** Save the current listing — primary action of the panel. */
+  onSave?:           () => void
+  /** Open the listing's source URL in the user's default browser. */
+  onOpenSource?:     () => void
 }) {
+  // Ref to the Adjust assumptions disclosure so the inline "Adjust" pill
+  // (next to the cash-flow hero) can scroll the editor into view AND
+  // open it. The verb sits next to the number it changes.
+  const adjustRef = useRef<HTMLDivElement>(null)
   // Scenario overrides. When the listing is a saved pipeline deal, this
   // hydrates from the row's `scenario` column and persists back via
   // onScenarioChange. Unsaved listings keep overrides in memory only.
@@ -1091,32 +1171,41 @@ function ResultPane({
       <div className="px-4 pt-4 pb-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
         {(result.address || result.city) && (
           <div className="mb-4 -mx-1">
-            <PropertyMap
-              address={result.address}
-              city={result.city}
-              state={result.state}
-              zip={result.zip}
-              size="inline"
-              radius={10}
-              className="w-full"
-            />
+            {/* Inline = Mapbox satellite static (no third-party badge,
+                <100ms swap between deals because it's a plain <img>).
+                Click → opens the Google Embed modal where the
+                [Aerial | Street] toggle and Google's required "Maps"
+                badge live. The badge stays out of the everyday panel
+                UI; it only appears when the user explicitly opts in
+                to the full Google view. */}
+            <PropertyMapWithExpand result={result} />
           </div>
         )}
 
-        {/* Price — the financial anchor. Display serif, big, weighted. */}
+        {/* Price — the financial anchor. Display serif, big, weighted.
+            Source mark sits next to it so the user sees at a glance
+            "$474k — pulled from Zillow". */}
         {result.listPrice != null && (
-          <p
-            className="leading-[1.0] tabular-nums"
-            style={{
-              color:         "var(--rv-t1)",
-              fontSize:      36,
-              letterSpacing: "-0.030em",
-              fontFamily:    "var(--rv-font-display)",
-              fontWeight:    500,
-            }}
-          >
-            <Currency value={result.listPrice} whole />
-          </p>
+          <div className="flex items-baseline gap-2.5">
+            <p
+              className="leading-[1.0] tabular-nums"
+              style={{
+                color:         "var(--rv-t1)",
+                fontSize:      36,
+                letterSpacing: "-0.030em",
+                fontFamily:    "var(--rv-font-display)",
+                fontWeight:    500,
+              }}
+            >
+              <Currency value={result.listPrice} whole />
+            </p>
+            <SourceMark
+              source={provenance.listPrice.source}
+              siteName={result.siteName}
+              size="md"
+              title={`List price · from ${sourceMeta(provenance.listPrice.source, result.siteName).label.replace(/^pulled /, "")}`}
+            />
+          </div>
         )}
 
         {/* Cash flow as the co-hero — the actual answer to "is this a
@@ -1138,41 +1227,92 @@ function ResultPane({
               <Currency value={metrics.monthlyCashFlow} signed />
             </span>
             <span
-              className="text-[11.5px] tracking-tight"
-              style={{ color: "var(--rv-t3)" }}
+              className="text-[12px] tracking-tight"
+              style={{ color: "var(--rv-t2)" }}
             >
               cash flow / mo
             </span>
-            {scenarioActive && (
-              <span
-                className="ml-auto inline-flex items-center gap-1 rounded-full text-[10px] font-medium tracking-tight shrink-0"
-                style={{
-                  color:      "var(--rv-accent)",
-                  background: "var(--rv-accent-dim)",
-                  border:     "0.5px solid var(--rv-accent-border)",
-                  padding:    "2px 7px",
-                }}
-                title="You've adjusted assumptions on this listing"
-              >
-                Your scenario
-              </span>
-            )}
+            {/* Inline Adjust pill — the verb sits next to the number it
+                changes. Clicking opens the editor + scrolls it into view.
+                When a scenario is active it shifts to "Adjusting · N
+                changed" so the hero itself communicates whether the user
+                is on default or custom numbers. */}
+            <button
+              onClick={() => {
+                setEditorOpen(true)
+                requestAnimationFrame(() => {
+                  adjustRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+                })
+              }}
+              className="ml-auto inline-flex items-center gap-1 rounded-full text-[10.5px] font-medium tracking-tight shrink-0 transition-colors"
+              style={{
+                color:      scenarioActive ? "var(--rv-accent)" : "var(--rv-t2)",
+                background: scenarioActive ? "var(--rv-accent-dim)" : "var(--rv-elev-3)",
+                border:     `0.5px solid ${scenarioActive ? "var(--rv-accent-border)" : "var(--rv-border)"}`,
+                padding:    "3px 9px 3px 8px",
+              }}
+              title={scenarioActive ? "You've adjusted assumptions — click to edit" : "Adjust price, rate, rent, etc."}
+            >
+              <SlidersHorizontal size={10} strokeWidth={2.2} />
+              {scenarioActive
+                ? `Adjusting · ${Object.keys(overrides).filter((k) => (overrides as Record<string, unknown>)[k] !== undefined).length} changed`
+                : "Adjust"}
+              <ChevronDown size={9} strokeWidth={2.2} style={{ marginLeft: 1 }} />
+            </button>
           </div>
         )}
 
         {address && (
-          <p className="text-[12.5px] mt-3 leading-snug" style={{ color: "var(--rv-t2)" }}>
+          <p className="text-[13px] mt-3 leading-snug" style={{ color: "var(--rv-t1)" }}>
             {address}
           </p>
         )}
-        <div className="flex items-center gap-3 mt-1.5 text-[11px]" style={{ color: "var(--rv-t4)" }}>
+        <div className="flex items-center gap-3 mt-1.5 text-[11.5px]" style={{ color: "var(--rv-t3)" }}>
           {result.beds      && <span>{result.beds} bd</span>}
           {result.baths     && <span>{result.baths} ba</span>}
           {result.sqft      && <span>{result.sqft.toLocaleString()} sqft</span>}
           {result.yearBuilt && <span>Built {result.yearBuilt}</span>}
-          {result.siteName  && <span className="ml-auto" style={{ color: "var(--rv-t3)" }}>{result.siteName}</span>}
+          {result.siteName  && <span className="ml-auto" style={{ color: "var(--rv-t2)" }}>{result.siteName}</span>}
         </div>
       </div>
+
+      {/* Action row — the conversion moment. Save deal is the entire
+          point of running the analysis; it gets a primary button right
+          under the hero so it's unmissable. Open listing returns the
+          investor to the source page. Re-analyze / settings still live
+          in the slim header. */}
+      {(onSave || onOpenSource) && (
+        <div
+          className="px-4 py-3 flex items-center gap-2 shrink-0"
+          style={{ borderBottom: "1px solid var(--rv-border)" }}
+        >
+          {onSave && (
+            <Button
+              variant={isSaved ? "secondary" : "primary"}
+              size="md"
+              onClick={onSave}
+              disabled={isSaved}
+              icon={isSaved
+                ? <BookmarkCheck size={14} strokeWidth={2.2} />
+                : <Bookmark size={14} strokeWidth={2.2} />}
+              className="flex-1"
+            >
+              {isSaved ? (savedStage ?? "Saved") : "Save deal"}
+            </Button>
+          )}
+          {onOpenSource && (
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={onOpenSource}
+              icon={<ExternalLink size={13} strokeWidth={2.2} />}
+              title="Open listing in your browser"
+            >
+              Open
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* AI Noticed — combined Notes (the AI take) + Worth Knowing flags
           + portfolio benchmark line. Was three separate sections that all
@@ -1229,25 +1369,24 @@ function ResultPane({
             </button>
           </div>
         )}
-        <div className="grid grid-cols-3 gap-2">
-          <MetricCard
-            label="Cash Flow"
-            value={<Currency value={metrics.monthlyCashFlow} signed />}
-            sub="per month"
-            tone={metrics.monthlyCashFlow < 0 ? "neg" : "neutral"}
-            delta={scenarioActive ? formatDelta(metrics.monthlyCashFlow, defaultMetrics.monthlyCashFlow, "currency") : null}
-          />
+        {/* Cash Flow lives in the hero — no need to repeat it as a card.
+            The two cards that remain are the underwriting numbers a real
+            investor reads next: cap rate (yield on cost) and DSCR (debt
+            coverage). Bigger cards now that there are only two. */}
+        <div className="grid grid-cols-2 gap-2.5">
           <MetricCard
             label="Cap Rate"
             value={fmtPct(metrics.capRate)}
-            sub={`${fmtPct(metrics.cashOnCash)} CoC`}
+            sub={`${fmtPct(metrics.cashOnCash)} cash-on-cash`}
             delta={scenarioActive ? formatDelta(metrics.capRate, defaultMetrics.capRate, "pct") : null}
+            flashKey={Math.round(metrics.capRate * 10000)}
           />
           <MetricCard
             label="DSCR"
             value={fmtNum(metrics.dscr)}
             sub={metrics.dscr >= 1.0 ? "covers debt service" : "below debt service"}
             delta={scenarioActive ? formatDelta(metrics.dscr, defaultMetrics.dscr, "ratio") : null}
+            flashKey={Math.round(metrics.dscr * 100)}
           />
         </div>
         <BenchmarkLine
@@ -1268,17 +1407,73 @@ function ResultPane({
           { label: "Cash invested",   value: fmtCurrency(metrics.totalCashInvested) },
         ].map(({ label, value }) => (
           <div key={label}>
-            <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--rv-t4)" }}>
+            <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--rv-t3)" }}>
               {label}
             </p>
-            <p className="text-[13px] tabular-nums" style={{ color: "var(--rv-t2)" }}>{value}</p>
+            <p className="text-[13.5px] tabular-nums font-medium" style={{ color: "var(--rv-t1)" }}>{value}</p>
           </div>
         ))}
       </div>
 
+      {/* Numbers we used — the autofilled inputs that drive the metrics
+          above, each paired with the source chip that fetched it. The
+          user pushed back on these being hidden in a drawer; they need
+          to live INLINE so it's obvious at a glance "this rate came
+          from FRED, this rent came from HUD, this tax came from the
+          listing." Tap any row to open the editor pre-targeted on it
+          via the Adjust disclosure below. */}
+      <div
+        className="px-4 py-4"
+        style={{ borderBottom: "1px solid var(--rv-border)" }}
+      >
+        <p
+          className="text-[10px] uppercase tracking-widest font-medium mb-2.5"
+          style={{ color: "var(--rv-t4)" }}
+        >
+          Numbers we used
+        </p>
+        <div className="flex flex-col">
+          <ProvenanceRow
+            label="Rent"
+            value={`${fmtCurrency(provenance.rent.value)}/mo`}
+            field={provenance.rent}
+            siteName={result.siteName}
+          />
+          <ProvenanceRow
+            label="Interest rate"
+            value={fmtPct(provenance.interestRate.value / 100)}
+            field={provenance.interestRate}
+            siteName={result.siteName}
+            fetchedAt={provenance.interestRate.fetchedAt}
+          />
+          <ProvenanceRow
+            label="Property tax"
+            value={`${fmtCurrency(provenance.propertyTax.value)}/yr`}
+            field={provenance.propertyTax}
+            siteName={result.siteName}
+          />
+          <ProvenanceRow
+            label="Insurance"
+            value={`${fmtCurrency(provenance.insurance.value)}/yr`}
+            field={provenance.insurance}
+            siteName={result.siteName}
+          />
+          {provenance.hoa && (
+            <ProvenanceRow
+              label="HOA"
+              value={`${fmtCurrency(provenance.hoa.value)}/mo`}
+              field={provenance.hoa}
+              siteName={result.siteName}
+            />
+          )}
+        </div>
+      </div>
+
       {/* Adjust assumptions — scenario editor disclosure. Closed by
           default; opens to reveal 5 inline overrides + Advanced. Edits
-          drive the metric cards above via live recompute (sub-ms). */}
+          drive the metric cards above via live recompute (sub-ms).
+          The ref lets the inline "Adjust" pill above scroll us into view. */}
+      <div ref={adjustRef} />
       <ScenarioDisclosure
         baseInputs={result.inputs}
         baseListPrice={result.listPrice}
@@ -1423,13 +1618,12 @@ export default function Panel({
     <div
       className="flex flex-col h-full overflow-hidden panel-enter"
       style={{
-        // Solid surface, matching the Pipeline detail rail. Was glass —
-        // glass surfaces float OVER content (Chrome extension language).
-        // App features have solid surfaces that ARE the content. The
-        // analysis panel is a primary feature; it deserves to feel like
-        // one, not like a popup over the browser.
+        // Opaque — sits over the persistent map layer, so the panel
+        // needs to fully cover the map underneath, not blend with it.
+        // Soft drop-shadow on the map-facing edge gives the panel
+        // physical presence without a stitched border.
         background:  "var(--rv-bg)",
-        borderLeft:  "0.5px solid var(--rv-border)",
+        boxShadow:   "-1px 0 0 rgba(255,255,255,0.04), -10px 0 30px rgba(0,0,0,0.30)",
         minWidth:    0,
       }}
     >
@@ -1456,19 +1650,10 @@ export default function Panel({
               ))}
             </span>
           )}
-          {isSaved && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10.5px] font-medium tracking-tight whitespace-nowrap shrink-0"
-              style={{
-                color: "var(--rv-accent)",
-                background: "rgba(48,164,108,0.12)",
-                border: "1px solid rgba(48,164,108,0.22)",
-              }}
-            >
-              <BookmarkCheck size={10} strokeWidth={2.2} />
-              {savedStage ?? "Saved"}
-            </span>
-          )}
+          {/* Saved-state chip removed from the header — the in-body
+              action row now shows "Watching" / "Interested" / etc. on
+              the primary button itself. Two indicators of the same
+              state in the same surface was redundant. */}
           {seenHint && (
             <span
               className="inline-flex items-center gap-1 text-[10.5px] tracking-tight whitespace-nowrap shrink-0"
@@ -1481,24 +1666,12 @@ export default function Panel({
           )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          {canSave && (
-            <HeaderIconBtn
-              onClick={onSave}
-              title={isSaved ? "Already saved" : "Save (⌘S)"}
-              disabled={isSaved}
-              active={isSaved}
-            >
-              {isSaved ? <BookmarkCheck size={13} strokeWidth={2} /> : <Bookmark size={13} strokeWidth={2} />}
-            </HeaderIconBtn>
-          )}
+          {/* Save + Open are promoted to the in-body action row under
+              the hero now (the conversion moment of the panel). The
+              header keeps Re-analyze (a recovery action) and close. */}
           {canReanalyze && (
             <HeaderIconBtn onClick={onReanalyze} title="Re-analyze">
               <RefreshCw size={12} strokeWidth={2} />
-            </HeaderIconBtn>
-          )}
-          {isReady && onOpenSource && (
-            <HeaderIconBtn onClick={onOpenSource} title="Open in browser">
-              <ExternalLink size={12} strokeWidth={2} />
             </HeaderIconBtn>
           )}
           {onClose && (
@@ -1517,7 +1690,19 @@ export default function Panel({
         <div className="flex-1 min-h-0 flex flex-col">
           {state.phase === "empty"       && <EmptyPane     hasListing={state.hasListing} onAnalyze={onReanalyze ?? (() => {})} />}
           {state.phase === "analyzing"   && <AnalyzingPane />}
-          {state.phase === "ready"       && <ResultPane    result={state.result} pipelineAverages={pipelineAverages} initialScenario={initialScenario} onScenarioChange={onScenarioChange} onOpenSources={() => setSourcesOpen(true)} />}
+          {state.phase === "ready"       && (
+            <ResultPane
+              result={state.result}
+              pipelineAverages={pipelineAverages}
+              initialScenario={initialScenario}
+              onScenarioChange={onScenarioChange}
+              onOpenSources={() => setSourcesOpen(true)}
+              isSaved={isSaved}
+              savedStage={savedStage}
+              onSave={onSave}
+              onOpenSource={onOpenSource}
+            />
+          )}
           {state.phase === "error"       && <ErrorPane     message={state.message} onRetry={onReanalyze} onManualEntry={onStartManualEntry} />}
           {state.phase === "manual-entry" && (
             <ManualEntryPane

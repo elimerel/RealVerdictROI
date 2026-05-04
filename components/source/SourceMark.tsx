@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import type { SourceKind } from "@/lib/electron"
 
 // ── Source brand-marks ────────────────────────────────────────────────────────
@@ -121,19 +122,17 @@ export function SourceMark({
 }) {
   const meta  = sourceMeta(source, siteName)
   const logo  = logoFor(source, siteName)
-  // The source mark IS the brand statement — confident chip size, not a
-  // utility badge. Bumped again from 18→22 (sm) and 22→26 (md) after
-  // user feedback that they read as small. md is used in headers + the
-  // Sources drawer; sm is everywhere else.
-  const dim   = size === "md" ? 26 : 22
+  // Bumped sizes once more — the user said the source proof "isn't
+  // showing." Even when the logo loads fine it was easy to miss at
+  // 22px against a busy panel. 24/28 reads as a real brand chip.
+  const dim   = size === "md" ? 28 : 24
 
-  // Logo path — borderless circular crop. The logo IS the chip. Most
-  // brand favicons are square with a colored background so they fill the
-  // circle naturally. Subtle drop shadow gives the chip presence against
-  // the dark canvas without a wedding-band-like border. Logos with
-  // transparency get a theme-adaptive substrate so they don't disappear
-  // on light backgrounds.
-  if (logo) {
+  // Track image load failure so we can swap to the letter-glyph fallback.
+  // Without this, a 404 leaves an empty circle that looks like nothing
+  // is there (which matches the user's complaint of logos "not showing").
+  const [imgFailed, setImgFailed] = useState(false)
+
+  if (logo && !imgFailed) {
     return (
       <span
         title={title ?? meta.label}
@@ -141,12 +140,7 @@ export function SourceMark({
         style={{
           width:      dim,
           height:     dim,
-          // Theme-adaptive substrate — only visible behind logos with
-          // transparency (most have their own background). Avoids the
-          // jarring white-on-dark "circle of paper" look.
           background: "var(--rv-elev-3)",
-          // Soft outer shadow for chip definition. No border — the
-          // shadow does the edge work without the cheap white ring.
           boxShadow:  "0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.15)",
         }}
       >
@@ -155,10 +149,9 @@ export function SourceMark({
           alt={meta.label}
           width={dim}
           height={dim}
+          onError={() => setImgFailed(true)}
           style={{
             display:    "block",
-            // cover: fills the circle entirely. Square logos crop their
-            // corners against the circle (good — that's the chip).
             objectFit:  "cover",
             width:      "100%",
             height:     "100%",
