@@ -682,6 +682,62 @@ interface LogVisitInput {
   address?:  string | null
 }
 
+// ── Activity feed ─────────────────────────────────────────────────────────
+//
+// The Today feed on the Browse start screen reads from this. Pulls the
+// last N deal_events with their associated saved_deal context (address,
+// list_price, site_name) so the feed cards can render rich previews
+// without a second roundtrip per row. Events are returned newest-first.
+
+export type ActivityEventKind =
+  | "saved" | "stage_changed" | "reanalyzed" | "tags_updated"
+  | "price_changed" | "scenario_changed" | "scenario_cleared"
+
+export interface ActivityEvent {
+  id:        string
+  at:        string
+  kind:      ActivityEventKind
+  /** Deal context joined from saved_deals — null if the deal was deleted. */
+  deal:      Pick<SavedDeal, "id" | "address" | "city" | "state" | "list_price" | "site_name" | "stage" | "source_url"> | null
+  /** Event-kind-specific payload (price delta, new stage, etc.). */
+  payload:   Record<string, unknown> | null
+}
+
+/** Fetch the user's recent deal activity for the Today feed. Default limit
+ *  is 30 — enough to show "what changed since you last looked" without
+ *  overwhelming. The returned events join the deal context inline so the
+ *  feed can render addresses + prices without per-row queries. */
+export async function fetchActivityFeed(limit = 30): Promise<ActivityEvent[]> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data, error } = await supabase
+    .from("deal_events")
+    .select(`
+      id, at, kind, payload,
+      deal:saved_deals(id, address, city, state, list_price, site_name, stage, source_url)
+    `)
+    .eq("user_id", user.id)
+    .order("at", { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    console.error("[pipeline] fetchActivityFeed error:", error)
+    return []
+  }
+
+  return (data ?? []).map((row) => ({
+    id:      row.id as string,
+    at:      row.at as string,
+    kind:    row.kind as ActivityEventKind,
+    payload: (row.payload ?? null) as Record<string, unknown> | null,
+    deal:    Array.isArray(row.deal)
+      ? (row.deal[0] ?? null)
+      : (row.deal ?? null),
+  })) as ActivityEvent[]
+}
+
 /** Log a listing-URL navigation. Fire-and-forget — failures don't block UI. */
 export function logBrowseVisit(v: LogVisitInput): void {
   const supabase = createClient()

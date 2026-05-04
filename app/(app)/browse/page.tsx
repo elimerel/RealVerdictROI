@@ -34,6 +34,7 @@ import { useRegisterPanelState } from "@/components/panel/context"
 import { SourceMark } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
 import type { ScenarioOverrides } from "@/lib/scenario"
+import ActivityFeed from "@/components/ActivityFeed"
 
 const PANEL_W_DEFAULT = 340
 const PANEL_W_MIN     = 280
@@ -1223,7 +1224,7 @@ function HeroStatsStrip({
   const watchingCount = ctx?.pipeline?.watchingCount ?? 0
 
   return (
-    <div className="grid grid-cols-4 gap-3 mt-7">
+    <div className="grid grid-cols-4 gap-3 mt-4">
       <HeroStatCard
         label="Active deals"
         value={String(stats.active)}
@@ -1861,9 +1862,18 @@ function StartScreen({
               onManual={onManual}
             />
 
-            {/* Hero stat cards — 4 across. The visual centerpiece of the
-                workstation, mirroring the Modulix / Finexy / Sapphire pattern
-                where the page opens with confident hero numbers. */}
+            {/* Today feed — what changed since you last looked. Only
+                renders when there's actual recent activity; absent state
+                is silent (the buddy doesn't make conversation). Sits
+                above the hero stats so the user lands in the WHAT
+                CHANGED before the WHAT IS. */}
+            <div className={`${introCls("rv-grid")} mt-7`}>
+              <ActivityFeed limit={10} />
+            </div>
+
+            {/* Hero stat cards — 4 across. Constant context. Sits below
+                the activity feed so it reads as the steady backdrop
+                against which today's events register. */}
             {activeDeals.length > 0 && (
               <div className={introCls("rv-grid")}>
                 <HeroStatsStrip activeDeals={activeDeals} ctx={ctx} />
