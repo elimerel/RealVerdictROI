@@ -105,7 +105,19 @@ export default function PipelineMap({
     }), "bottom-right")
 
     mapRef.current = m
+
+    // ResizeObserver — when the detail rail slides in/out, the map's
+    // container changes width. Mapbox doesn't re-render automatically
+    // when its container resizes; we call resize() manually so the map
+    // re-fits and the markers stay anchored to their lng/lat. Without
+    // this, opening a deal would visually offset every pin.
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(() => m.resize())
+    })
+    if (containerRef.current) ro.observe(containerRef.current)
+
     return () => {
+      ro.disconnect()
       m.remove()
       mapRef.current = null
       markersRef.current.clear()
@@ -208,25 +220,20 @@ export default function PipelineMap({
 }
 
 /** Style a marker DOM element. The marker is a small filled circle with
- *  a ring on hover and a stronger ring + scale when selected. Pure CSS
- *  on a div — no SVG, no extra DOM weight per pin. */
+ *  a soft ring when selected. Pure CSS on a div — no SVG, no extra DOM
+ *  weight per pin. Mapbox's wrapper handles the lng/lat centering, so
+ *  the element itself just renders at its natural size. */
 function styleMarkerEl(el: HTMLDivElement, color: string, selected: boolean) {
   const size = selected ? 18 : 14
-  const ringSize = selected ? 30 : 0
+  const ringPx = selected ? 8 : 0
   el.style.cssText = `
-    position: relative;
     width: ${size}px;
     height: ${size}px;
     background: ${color};
     border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.92);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.45), 0 0 0 ${ringSize / 2}px ${color}28;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.45), 0 0 0 ${ringPx}px ${color}33;
     cursor: pointer;
-    transition: width 180ms cubic-bezier(0.32,0.72,0,1), height 180ms cubic-bezier(0.32,0.72,0,1), box-shadow 180ms;
-    transform: translate(-50%, -50%);
+    transition: width 180ms cubic-bezier(0.32,0.72,0,1), height 180ms cubic-bezier(0.32,0.72,0,1), box-shadow 220ms cubic-bezier(0.32,0.72,0,1);
   `
-  // Reset transform — Mapbox sets it on the marker WRAPPER, not the inner el.
-  // The wrapper translate already centers the element on the lng/lat, so we
-  // don't add our own translate. Clear any stale value.
-  el.style.transform = ""
 }
