@@ -1335,20 +1335,18 @@ export default function Panel({
         minWidth:    0,
       }}
     >
-      {/* Header */}
+      {/* Header — slim. Saved chip + seen hint on the left, primary
+          actions (Save / Re-analyze / Open) + close on the right.
+          The bigger 'action row in hero zone' restructure is paused
+          pending the AI-agent decision. */}
       <div
         className="flex items-center justify-between px-3 shrink-0 gap-2"
         style={{
           height: 40,
-          borderBottom: "1px solid var(--rv-border)",
           WebkitAppRegion: "no-drag",
         } as React.CSSProperties}
       >
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          {/* Brand wordmark removed — the user already knows what app
-              they're in. The panel should feel like part of RealVerdict,
-              not a Chrome extension identifying itself. The chips
-              (saved/seen/sources) remain — those are real signal. */}
           {state.phase === "analyzing" && (
             <span className="flex gap-[3px] items-center ml-0.5">
               {[0, 1, 2].map((i) => (
@@ -1362,7 +1360,7 @@ export default function Panel({
           )}
           {isSaved && (
             <span
-              className="ml-0.5 inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10.5px] font-medium tracking-tight whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10.5px] font-medium tracking-tight whitespace-nowrap shrink-0"
               style={{
                 color: "var(--rv-accent)",
                 background: "rgba(48,164,108,0.12)",
@@ -1375,24 +1373,13 @@ export default function Panel({
           )}
           {seenHint && (
             <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10.5px] font-medium tracking-tight whitespace-nowrap shrink-0"
-              style={{
-                color: "var(--rv-t3)",
-                background: "var(--rv-elev-2)",
-                border: "1px solid var(--rv-border)",
-              }}
+              className="inline-flex items-center gap-1 text-[10.5px] tracking-tight whitespace-nowrap shrink-0"
+              style={{ color: "var(--rv-t4)" }}
               title="You've been here before"
             >
               <Eye size={10} strokeWidth={2} />
               {seenHint}
             </span>
-          )}
-          {result && (
-            <HeaderSourceStack
-              result={result}
-              onClick={() => setSourcesOpen((v) => !v)}
-              active={sourcesOpen}
-            />
           )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -1410,30 +1397,25 @@ export default function Panel({
           {canSave && (
             <HeaderIconBtn
               onClick={onSave}
-              title={isSaved ? "Already saved to pipeline" : "Save to pipeline (⌘S)"}
+              title={isSaved ? "Already saved" : "Save (⌘S)"}
               disabled={isSaved}
               active={isSaved}
             >
-              {isSaved
-                ? <BookmarkCheck size={13} strokeWidth={2} />
-                : <Bookmark size={13} strokeWidth={2} />}
+              {isSaved ? <BookmarkCheck size={13} strokeWidth={2} /> : <Bookmark size={13} strokeWidth={2} />}
             </HeaderIconBtn>
           )}
           {canReanalyze && (
-            <HeaderIconBtn
-              onClick={onReanalyze}
-              title={isError ? "Try analyzing again" : "Re-analyze with current data"}
-            >
+            <HeaderIconBtn onClick={onReanalyze} title="Re-analyze">
               <RefreshCw size={12} strokeWidth={2} />
             </HeaderIconBtn>
           )}
           {isReady && onOpenSource && (
-            <HeaderIconBtn onClick={onOpenSource} title="Open source listing in browser">
+            <HeaderIconBtn onClick={onOpenSource} title="Open in browser">
               <ExternalLink size={12} strokeWidth={2} />
             </HeaderIconBtn>
           )}
           {onClose && (
-            <HeaderIconBtn onClick={onClose} title="Close panel">
+            <HeaderIconBtn onClick={onClose} title="Close panel (Esc)">
               <X size={13} strokeWidth={2} />
             </HeaderIconBtn>
           )}
