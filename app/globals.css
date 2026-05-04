@@ -594,126 +594,40 @@
 
 /* Ambient backdrop — RealVerdict's atmospheric layer.
    ──────────────────────────────────────────────────────────────────────
-   Six volumetric color masses drifting across the canvas at different
-   periods, layered with screen blend mode to build up depth like
-   firelight on aged wood. The palette is tuned to RealVerdict's brand:
-   warm umber, forest green, clay, cream — the colors of dusk over a
-   hilly landscape, never Crayola-green or vibrant.
+   Time-of-day adaptive. Two anchored gradients: a horizon glow rising
+   from the bottom (the dominant light) and a counter-glow in the
+   opposite top corner (compositional balance). Both drift slowly on
+   long-period sine animations — light "breathing" rather than blobs
+   orbiting at random.
 
-   Three "near" blobs (smaller, sharper, more saturated) sit at higher
-   z within the backdrop layer; three "far" blobs (huge, soft, lower
-   opacity) drift behind them. The combined effect reads as depth, not
-   flat gradient. mix-blend-mode: screen on the inner blobs lets colors
-   accumulate where they overlap, producing brighter highlights at
-   intersection points — the signature of premium gradient art.
+   Colors come from the JS palette in components/AmbientBackdrop.tsx,
+   recomputed every 10 minutes from current hour: dawn / morning /
+   midday / golden hour / dusk / night / late night each get their own
+   anchor positions and color tuples. */
 
-   No asset, no JS, no library. Pure CSS, runs on any GPU, scales
-   sharp at any resolution, never blocks the main thread. */
-
-.rv-ambient-blob {
-  position: absolute;
-  border-radius: 50%;
-  will-change: transform;
+.rv-horizon-glow {
+  animation: rv-horizon-breathe 22s ease-in-out infinite;
 }
-
-/* FAR LAYER — huge soft volumes drifting slowly behind everything.
-   These set the base mood. Lower opacity, bigger blur. */
-.rv-ambient-blob-a {
-  width:  90vw;
-  height: 90vw;
-  top:    -25vw;
-  left:   -25vw;
-  filter: blur(80px);
-  animation: rv-blob-drift-a 64s ease-in-out infinite;
+.rv-counter-glow {
+  animation: rv-counter-drift 30s ease-in-out infinite;
 }
-.rv-ambient-blob-b {
-  width:  85vw;
-  height: 85vw;
-  bottom: -30vw;
-  right:  -25vw;
-  filter: blur(80px);
-  animation: rv-blob-drift-b 72s ease-in-out infinite;
+@keyframes rv-horizon-breathe {
+  0%, 100% { transform: translateX(0)    scale(1); }
+  50%      { transform: translateX(3vw)  scale(1.04); }
+}
+@keyframes rv-counter-drift {
+  0%, 100% { transform: translateX(0)     scale(1); }
+  50%      { transform: translateX(-4vw)  scale(0.96); }
 }
 
-/* NEAR LAYER — smaller, sharper, more saturated. These are the
-   highlights that catch the eye. mix-blend-mode: screen makes
-   overlapping colors brighten (firelight effect). */
-.rv-ambient-blob-c {
-  width:  55vw;
-  height: 55vw;
-  top:    20vh;
-  right:  -15vw;
-  filter: blur(60px);
-  mix-blend-mode: screen;
-  animation: rv-blob-drift-c 56s ease-in-out infinite;
+/* Suggestion dropdown pop-in animation — fast spring-like entry, same
+   easing as the rest of the chrome. */
+@keyframes rv-suggestions-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-.rv-ambient-blob-d {
-  width:  45vw;
-  height: 45vw;
-  bottom: 10vh;
-  left:   -10vw;
-  filter: blur(50px);
-  mix-blend-mode: screen;
-  animation: rv-blob-drift-d 48s ease-in-out infinite;
-}
-
-/* HIGHLIGHT — single small bright spot that "catches the light," like
-   a glint in the corner of an oil painting. Lowest opacity, smallest
-   blur, slow-moving — the eye doesn't notice it but the brain does. */
-.rv-ambient-blob-e {
-  width:  30vw;
-  height: 30vw;
-  top:    -5vh;
-  left:   35vw;
-  filter: blur(40px);
-  mix-blend-mode: screen;
-  opacity: 0.7;
-  animation: rv-blob-drift-e 80s ease-in-out infinite;
-}
-
-/* DEEP SHADOW — counters the highlights with a slow-moving warm
-   shadow at the bottom. Adds compositional weight. */
-.rv-ambient-blob-f {
-  width:  70vw;
-  height: 50vw;
-  bottom: -20vh;
-  left:   15vw;
-  filter: blur(70px);
-  opacity: 0.6;
-  animation: rv-blob-drift-f 90s ease-in-out infinite;
-}
-
-/* Drift keyframes — each at a different period so the composition
-   never repeats exactly. Sub-1.0 scales avoid the "breathing" feel of
-   matched scale animations. Translations stay small (under 12vw) so
-   blobs never crash into the viewport edges and create hard cutoffs. */
-@keyframes rv-blob-drift-a {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33%      { transform: translate(6vw, 4vh) scale(1.06); }
-  66%      { transform: translate(-3vw, 8vh) scale(0.96); }
-}
-@keyframes rv-blob-drift-b {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  40%      { transform: translate(-7vw, -5vh) scale(1.08); }
-  70%      { transform: translate(3vw, -3vh) scale(0.94); }
-}
-@keyframes rv-blob-drift-c {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  35%      { transform: translate(-8vw, 6vh) scale(1.05); }
-  72%      { transform: translate(4vw, -4vh) scale(0.97); }
-}
-@keyframes rv-blob-drift-d {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  45%      { transform: translate(7vw, -6vh) scale(1.04); }
-  75%      { transform: translate(-3vw, 4vh) scale(0.98); }
-}
-@keyframes rv-blob-drift-e {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(8vw, 5vh) scale(0.95); }
-}
-@keyframes rv-blob-drift-f {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(-5vw, -6vh) scale(1.05); }
+.rv-suggestions-pop {
+  animation: rv-suggestions-in 140ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 /* Route surface transitions — tiny Y-translate + opacity fade when

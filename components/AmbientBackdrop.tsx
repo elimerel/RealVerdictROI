@@ -2,29 +2,24 @@
 
 // AmbientBackdrop — the app's atmospheric layer.
 //
-// Lives at z-index -1 behind every surface (Browse, Pipeline, Settings,
-// the panel, everything). Subtly visible at the edges of cards and
-// through the panel glass. Reacts to a small set of "moods" the React
-// app drives: idle, browsing, deciding, comparing, alerting.
+// Lives at z-index -1 behind every surface. Adapts to TIME OF DAY rather
+// than being random — the light always comes from a specific direction
+// (anchored to the bottom, like horizon glow or firelight) and shifts
+// color through the day. Morning is warm-gold rising from bottom-left;
+// midday is cool-calm from above; golden hour is deep amber from
+// bottom-right; night is a quiet ember at the bottom-center.
 //
-// Today this renders a CSS mesh gradient placeholder so the architecture
-// is in place. Swap to <Rive /> when the user provides a .riv file —
-// only this file needs to change; the BackdropMoodContext stays.
+// The composition feels DELIBERATE — like sunlight coming through a
+// window, not blobs orbiting at random. This is the move that makes the
+// backdrop feel designed instead of generative-AI.
 
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from "react"
 
-// ── Mood model ──────────────────────────────────────────────────────────
-//
-// The mood is the high-level state the backdrop should reflect. Components
-// across the app call setMood() to nudge it. Mood transitions are smooth
-// (the backdrop animates between states), never abrupt.
+// ── Mood model (kept for back-compat — components can still call setMood
+// to nudge tones, but the dominant signal is time of day now) ──────────
 
 export type BackdropMood =
-  | "idle"        // default — calm, neutral
-  | "browsing"    // user is on the Browse page actively scanning
-  | "deciding"    // user has the panel open analyzing a listing
-  | "comparing"   // user is in the comparison view
-  | "alerting"    // a price drop / stale watch / something to look at
+  | "idle" | "browsing" | "deciding" | "comparing" | "alerting"
 
 interface BackdropContextValue {
   mood: BackdropMood
@@ -46,160 +41,9 @@ export function BackdropProvider({ children }: { children: ReactNode }) {
   )
 }
 
-/** Hook for any component to read or nudge the backdrop's mood. */
 export function useBackdropMood() {
   return useContext(BackdropContext)
 }
-
-// ── Rendered backdrop ───────────────────────────────────────────────────
-
-/**
- * The actual atmospheric layer. Currently a CSS mesh-gradient placeholder
- * that drifts slowly and shifts hue on mood change. When the user supplies
- * a .riv file (drop into /public/backdrop.riv), this component swaps to
- * a Rive canvas instead — the BackdropProvider/useBackdropMood API stays
- * stable so consumers don't change.
- *
- * The placeholder is intentionally calm: 4 radial gradients positioned at
- * the corners, slowly orbiting via CSS keyframes, with low opacity so the
- * UI on top stays the focus. Mood changes shift the dominant color blob.
- */
-export function AmbientBackdrop() {
-  const { mood } = useBackdropMood()
-
-  // Per-mood color palette. Pulled from the app's design tokens so the
-  // backdrop stays in palette regardless of theme. Each tuple is two
-  // dominant colors (warm + cool / accent + neutral) that the gradient
-  // animates between.
-  const palette = MOOD_PALETTE[mood]
-
-  // Detect if a real Rive file exists. If yes, render Rive; if no, render
-  // the CSS placeholder. The check is best-effort — we listen for a
-  // global flag set when the .riv loads successfully (see useRiveBackdrop
-  // below). Until then, the placeholder is what shows.
-  const [hasRive] = useState(false)  // flip to true when .riv is wired
-
-  return (
-    <div
-      aria-hidden
-      className="rv-ambient-backdrop"
-      style={{
-        position:       "fixed",
-        inset:          0,
-        zIndex:         -1,
-        pointerEvents:  "none",
-        overflow:       "hidden",
-        // Solid base color so blobs render against a defined canvas.
-        // The body above is transparent so this is what shows through
-        // empty page areas. Theme-aware via --rv-bg.
-        background:     "var(--rv-bg)",
-      }}
-    >
-      {hasRive ? (
-        // Real Rive will live here once a .riv file is provided.
-        // import { useRive } from "@rive-app/react-canvas"
-        // <Rive src="/backdrop.riv" stateMachines="Mood" ... />
-        null
-      ) : (
-        <CSSMeshBackdrop palette={palette} mood={mood} />
-      )}
-    </div>
-  )
-}
-
-// RealVerdict atmospheric palette — the actual colors that show up in the
-// backdrop, not generic green/orange. Tuned to feel like firelight on
-// aged wood, dawn over hilly landscape, moss on warm stone. Each mood
-// is six colors mapping to the six gradient blobs (a-f). The far layer
-// (a, b) sets base mood; near layer (c, d) adds saturated highlights;
-// e is the bright catch-the-light spot; f is the warm shadow weight.
-
-interface BackdropPalette {
-  a: string  // far blob — top-left, base warmth
-  b: string  // far blob — bottom-right, base depth
-  c: string  // near blob — right, screen-blend highlight
-  d: string  // near blob — left, screen-blend highlight
-  e: string  // tiny bright spot — composition catch
-  f: string  // bottom shadow — compositional weight
-}
-
-const MOOD_PALETTE: Record<BackdropMood, BackdropPalette> = {
-  // Idle — dusk over hills. Toned down ~30% from the first visible pass
-  // — the user said "a bit too loud." Backdrop should be felt, not seen.
-  idle: {
-    a: "rgba(70, 140, 100, 0.42)",
-    b: "rgba(140, 80, 50, 0.40)",
-    c: "rgba(48, 164, 108, 0.32)",
-    d: "rgba(220, 130, 80, 0.30)",
-    e: "rgba(255, 210, 140, 0.28)",
-    f: "rgba(120, 70, 45, 0.35)",
-  },
-  browsing: {
-    a: "rgba(60, 150, 110, 0.45)",
-    b: "rgba(140, 80, 50, 0.36)",
-    c: "rgba(70, 200, 130, 0.34)",
-    d: "rgba(200, 130, 90, 0.28)",
-    e: "rgba(230, 240, 200, 0.28)",
-    f: "rgba(120, 70, 45, 0.32)",
-  },
-  deciding: {
-    a: "rgba(70, 140, 100, 0.38)",
-    b: "rgba(160, 95, 60, 0.42)",
-    c: "rgba(48, 164, 108, 0.30)",
-    d: "rgba(220, 130, 80, 0.38)",
-    e: "rgba(255, 210, 140, 0.32)",
-    f: "rgba(135, 75, 50, 0.36)",
-  },
-  comparing: {
-    a: "rgba(80, 130, 150, 0.40)",
-    b: "rgba(95, 105, 115, 0.36)",
-    c: "rgba(48, 164, 108, 0.24)",
-    d: "rgba(150, 175, 195, 0.28)",
-    e: "rgba(220, 230, 240, 0.28)",
-    f: "rgba(70, 80, 90, 0.36)",
-  },
-  alerting: {
-    a: "rgba(170, 90, 55, 0.50)",
-    b: "rgba(140, 80, 50, 0.42)",
-    c: "rgba(220, 130, 80, 0.42)",
-    d: "rgba(245, 158, 11, 0.32)",
-    e: "rgba(255, 210, 140, 0.36)",
-    f: "rgba(130, 65, 40, 0.40)",
-  },
-}
-
-/** Six-blob volumetric backdrop. Far layer (a, b) sets base mood; near
- *  layer (c, d) adds saturated highlights via mix-blend-mode: screen so
- *  overlaps brighten like firelight on wood; e adds a bright catch-the-
- *  light spot; f anchors the bottom with a warm shadow. The colors come
- *  from the mood palette and transition over 1.2s when mood changes. */
-function CSSMeshBackdrop({
-  palette, mood,
-}: {
-  palette: BackdropPalette
-  mood:    BackdropMood
-}) {
-  const grad = (color: string, falloff = 60) =>
-    `radial-gradient(circle at center, ${color} 0%, transparent ${falloff}%)`
-  const trans = "background 1400ms cubic-bezier(0.32, 0.72, 0, 1)"
-  return (
-    <>
-      <div className="rv-ambient-blob rv-ambient-blob-a" style={{ background: grad(palette.a, 55), transition: trans }} />
-      <div className="rv-ambient-blob rv-ambient-blob-b" style={{ background: grad(palette.b, 55), transition: trans }} />
-      <div className="rv-ambient-blob rv-ambient-blob-c" style={{ background: grad(palette.c, 65), transition: trans }} />
-      <div className="rv-ambient-blob rv-ambient-blob-d" style={{ background: grad(palette.d, 65), transition: trans }} />
-      <div className="rv-ambient-blob rv-ambient-blob-e" style={{ background: grad(palette.e, 70), transition: trans }} />
-      <div className="rv-ambient-blob rv-ambient-blob-f" style={{ background: grad(palette.f, 60), transition: trans }} />
-      <span data-rv-backdrop-mood={mood} style={{ display: "none" }} />
-    </>
-  )
-}
-
-// ── Mood drivers ────────────────────────────────────────────────────────
-//
-// Tiny hook: when a component mounts, set the backdrop mood. On unmount,
-// returns to idle. Lets pages/components declare "while I'm visible, the
-// backdrop should feel like X."
 
 export function useSetMoodWhileMounted(mood: BackdropMood) {
   const { setMood } = useBackdropMood()
@@ -207,4 +51,177 @@ export function useSetMoodWhileMounted(mood: BackdropMood) {
     setMood(mood)
     return () => setMood("idle")
   }, [mood, setMood])
+}
+
+// ── Time-of-day palette ─────────────────────────────────────────────────
+//
+// Each phase defines a horizon glow (the dominant bottom-anchored light)
+// and a counter-light (a small soft glow in the opposite corner for
+// compositional balance). The colors evoke real-world light at that
+// time — golden hour is genuinely amber, night is genuinely cool.
+
+interface ScenePalette {
+  /** Dominant bottom-anchored glow — color, opacity, horizontal anchor (0–100%). */
+  horizon: {
+    color:  string
+    opacity: number
+    anchor:  number
+  }
+  /** Soft counter-light in the opposite top corner. Compositional weight. */
+  counter: {
+    color:  string
+    opacity: number
+    anchor:  number   // horizontal anchor (0 = left, 100 = right)
+    fromTop: number   // vertical anchor from top (0 = at top, 30 = 30% down)
+  }
+  /** Phase label — for debugging and the "From your buddy" line. */
+  label: string
+}
+
+function paletteForHour(h: number): ScenePalette {
+  if (h >= 5 && h < 8) {
+    // Dawn — cool blue rising from bottom, hint of pink. Light anchored
+    // bottom-center, counter glow upper-left.
+    return {
+      horizon: { color: "rgba(180, 140, 175, 0.55)", opacity: 1, anchor: 50 },
+      counter: { color: "rgba(140, 170, 200, 0.30)", opacity: 1, anchor: 18, fromTop: 8 },
+      label:   "dawn",
+    }
+  }
+  if (h >= 8 && h < 12) {
+    // Morning — warm gold rising from bottom-left. Counter glow top-right.
+    return {
+      horizon: { color: "rgba(220, 180, 110, 0.55)", opacity: 1, anchor: 30 },
+      counter: { color: "rgba(150, 180, 200, 0.25)", opacity: 1, anchor: 82, fromTop: 6 },
+      label:   "morning",
+    }
+  }
+  if (h >= 12 && h < 16) {
+    // Midday — calm cool light from above-center, modest bottom warmth.
+    return {
+      horizon: { color: "rgba(160, 180, 170, 0.40)", opacity: 1, anchor: 50 },
+      counter: { color: "rgba(180, 200, 215, 0.30)", opacity: 1, anchor: 50, fromTop: 5 },
+      label:   "midday",
+    }
+  }
+  if (h >= 16 && h < 19) {
+    // Golden hour — deep amber from bottom-right (low slanting sun).
+    return {
+      horizon: { color: "rgba(235, 165, 95, 0.65)", opacity: 1, anchor: 70 },
+      counter: { color: "rgba(140, 90, 80, 0.35)", opacity: 1, anchor: 25, fromTop: 12 },
+      label:   "golden hour",
+    }
+  }
+  if (h >= 19 && h < 21) {
+    // Dusk — warm pink horizon transitioning cool above.
+    return {
+      horizon: { color: "rgba(220, 130, 110, 0.60)", opacity: 1, anchor: 60 },
+      counter: { color: "rgba(120, 140, 175, 0.35)", opacity: 1, anchor: 28, fromTop: 8 },
+      label:   "dusk",
+    }
+  }
+  if (h >= 21 || h < 2) {
+    // Night — quiet warm ember at bottom-center. Like firelight in a dark room.
+    return {
+      horizon: { color: "rgba(180, 110, 70, 0.50)", opacity: 1, anchor: 50 },
+      counter: { color: "rgba(70, 90, 120, 0.30)", opacity: 1, anchor: 80, fromTop: 4 },
+      label:   "night",
+    }
+  }
+  // Late night / pre-dawn (2–5am) — deep cool blue, very quiet.
+  return {
+    horizon: { color: "rgba(90, 110, 150, 0.40)", opacity: 1, anchor: 50 },
+    counter: { color: "rgba(140, 100, 120, 0.20)", opacity: 1, anchor: 70, fromTop: 6 },
+    label:   "late night",
+  }
+}
+
+// Mood-based opacity nudges. The dominant signal is time of day; mood
+// just brightens or quiets the same composition.
+const MOOD_INTENSITY: Record<BackdropMood, number> = {
+  idle:      1.00,
+  browsing:  1.05,
+  deciding:  0.95,   // calmer when focused on a deal
+  comparing: 0.85,   // step back when comparing
+  alerting:  1.15,   // slightly louder when something needs attention
+}
+
+// ── Rendered backdrop ───────────────────────────────────────────────────
+
+export function AmbientBackdrop() {
+  const { mood } = useBackdropMood()
+
+  // Compute palette based on current hour. We re-derive every 10 minutes
+  // so the backdrop drifts through the day if the app is left open.
+  const [hour, setHour] = useState(() => new Date().getHours())
+  useEffect(() => {
+    const id = setInterval(() => setHour(new Date().getHours()), 10 * 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const palette  = useMemo(() => paletteForHour(hour), [hour])
+  const intensity = MOOD_INTENSITY[mood]
+
+  return (
+    <div
+      aria-hidden
+      className="rv-ambient-backdrop"
+      style={{
+        position:      "fixed",
+        inset:         0,
+        zIndex:        -1,
+        pointerEvents: "none",
+        overflow:      "hidden",
+        background:    "var(--rv-bg)",
+      }}
+    >
+      {/* Horizon glow — the dominant bottom-anchored light source. Width
+          covers the lower half of the viewport, anchored horizontally per
+          time of day. Slow horizontal drift gives it the "breathing"
+          quality of real light without ever feeling random. */}
+      <div
+        className="rv-horizon-glow"
+        style={{
+          position: "absolute",
+          left:     `${palette.horizon.anchor - 60}%`,
+          right:    `${100 - (palette.horizon.anchor + 60)}%`,
+          bottom:   "-30vh",
+          height:   "75vh",
+          background: `radial-gradient(ellipse at 50% 100%, ${withOpacity(palette.horizon.color, intensity)} 0%, transparent 70%)`,
+          filter:   "blur(24px)",
+          transition: "background 2400ms cubic-bezier(0.32, 0.72, 0, 1), left 2400ms ease, right 2400ms ease",
+        }}
+      />
+
+      {/* Counter-light — small soft glow in the opposite corner.
+          Compositional balance, like a window letting in indirect sky
+          light to balance the firelight from the floor. */}
+      <div
+        className="rv-counter-glow"
+        style={{
+          position: "absolute",
+          left:     `${palette.counter.anchor - 25}%`,
+          width:    "50vw",
+          top:      `${palette.counter.fromTop - 25}vh`,
+          height:   "55vh",
+          background: `radial-gradient(ellipse at 50% 50%, ${withOpacity(palette.counter.color, intensity * 0.85)} 0%, transparent 65%)`,
+          filter:   "blur(40px)",
+          transition: "background 2400ms cubic-bezier(0.32, 0.72, 0, 1), left 2400ms ease",
+        }}
+      />
+
+      {/* Debug label — invisible but inspectable */}
+      <span data-rv-backdrop-phase={palette.label} data-rv-backdrop-mood={mood} style={{ display: "none" }} />
+    </div>
+  )
+}
+
+/** Re-tint a base color with a multiplied alpha (for mood intensity). */
+function withOpacity(rgba: string, mult: number): string {
+  // Parse "rgba(R, G, B, A)" → return same colors with A * mult.
+  const m = rgba.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/)
+  if (!m) return rgba
+  const r = m[1], g = m[2], b = m[3]
+  const a = m[4] ? Number(m[4]) : 1
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, a * mult)).toFixed(3)})`
 }

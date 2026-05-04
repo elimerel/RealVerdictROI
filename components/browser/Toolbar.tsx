@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react"
 import type { NavUpdate } from "@/lib/electron"
 import { useSidebar } from "@/components/sidebar/context"
 import { SNAP_ICONS } from "@/components/sidebar/context"
+import UrlSuggestions, { type SuggestionRow } from "./UrlSuggestions"
 
 function BackIcon() {
   return (
@@ -73,6 +74,12 @@ export default function Toolbar({
   const [draft,   setDraft]   = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const resolvedRef = urlbarRef ?? inputRef
+  // Suggestion dropdown state — selected row index + the rows currently
+  // visible (the dropdown reports its rows up so arrow-key nav can clamp).
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0)
+  const [visibleRows, setVisibleRows] = useState<SuggestionRow[]>([])
+  // Reset selection to top whenever the user types — Chrome/Arc behavior.
+  useEffect(() => { setSelectedSuggestion(0) }, [draft])
 
   // The sidebar's mode dictates how much left padding the toolbar needs
   // to clear the global sidebar-toggle button (fixed at window x=86-114):
@@ -143,7 +150,25 @@ export default function Toolbar({
     if (e.key === "Enter") {
       e.preventDefault()
       e.stopPropagation()
-      commit((e.currentTarget as HTMLInputElement).value)
+      // If the user has navigated to a suggestion via arrow keys, commit
+      // THAT URL — otherwise commit whatever they typed. Same Chrome behavior.
+      const picked = visibleRows[selectedSuggestion]
+      if (picked) {
+        onNavigate(picked.url)
+        setEditing(false)
+      } else {
+        commit((e.currentTarget as HTMLInputElement).value)
+      }
+      return
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setSelectedSuggestion((s) => Math.min(s + 1, Math.max(0, visibleRows.length - 1)))
+      return
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setSelectedSuggestion((s) => Math.max(s - 1, 0))
       return
     }
     if (e.key === "Escape") { setEditing(false); return }
@@ -189,7 +214,7 @@ export default function Toolbar({
           <ReloadIcon spinning={nav.loading} />
         </NavBtn>
 
-        <div className="flex-1 mx-1.5">
+        <div className="flex-1 mx-1.5 relative">
           <div
             className="w-full h-[32px] flex items-center gap-2 rounded-[8px] px-3.5 cursor-text
                        transition-all duration-150"
@@ -243,6 +268,20 @@ export default function Toolbar({
               </>
             )}
           </div>
+          {/* Suggestion dropdown — Chrome-omnibox-style autocomplete.
+              Recent listings filtered by typed text + suggested sites
+              + Google search fallback. Arrow keys + Enter to navigate. */}
+          {editing && (
+            <UrlSuggestions
+              draft={draft}
+              selected={selectedSuggestion}
+              onPick={(url) => {
+                onNavigate(url)
+                setEditing(false)
+              }}
+              onRowsChange={setVisibleRows}
+            />
+          )}
         </div>
 
         {/* The panel-toggle moved out to a window-level pinned button —
