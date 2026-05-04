@@ -191,6 +191,30 @@ export default function PipelineMap({
     }
   }, [placedDeals, selectedId, onSelect])
 
+  // Token missing — most likely cause: NEXT_PUBLIC_MAPBOX_TOKEN added to
+  // .env.local after the dev server started. Next.js only reads .env on
+  // server boot, not on HMR. Show the user something useful instead of
+  // a blank canvas.
+  if (!TOKEN) {
+    return (
+      <div
+        className="relative w-full h-full flex items-center justify-center px-8"
+        style={{ background: "var(--rv-elev-1)" }}
+      >
+        <div className="text-center max-w-[360px]">
+          <p className="text-[14px] font-medium" style={{ color: "var(--rv-t1)" }}>
+            Map can&rsquo;t load
+          </p>
+          <p className="text-[12px] mt-1.5 leading-relaxed" style={{ color: "var(--rv-t3)" }}>
+            Mapbox token isn&rsquo;t available to the renderer.
+            Restart the dev server (Next.js loads <code style={{ color: "var(--rv-t2)" }}>.env.local</code>{" "}
+            on boot, not HMR).
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="relative w-full h-full" style={{ background: "var(--rv-elev-1)" }}>
       <div ref={containerRef} className="absolute inset-0" />
@@ -212,7 +236,7 @@ export default function PipelineMap({
               No deals on the map yet
             </p>
             <p className="text-[12px] mt-1.5 leading-relaxed" style={{ color: "var(--rv-t3)" }}>
-              Save a listing from Browse, and it'll appear here as a pin
+              Save a listing from Browse, and it&rsquo;ll appear here as a pin
               colored by its stage.
             </p>
           </div>
