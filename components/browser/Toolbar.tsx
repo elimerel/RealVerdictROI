@@ -219,7 +219,7 @@ export default function Toolbar({
 
         <div className="flex-1 mx-1.5 relative">
           <div
-            className="w-full h-[32px] flex items-center gap-2 rounded-[8px] px-3.5 cursor-text
+            className="w-full h-[36px] flex items-center gap-2 rounded-[9px] px-4 cursor-text
                        transition-all duration-150"
             style={{
               // Matte: focus brightens the surface and firms the hairline,

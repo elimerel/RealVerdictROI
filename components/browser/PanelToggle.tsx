@@ -81,15 +81,12 @@ export default function PanelToggle() {
       className="rv-panel-toggle inline-flex items-center gap-1.5"
       style={{
         position:        "fixed",
-        top:             10,
+        top:             8,
         right:           14,
-        // Bigger + pill-shaped — reads as a real primary control, not
-        // a header utility icon. The label "Analysis" makes the function
-        // unmistakable. Same height as the toolbar's URL bar (32px) so
-        // it sits visually balanced with the rest of the chrome.
-        height:          32,
-        padding:         "0 12px 0 10px",
-        borderRadius:    9,
+        // Matches the new URL bar height (36px) for visual balance.
+        height:          36,
+        padding:         "0 14px 0 12px",
+        borderRadius:    10,
         border:          "0.5px solid var(--rv-border-mid)",
         background:      restBg,
         color:           iconColor,
