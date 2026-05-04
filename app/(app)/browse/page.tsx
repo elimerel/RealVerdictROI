@@ -452,13 +452,60 @@ function BrowsePageInner() {
 
     const result   = panelContent.result
     const scenario = pendingScenario[url] ?? null
-    const saved    = await saveDeal({ sourceUrl: url, result, scenario })
-    if (!saved) return
-    setSavedByUrl((prev) => ({ ...prev, [url]: saved }))
+
+    // Optimistic save — the saved-chip lights up the moment the user
+    // hits ⌘S. The network call runs in the background; if it fails
+    // (auth expired, offline), we silently revert the local state and
+    // log. For the scan-loop user opening 30+ panels per evening, the
+    // wait between click and visual feedback was the worst part of the
+    // flow. This collapses it to zero. Same pattern as Linear's
+    // optimistic mutations and Apple Notes' instant write.
+    const now = new Date().toISOString()
+    const optimistic: SavedDeal = {
+      id:                  `temp-${Date.now()}`,
+      user_id:             "",  // unknown until the server returns the real row
+      source_url:          url,
+      address:             result.address,
+      city:                result.city,
+      state:               result.state,
+      zip:                 result.zip,
+      list_price:          result.listPrice,
+      beds:                result.beds,
+      baths:               result.baths,
+      sqft:                result.sqft,
+      year_built:          result.yearBuilt,
+      site_name:           result.siteName,
+      stage:               "watching",
+      tags:                [],
+      notes:               null,
+      watching:            true,
+      created_at:          now,
+      updated_at:          now,
+      last_revisited_at:   null,
+      last_reanalyzed_at:  null,
+      snapshot:            result,
+      scenario,
+    }
+    setSavedByUrl((prev) => ({ ...prev, [url]: optimistic }))
     setPendingScenario((prev) => {
       if (!(url in prev)) return prev
       const next = { ...prev }; delete next[url]; return next
     })
+
+    const saved = await saveDeal({ sourceUrl: url, result, scenario })
+    if (!saved) {
+      // Revert: the network call failed. Silently roll back the optimistic
+      // row so the chip stops claiming the deal is saved.
+      console.warn("[saveDeal] failed — reverting optimistic save")
+      setSavedByUrl((prev) => {
+        const next = { ...prev }
+        if (next[url]?.id === optimistic.id) delete next[url]
+        return next
+      })
+      return
+    }
+    // Replace the optimistic row with the real saved row from Supabase.
+    setSavedByUrl((prev) => ({ ...prev, [url]: saved }))
 
     // Fire-and-forget: ask Haiku for 2-3 short factual tags. On success,
     // patch the saved row + local cache. On failure, the deal just stays
