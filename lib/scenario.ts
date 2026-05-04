@@ -20,6 +20,26 @@ import {
 } from "@/lib/calculations"
 import type { AnalysisInputs, DealMetrics } from "@/lib/electron"
 
+// ── Scenario apply bus ──────────────────────────────────────────────────
+//
+// Tiny pub/sub so the chat (and later, full AI tool use) can apply
+// scenario changes without lifting state through the React tree. The
+// active ResultPane subscribes; subscribers receive partial overrides
+// + merge. When no ResultPane is mounted (panel closed, different
+// listing), dispatches are silently dropped — the desired behavior.
+
+type ApplyHandler = (partial: Partial<import("./scenario").ScenarioOverrides>) => void
+const applySubscribers = new Set<ApplyHandler>()
+
+export function applyScenarioFromBus(partial: Partial<import("./scenario").ScenarioOverrides>): void {
+  applySubscribers.forEach((fn) => fn(partial))
+}
+
+export function subscribeToScenarioBus(handler: ApplyHandler): () => void {
+  applySubscribers.add(handler)
+  return () => { applySubscribers.delete(handler) }
+}
+
 /** The user-editable subset of analysis inputs. Mirrors AnalysisInputs but
  *  keyed in the units the editor exposes — percent fields are 0-100 (UI)
  *  while AnalysisInputs uses 0-1 (storage). The applyOverrides function

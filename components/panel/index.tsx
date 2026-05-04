@@ -9,6 +9,7 @@ import { Currency } from "@/lib/format"
 import {
   hasActiveScenario,
   recomputeMetrics,
+  subscribeToScenarioBus,
   type ScenarioOverrides,
 } from "@/lib/scenario"
 import PanelChat from "./Chat"
@@ -955,6 +956,16 @@ function ResultPane({
     }, 350)
     return () => clearTimeout(id)
   }, [overrides, onScenarioChange])
+
+  // Subscribe to the scenario bus so chat-driven scenario changes (e.g.,
+  // user clicks 'What if I put 30% down?' chip) merge into our overrides
+  // and recompute metrics live. The active ResultPane is the only
+  // subscriber at any moment; others are unmounted.
+  useEffect(() => {
+    return subscribeToScenarioBus((partial) => {
+      setOverrides((prev) => ({ ...prev, ...partial }))
+    })
+  }, [])
 
   const scenarioActive = hasActiveScenario(overrides)
   // Recompute metrics live whenever overrides change. Sub-millisecond per
