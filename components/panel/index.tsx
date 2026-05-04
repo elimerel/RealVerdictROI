@@ -1348,9 +1348,10 @@ export default function Panel({
         } as React.CSSProperties}
       >
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <span className="text-[12px] font-semibold tracking-tight shrink-0" style={{ color: "var(--rv-t1)" }}>
-            RealVerdict
-          </span>
+          {/* Brand wordmark removed — the user already knows what app
+              they're in. The panel should feel like part of RealVerdict,
+              not a Chrome extension identifying itself. The chips
+              (saved/seen/sources) remain — those are real signal. */}
           {state.phase === "analyzing" && (
             <span className="flex gap-[3px] items-center ml-0.5">
               {[0, 1, 2].map((i) => (

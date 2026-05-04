@@ -485,16 +485,20 @@
   height: 0;
 }
 
-/* ── Panel slide animations ───────────────────────────────────────────────── */
+/* ── Panel slide animations ─────────────────────────────────────────────────
+   Spring-style entry with a small overshoot — feels like the panel
+   has weight and lands deliberately, not generic-CSS-slide. The
+   exit is faster and ease-in so dismissing feels responsive. */
 @keyframes panelIn {
-  from { opacity: 0; transform: translateX(16px); }
-  to   { opacity: 1; transform: translateX(0); }
+  0%   { opacity: 0; transform: translateX(40px); }
+  60%  { opacity: 1; transform: translateX(-4px); }
+  100% { opacity: 1; transform: translateX(0); }
 }
 @keyframes panelOut {
   from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 0; transform: translateX(40px); }
 }
-.panel-enter { animation: panelIn  220ms cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+.panel-enter { animation: panelIn  340ms cubic-bezier(0.32, 0.72, 0, 1) forwards; }
 .panel-exit  { animation: panelOut 180ms cubic-bezier(0.55, 0, 1, 0.45) forwards; }
 
 /* ── Settings sliders

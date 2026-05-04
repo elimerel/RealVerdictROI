@@ -31,16 +31,13 @@ export default function TabStrip({
     <div
       className="flex items-stretch shrink-0 select-none rv-tabstrip relative"
       style={{
-        height:           34,
+        height:           38,                    // bumped from 34 for breathability
         paddingLeft,
         paddingRight:     8,
         WebkitAppRegion:  "drag",
-        // Bottom hairline lives on the strip itself — but the active tab
-        // overlaps it (marginBottom: -1) so the seam disappears under
-        // the focused tab. Same visual trick as Arc/Safari: the tab
-        // and toolbar read as one continuous surface.
-        borderBottom:     "0.5px solid var(--rv-border)",
-        background:       "transparent",
+        // Shared elev-3 surface with the toolbar below — no border
+        // between them. The tabs sit IN the chrome, not on top of it.
+        background:       "var(--rv-elev-3)",
         transition:       "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       } as React.CSSProperties}
     >
@@ -100,31 +97,28 @@ function TabItem({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onActivate() }}
-      className="group relative flex items-center gap-2 rounded-t-[7px] cursor-default select-none"
+      className="group relative flex items-center gap-2 cursor-default select-none"
       style={{
-        width:        180,
-        minWidth:     180,
-        maxWidth:     180,
+        // Slightly wider + taller for breathability; fully rounded so
+        // each tab reads as its own object inside the chrome strip.
+        width:        200,
+        minWidth:     200,
+        maxWidth:     200,
         height:       30,
-        padding:      "0 8px 0 10px",
+        padding:      "0 10px 0 12px",
         marginTop:    4,
-        // Active tab "merges" with the toolbar below — extends 1.5px
-        // past the strip's bottom border to cover it, so visually the
-        // tab and toolbar read as one continuous surface (Arc/Safari
-        // pattern). Inactive tabs sit recessed within the strip.
-        marginBottom: active ? -1.5 : 0,
-        // Active uses elev-3 (slightly more lifted than the toolbar's
-        // elev-1 background) so it reads as in-front. Inactive is
-        // transparent — quiet, recessed.
-        background:   active ? "var(--rv-elev-3)" : "transparent",
-        color:        active ? "var(--rv-t1)"    : "var(--rv-t3)",
-        // Active gets sides + top hairlines but NO bottom border (so the
-        // bleed-through into the toolbar is clean, no seam line).
-        borderTop:    active ? "0.5px solid var(--rv-border-mid)" : "0.5px solid transparent",
-        borderLeft:   active ? "0.5px solid var(--rv-border-mid)" : "0.5px solid transparent",
-        borderRight:  active ? "0.5px solid var(--rv-border-mid)" : "0.5px solid transparent",
-        boxShadow:    active ? "inset 0 1px 0 rgba(255,255,255,0.06)" : "none",
-        transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), border-color 120ms cubic-bezier(0.4, 0, 0.2, 1)",
+        marginBottom: 4,
+        borderRadius: 8,
+        // Active = lifted, recessed bg + hairline border + soft inner
+        // top highlight. Inactive = quiet, no border. The shared elev-3
+        // toolbar background means the active tab reads as MORE lifted,
+        // not as a separate surface.
+        background:   active ? "var(--rv-bg)" : "transparent",
+        color:        active ? "var(--rv-t1)" : "var(--rv-t3)",
+        boxShadow:    active
+          ? "0 0 0 0.5px var(--rv-border-mid), inset 0 1px 0 rgba(255,255,255,0.06)"
+          : "none",
+        transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 120ms",
       }}
       onMouseEnter={(e) => {
         if (!active) {

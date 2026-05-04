@@ -64,49 +64,63 @@ export default function PanelToggle() {
   // Background only when "open" — quiet matte lift. Hover handled inline.
   const bgRest = isOpen ? "var(--rv-elev-4)" : "transparent"
 
+  // Active-tinted bg when open OR when there's a fresh result to draw
+  // attention to. Restful otherwise.
+  const restBg =
+    isOpen
+      ? "var(--rv-accent-dim)"
+      : (isReady && showReadyBadge)
+        ? "var(--rv-accent-dim)"
+        : "var(--rv-elev-3)"
+
   return (
     <button
       onClick={toggle}
-      title={isOpen ? "Hide analysis panel" : "Show analysis panel"}
+      title={isOpen ? "Hide analysis (⌘\\\\)" : "Show analysis (⌘\\\\)"}
       aria-label={isOpen ? "Hide analysis panel" : "Show analysis panel"}
-      className="rv-panel-toggle"
+      className="rv-panel-toggle inline-flex items-center gap-1.5"
       style={{
         position:        "fixed",
-        top:             12,
-        right:           16,
-        width:           28,
-        height:          28,
-        borderRadius:    7,
-        border:          "none",
-        background:      bgRest,
+        top:             10,
+        right:           14,
+        // Bigger + pill-shaped — reads as a real primary control, not
+        // a header utility icon. The label "Analysis" makes the function
+        // unmistakable. Same height as the toolbar's URL bar (32px) so
+        // it sits visually balanced with the rest of the chrome.
+        height:          32,
+        padding:         "0 12px 0 10px",
+        borderRadius:    9,
+        border:          "0.5px solid var(--rv-border-mid)",
+        background:      restBg,
         color:           iconColor,
-        display:         "inline-flex",
-        alignItems:      "center",
-        justifyContent:  "center",
         cursor:          "default",
         zIndex:          50,
         WebkitAppRegion: "no-drag",
+        boxShadow:       isOpen
+          ? "inset 0 1px 0 rgba(255,255,255,0.06)"
+          : "0 1px 2px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.04)",
         transition:
-          "color 220ms cubic-bezier(0.4,0,0.2,1), background-color 120ms cubic-bezier(0.4,0,0.2,1), transform 90ms cubic-bezier(0.4,0,0.2,1)",
+          "color 220ms cubic-bezier(0.4,0,0.2,1), background-color 120ms cubic-bezier(0.4,0,0.2,1), transform 90ms cubic-bezier(0.4,0,0.2,1), box-shadow 160ms",
+        fontSize:        12,
+        fontWeight:      500,
+        letterSpacing:   "-0.005em",
       } as React.CSSProperties}
       onMouseEnter={(e) => {
-        if (!isOpen) {
-          e.currentTarget.style.background = "var(--rv-elev-3)"
-          e.currentTarget.style.color      = "var(--rv-t1)"
-        } else {
-          e.currentTarget.style.background = "var(--rv-elev-5)"
+        e.currentTarget.style.background = isOpen
+          ? "var(--rv-accent-border)"
+          : "var(--rv-elev-4)"
+        if (!isOpen && !(isReady && showReadyBadge)) {
+          e.currentTarget.style.color = "var(--rv-t1)"
         }
-        e.currentTarget.style.transform = "scale(1.02)"
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = bgRest
+        e.currentTarget.style.background = restBg
         e.currentTarget.style.color      = iconColor
-        e.currentTarget.style.transform  = "scale(1)"
       }}
       onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.97)" }}
       onMouseUp={(e)   => { e.currentTarget.style.transform = "scale(1)" }}
     >
-      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden style={{ overflow: "visible" }}>
+      <svg width="22" height="22" viewBox="0 0 28 28" aria-hidden style={{ overflow: "visible" }}>
         {/* Perimeter arc — only renders while analyzing. The svg group
             rotates continuously; the arc itself is a partial circle
             (stroke-dasharray controls the visible length). Stroke is
@@ -136,22 +150,24 @@ export default function PanelToggle() {
         </g>
       </svg>
 
-      {/* Ready badge — small filled accent dot in the upper-right corner.
-          Pops in once when a fresh result lands while the panel is closed,
-          stays static, dismisses when the user opens the panel. */}
+      {/* Label — "Analysis" reads as a real primary control. Hidden
+          when there's a fresh-result badge so the badge dot has room. */}
+      <span style={{ marginLeft: -2 }}>Analysis</span>
+
+      {/* Ready badge — small filled accent dot at the top-right corner. */}
       {showReadyBadge && (
         <span
           aria-hidden
           className="rv-panel-badge"
           style={{
             position:     "absolute",
-            top:          5,
-            right:        5,
-            width:        7,
-            height:       7,
+            top:          -3,
+            right:        -3,
+            width:        9,
+            height:       9,
             borderRadius: 999,
             background:   "var(--rv-accent)",
-            boxShadow:    "0 0 0 1.5px var(--rv-badge-ring)",
+            boxShadow:    "0 0 0 2px var(--rv-badge-ring)",
           }}
         />
       )}
