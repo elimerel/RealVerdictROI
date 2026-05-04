@@ -37,9 +37,12 @@ import type { ScenarioOverrides } from "@/lib/scenario"
 import ActivityFeed from "@/components/ActivityFeed"
 import { showToast } from "@/lib/toast"
 
-const PANEL_W_DEFAULT = 340
-const PANEL_W_MIN     = 280
-const PANEL_W_MAX     = 640
+// Default width matches the Pipeline detail rail (440px) so the panel
+// feels like the same surface across the app — solid, deliberate,
+// app-native. User can still drag wider for extra breathing room.
+const PANEL_W_DEFAULT = 440
+const PANEL_W_MIN     = 360
+const PANEL_W_MAX     = 720
 const SPLITTER_W      = 4
 
 // Module-level cache for the start-screen data. The /browse page unmounts

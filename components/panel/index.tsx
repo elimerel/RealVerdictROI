@@ -1325,17 +1325,14 @@ export default function Panel({
     <div
       className="flex flex-col h-full overflow-hidden panel-enter"
       style={{
-        // Heavier glass: lower base opacity + stronger blur + saturation.
-        // The vibrancy underneath gets to do real work, and the panel
-        // reads as a layer floating over the embedded browser instead of
-        // a flat dark column. Soft inset highlight on the inside-left
-        // edge picks up the chrome and gives it depth at the seam.
-        background: "var(--rv-panel-bg)",
-        backdropFilter: "blur(28px) saturate(170%)",
-        WebkitBackdropFilter: "blur(28px) saturate(170%)",
-        borderLeft: "0.5px solid var(--rv-border-mid)",
-        boxShadow: "inset 1px 0 0 rgba(255,255,255,0.04), -8px 0 24px rgba(0,0,0,0.18)",
-        minWidth: 0,
+        // Solid surface, matching the Pipeline detail rail. Was glass —
+        // glass surfaces float OVER content (Chrome extension language).
+        // App features have solid surfaces that ARE the content. The
+        // analysis panel is a primary feature; it deserves to feel like
+        // one, not like a popup over the browser.
+        background:  "var(--rv-bg)",
+        borderLeft:  "0.5px solid var(--rv-border)",
+        minWidth:    0,
       }}
     >
       {/* Header */}
