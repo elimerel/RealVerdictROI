@@ -2549,6 +2549,11 @@ YOU CAN
 - Reference comparable saved deals from the user's pipeline when relevant.
 - Estimate market context (rent comps, typical taxes, neighborhood feel) using your general knowledge — but ALWAYS flag estimates as estimates.
 
+USE THE adjust_scenario TOOL
+- When the user proposes a hypothetical scenario change (e.g., "what if I put 22% down", "if rates dropped to 5.5", "at $440k", "with 8% vacancy"), CALL THE adjust_scenario TOOL FIRST with the relevant fields, then narrate what changed.
+- The tool applies the change live in the user's UI — they see metrics update in real time.
+- After calling the tool, your text response should reference the NEW numbers and what shifted.
+
 YOU MUST NEVER
 - Give advice ("you should buy this", "skip this one", "great deal", "weak deal").
 - Rate, score, or rank the property.
@@ -2564,6 +2569,35 @@ SHAPE
 
 CONTEXT FORMAT
 You'll receive: { listing: { address, listPrice, beds, baths, sqft, propertyType, monthlyCashFlow, capRate, dscr, monthlyRent, ... }, prefs: { downPaymentPct, vacancyPct, ... }, pipeline: { saves count, common cities, ... }, history: [previous messages] }`
+
+// Tool definitions exposed to the AI for live scenario manipulation.
+// adjust_scenario is the only tool right now — covers the common case
+// where the user proposes a what-if and the AI should both apply it
+// AND narrate what changed.
+const CHAT_TOOLS = [
+  {
+    name: "adjust_scenario",
+    description: "Adjust one or more scenario fields on the active listing. The change applies live in the user's UI and metrics recompute immediately. Use whenever the user proposes a hypothetical underwriting scenario.",
+    input_schema: {
+      type: "object",
+      properties: {
+        downPaymentPct:    { type: "number", description: "Down payment as percent, 0-100. Example: 30 for 30% down." },
+        interestRate:      { type: "number", description: "Interest rate as percent, e.g. 5.95 for 5.95%." },
+        vacancyPct:        { type: "number", description: "Vacancy rate as percent, e.g. 7 for 7%." },
+        monthlyRent:       { type: "number", description: "Monthly rent in whole dollars." },
+        purchasePrice:     { type: "number", description: "Your hypothetical offer price in whole dollars." },
+        loanTermYears:     { type: "number", description: "Loan amortization term in years (typical 15 or 30)." },
+        annualPropertyTax: { type: "number", description: "Annual property tax in whole dollars." },
+        annualInsurance:   { type: "number", description: "Annual insurance in whole dollars." },
+        monthlyHOA:        { type: "number", description: "Monthly HOA fee in whole dollars." },
+        managementPct:     { type: "number", description: "Property management fee as percent of gross rent." },
+        maintenancePct:    { type: "number", description: "Maintenance reserve as percent of gross rent." },
+        capexPct:          { type: "number", description: "CapEx reserve as percent of gross rent." },
+      },
+      required: [],
+    },
+  },
+]
 
 ipcMain.handle("ai:chat-deal", async (_e, payload) => {
   const cfg = readConfig()
@@ -2597,7 +2631,8 @@ ipcMain.handle("ai:chat-deal", async (_e, payload) => {
     : query
   messages.push({ role: "user", content: userContent })
 
-  try {
+  // Helper: one round-trip to Anthropic. Returns the parsed response.
+  const callAnthropic = async (msgs) => {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -2609,17 +2644,79 @@ ipcMain.handle("ai:chat-deal", async (_e, payload) => {
         model:      ANTHROPIC_MODEL,
         max_tokens: 600,
         system:     CHAT_SYSTEM_PROMPT,
-        messages,
+        tools:      CHAT_TOOLS,
+        messages:   msgs,
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(25_000),
     })
-    if (!res.ok) return { ok: false, response: null, reason: `http-${res.status}` }
-    const data = await res.json()
-    const text = data?.content?.[0]?.text?.trim() ?? ""
+    if (!res.ok) throw new Error(`http-${res.status}`)
+    return res.json()
+  }
+
+  try {
+    let data = await callAnthropic(messages)
+
+    // Tool-use loop. The AI may return a tool_use block; we execute it
+    // (by sending an event to the renderer that drives applyScenarioFromBus)
+    // and then send back a tool_result so the AI can finalize its text.
+    // Cap iterations to avoid infinite loops in case the model keeps calling.
+    let iterations = 0
+    while (data?.stop_reason === "tool_use" && iterations < 3) {
+      iterations++
+      const assistantContent = data.content ?? []
+      // Build the tool_result blocks for every tool_use in the response.
+      const toolResults = []
+      for (const block of assistantContent) {
+        if (block.type !== "tool_use") continue
+        if (block.name === "adjust_scenario") {
+          // Sanitize the input — drop unknown keys, keep numeric values.
+          const valid = {}
+          const allowed = [
+            "downPaymentPct", "interestRate", "vacancyPct", "monthlyRent",
+            "purchasePrice", "loanTermYears", "annualPropertyTax",
+            "annualInsurance", "monthlyHOA", "managementPct",
+            "maintenancePct", "capexPct",
+          ]
+          for (const k of allowed) {
+            const v = block.input?.[k]
+            if (typeof v === "number" && Number.isFinite(v)) valid[k] = v
+          }
+          // Forward to the renderer — the active panel listens and applies
+          // the change via applyScenarioFromBus.
+          if (Object.keys(valid).length > 0) {
+            for (const win of BrowserWindow.getAllWindows()) {
+              try { win.webContents.send("ai:apply-scenario", valid) } catch { /* window gone */ }
+            }
+          }
+          toolResults.push({
+            type:        "tool_result",
+            tool_use_id: block.id,
+            content:     JSON.stringify({ ok: true, applied: valid }),
+          })
+        } else {
+          toolResults.push({
+            type:        "tool_result",
+            tool_use_id: block.id,
+            content:     JSON.stringify({ ok: false, reason: "unknown-tool" }),
+            is_error:    true,
+          })
+        }
+      }
+      // Push the assistant's tool_use turn AND the tool_result turn,
+      // then continue the conversation.
+      messages.push({ role: "assistant", content: assistantContent })
+      messages.push({ role: "user",      content: toolResults })
+      data = await callAnthropic(messages)
+    }
+
+    // Extract the final text from the response (may have text + completed
+    // tool_use blocks; we only want the text).
+    const textBlocks = (data?.content ?? []).filter((b) => b.type === "text")
+    const text = textBlocks.map((b) => b.text).join("\n").trim()
     if (!text) return { ok: false, response: null, reason: "empty-response" }
     return { ok: true, response: text }
   } catch (err) {
-    return { ok: false, response: null, reason: err?.name ?? "fetch-failed" }
+    return { ok: false, response: null, reason: err?.message ?? err?.name ?? "fetch-failed" }
   }
 })
 

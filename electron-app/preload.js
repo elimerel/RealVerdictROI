@@ -129,6 +129,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("panel:error", h)
   },
 
+  // AI tool-use bridge — when the chat handler in main detects an
+  // adjust_scenario tool call from Anthropic, it forwards the changes
+  // here so the active panel can apply them via applyScenarioFromBus.
+  onApplyScenario: (cb) => {
+    const h = (_e, changes) => cb(changes)
+    ipcRenderer.on("ai:apply-scenario", h)
+    return () => ipcRenderer.removeListener("ai:apply-scenario", h)
+  },
+
   // Download lifecycle events fired by the embedded BrowserView's session.
   // Payload: { state: "started"|"completed"|"cancelled"|"interrupted",
   //            filename, savePath, totalBytes? }. Renderer surfaces a small

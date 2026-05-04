@@ -365,6 +365,11 @@ export interface ElectronAPI {
   onPanelHide:     (cb: () => void) => () => void
   onPanelError:    (cb: (message: string) => void) => () => void
 
+  /** AI tool-use bridge — fires when Claude calls the adjust_scenario
+   *  tool during a chat turn. The active ResultPane subscribes via
+   *  applyScenarioFromBus to merge the changes live. */
+  onApplyScenario: (cb: (changes: Record<string, number>) => void) => () => void
+
   // Download lifecycle from the embedded BrowserView's session.
   onDownloadState: (cb: (payload: DownloadState) => void) => () => void
 

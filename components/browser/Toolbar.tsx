@@ -202,10 +202,10 @@ export default function Toolbar({
       style={{
         height:          52,
         WebkitAppRegion: "drag",
-        // Toolbar shares the same elevation as the active tab above so
-        // the two surfaces read as one continuous chrome (Arc/Safari
-        // pattern). The active tab visually "merges" into this surface.
-        background:      "var(--rv-elev-3)",
+        // Toolbar uses the SAME bg as the active tab (var(--rv-surface))
+        // so they merge into one continuous lit surface. The active tab
+        // overlaps this by 2px so the seam is invisible.
+        background:      "var(--rv-surface)",
         paddingLeft:     toolbarPadL,
         transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       } as React.CSSProperties}

@@ -31,15 +31,16 @@ export default function TabStrip({
     <div
       className="flex items-stretch shrink-0 select-none rv-tabstrip relative"
       style={{
-        height:           40,                    // Chrome-tab height
+        height:           40,
         paddingLeft,
         paddingRight:     8,
         WebkitAppRegion:  "drag",
-        // Strip background is DARKER than the toolbar — this is what
-        // makes inactive tabs read as "behind." Toolbar (elev-3) is the
-        // forward surface; the strip (rv-bg, slightly darker) is the
-        // recessed back layer. Active tab adopts the toolbar bg to
-        // visually pop forward.
+        // Strip is the DARK back layer (in shadow). Toolbar + active
+        // tab are LIGHTER (alive, forward). Using rv-surface for the
+        // toolbar gives a stronger color shift than the previous
+        // elev-3 over the warm-charcoal canvas — the hierarchy now
+        // reads clearly: dark strip → lighter active tab merging into
+        // lighter toolbar. Same as Chrome.
         background:       "var(--rv-bg)",
         transition:       "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       } as React.CSSProperties}
@@ -102,30 +103,26 @@ function TabItem({
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onActivate() }}
       className="group relative flex items-center gap-2 cursor-default select-none"
       style={{
-        // Chrome tab dimensions — wider, taller, top-rounded only
-        // (squared bottom so the active tab visually flows into the
-        // toolbar below).
         width:        220,
         minWidth:     220,
         maxWidth:     220,
         height:       34,
         padding:      "0 10px 0 12px",
         marginTop:    6,
-        // Active tab = toolbar's elev-3 bg, sitting on top of the
-        // darker strip. Reads as "this tab IS the page." Inactive
-        // tabs stay transparent over the strip's rv-bg, so they read
-        // as recessed/behind. The marginBottom: -1 pushes the active
-        // tab's bottom edge into the toolbar so there's no seam.
-        marginBottom: active ? -1 : 0,
+        // Active tab matches the toolbar surface (var(--rv-surface)) and
+        // overlaps the toolbar's top edge by 2px so they read as ONE
+        // continuous lit surface — no hairline. Inactive tabs are
+        // transparent over the dark strip = recessed in shadow.
+        marginBottom: active ? -2 : 0,
         borderTopLeftRadius:  8,
         borderTopRightRadius: 8,
-        borderBottomLeftRadius:  active ? 0 : 8,
-        borderBottomRightRadius: active ? 0 : 8,
-        background:   active ? "var(--rv-elev-3)" : "transparent",
+        borderBottomLeftRadius:  0,
+        borderBottomRightRadius: 0,
+        background:   active ? "var(--rv-surface)" : "transparent",
         color:        active ? "var(--rv-t1)" : "var(--rv-t3)",
-        boxShadow:    active
-          ? "0 -1px 0 0 var(--rv-border-mid) inset, 1px 0 0 0 var(--rv-border-mid) inset, -1px 0 0 0 var(--rv-border-mid) inset"
-          : "none",
+        // No border on the active tab — clean continuous merge with
+        // the toolbar below. Visual definition comes purely from the
+        // bg color difference (light tab over dark strip).
         transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1)",
       }}
       onMouseEnter={(e) => {
