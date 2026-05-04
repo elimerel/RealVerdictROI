@@ -315,10 +315,17 @@ export async function updateDealTags(dealId: string, tags: string[]): Promise<bo
  *
  *  Caller pattern: debounce edits in the UI (~300ms) so we're not writing
  *  on every keystroke, then call once. */
+// Track whether the `scenario` column has been confirmed missing from
+// the user's Supabase. Set on first PGRST204 response so we stop writing
+// (and stop console-spamming) for the rest of the session. The user can
+// always apply migration 013_scenarios.sql to re-enable persistence.
+let _scenarioColumnMissing = false
+
 export async function updateDealScenario(
   dealId:   string,
   scenario: ScenarioOverrides | null,
 ): Promise<boolean> {
+  if (_scenarioColumnMissing) return false   // quietly degrade
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return false
@@ -328,6 +335,17 @@ export async function updateDealScenario(
     .update({ scenario: value })
     .eq("id", dealId)
   if (error) {
+    // PGRST204 = "column doesn't exist" — migration 013_scenarios.sql
+    // hasn't been applied. Set the flag, log once with actionable
+    // guidance, then stop trying. Scenarios still work in memory; just
+    // don't persist across sessions until the migration runs.
+    if (error.code === "PGRST204") {
+      _scenarioColumnMissing = true
+      console.warn(
+        "[pipeline] scenario column missing — apply supabase/migrations/013_scenarios.sql to enable persistence. Scenarios will work in memory but not persist."
+      )
+      return false
+    }
     console.error("[pipeline] updateDealScenario error:", error)
     return false
   }

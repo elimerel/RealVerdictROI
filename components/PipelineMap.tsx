@@ -111,12 +111,27 @@ export default function PipelineMap({
     // when its container resizes; we call resize() manually so the map
     // re-fits and the markers stay anchored to their lng/lat. Without
     // this, opening a deal would visually offset every pin.
+    //
+    // Guard rails: between the time the user navigates away and the
+    // cleanup runs, ResizeObserver can still fire on a torn-down map
+    // and Mapbox throws "Cannot set properties of undefined" trying
+    // to resize a removed canvas. Track removal in a flag and
+    // double-check the map's container is still in the DOM.
+    let removed = false
     const ro = new ResizeObserver(() => {
-      requestAnimationFrame(() => m.resize())
+      requestAnimationFrame(() => {
+        if (removed) return
+        try {
+          const container = m.getContainer()
+          if (!container || !container.isConnected) return
+          m.resize()
+        } catch { /* map already torn down — silent */ }
+      })
     })
     if (containerRef.current) ro.observe(containerRef.current)
 
     return () => {
+      removed = true
       ro.disconnect()
       m.remove()
       mapRef.current = null

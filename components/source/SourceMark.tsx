@@ -121,18 +121,18 @@ export function SourceMark({
 }) {
   const meta  = sourceMeta(source, siteName)
   const logo  = logoFor(source, siteName)
-  // Slightly larger by default — the source mark IS the brand statement,
-  // so it deserves a confident chip size, not a tiny utility badge. md
-  // is the size used in the Sources drawer and detail headers.
-  const dim   = size === "md" ? 22 : 18
+  // The source mark IS the brand statement — confident chip size, not a
+  // utility badge. Bumped again from 18→22 (sm) and 22→26 (md) after
+  // user feedback that they read as small. md is used in headers + the
+  // Sources drawer; sm is everywhere else.
+  const dim   = size === "md" ? 26 : 22
 
-  // Logo path — circular frame (Mercury / Apple Wallet avatar style). The
-  // brand image fills the full frame; object-fit: cover crops the square
-  // logo to fit the circle so the brand mark dominates the chip instead
-  // of floating inside it with padding. Logos that have their own
-  // background show that background; logos with transparency fall back
-  // to the white substrate. The circle is the brand statement — every
-  // number on the screen has one of these next to it.
+  // Logo path — borderless circular crop. The logo IS the chip. Most
+  // brand favicons are square with a colored background so they fill the
+  // circle naturally. Subtle drop shadow gives the chip presence against
+  // the dark canvas without a wedding-band-like border. Logos with
+  // transparency get a theme-adaptive substrate so they don't disappear
+  // on light backgrounds.
   if (logo) {
     return (
       <span
@@ -141,9 +141,13 @@ export function SourceMark({
         style={{
           width:      dim,
           height:     dim,
-          background: "#fff",
-          border:     "0.5px solid var(--rv-border-mid)",
-          boxShadow:  "0 1px 2px rgba(0,0,0,0.25)",
+          // Theme-adaptive substrate — only visible behind logos with
+          // transparency (most have their own background). Avoids the
+          // jarring white-on-dark "circle of paper" look.
+          background: "var(--rv-elev-3)",
+          // Soft outer shadow for chip definition. No border — the
+          // shadow does the edge work without the cheap white ring.
+          boxShadow:  "0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.15)",
         }}
       >
         <img
@@ -154,8 +158,7 @@ export function SourceMark({
           style={{
             display:    "block",
             // cover: fills the circle entirely. Square logos crop their
-            // corners against the circle (good — that's the chip). Logos
-            // with built-in padding still look better than contain.
+            // corners against the circle (good — that's the chip).
             objectFit:  "cover",
             width:      "100%",
             height:     "100%",
@@ -186,9 +189,8 @@ export function SourceMark({
 
   // Letter glyph — circular when single-character (matches logo chips so
   // the visual rhythm is consistent), pill-shaped when multi-character
-  // ("HUD", "FRED", "AI") since 2-3 letters can't fit in a small circle
-  // without becoming illegible. Both styles share the same elevation
-  // language as the logo chips.
+  // ("HUD", "FRED", "AI"). Same shadow-defines-edge language as the
+  // logo chips — no border, just background + subtle outer shadow.
   const isSingleChar = meta.glyph.length === 1
   return (
     <span
@@ -197,7 +199,7 @@ export function SourceMark({
       style={{
         color:        fg,
         background:   bg,
-        border:       `0.5px solid ${border}`,
+        boxShadow:    `0 1px 2px rgba(0, 0, 0, 0.30), 0 0 0 0.5px ${border}`,
         padding:      isSingleChar ? 0 : `${padY}px ${padX}px`,
         fontSize:     `${fontSize}px`,
         lineHeight:   1,
