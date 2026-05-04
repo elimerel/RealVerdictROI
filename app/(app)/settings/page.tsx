@@ -38,22 +38,30 @@ function SettingsSection({
 }) {
   return (
     <section id={id} className="flex flex-col gap-4 scroll-mt-12">
-      <div className="flex items-center gap-2.5">
-        {icon && <span style={{ color: "var(--rv-t3)" }}>{icon}</span>}
-        <h2 className="text-[18px] font-semibold tracking-[-0.018em]" style={{ color: "var(--rv-t1)" }}>
+      <div className="flex items-center gap-3">
+        {icon && <span style={{ color: "var(--rv-accent)" }}>{icon}</span>}
+        <h2
+          className="leading-tight"
+          style={{
+            color:      "var(--rv-t1)",
+            fontSize:   22,
+            fontFamily: "var(--rv-font-display)",
+            fontWeight: 500,
+            letterSpacing: "-0.020em",
+          }}
+        >
           {title}
         </h2>
       </div>
       {description && (
-        <p className="text-[12.5px] leading-relaxed max-w-[560px]" style={{ color: "var(--rv-t3)" }}>
+        <p className="text-[13px] leading-relaxed max-w-[560px]" style={{ color: "var(--rv-t3)" }}>
           {description}
         </p>
       )}
-      <div className="rv-hairline" />
       <div
-        className="flex flex-col gap-5 rounded-[12px]"
+        className="flex flex-col gap-5 rounded-[14px] mt-1"
         style={{
-          padding:    "18px 20px",
+          padding:    "20px 22px",
           background: "var(--rv-elev-1)",
           border:     "0.5px solid var(--rv-border)",
           boxShadow:  "var(--rv-shadow-inset)",
@@ -886,13 +894,42 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Centered single column — the settings page only has a handful of
-          sections and fits easily on one screen, so a left-rail TOC
-          (Mercury / Linear style) was overkill and pushed the content
-          off-balance. Same generous max-width and section frames Mercury
-          uses for shorter settings surfaces. */}
+      {/* Centered single column — Mercury-style settings surface. Hero
+          intro at the top sets the tone before sections begin, so
+          Settings reads as a real page in the app, not a config dump. */}
       <div className="flex-1 min-h-0 overflow-y-auto rv-invisible-scroll">
-        <div className="max-w-[640px] mx-auto px-8 py-12 flex flex-col gap-12">
+        <div className="max-w-[680px] mx-auto px-8 pt-16 pb-20 flex flex-col gap-14">
+          {/* Hero — display serif headline + buddy-voice subtitle.
+              Same typographic treatment as the Browse greeting so
+              Settings sits in the same visual family. */}
+          <div className="flex flex-col gap-3">
+            <h1
+              className="leading-[1.0] tracking-[-0.025em]"
+              style={{
+                color:      "var(--rv-t1)",
+                fontSize:   42,
+                fontFamily: "var(--rv-font-display)",
+                fontWeight: 500,
+              }}
+            >
+              Settings
+            </h1>
+            <p
+              className="leading-snug"
+              style={{
+                color:      "var(--rv-t2)",
+                fontSize:   15,
+                fontFamily: "var(--rv-font-display)",
+                fontWeight: 400,
+                letterSpacing: "-0.012em",
+                maxWidth:   560,
+              }}
+            >
+              Tune the analysis defaults, switch themes, manage your account.
+              Everything stays on this device unless you sign in.
+            </p>
+          </div>
+
           <ThemePickerSection />
           <InvestmentDefaultsSection />
           <AccountSection />
