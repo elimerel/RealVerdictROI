@@ -1888,12 +1888,12 @@ function StartScreen({
               </div>
             )}
 
-            {/* Supporting stat strip — 3 compact cards in a row. Each one
-                has a clear label + single hero number. Visually quieter than
-                the pipeline above so hierarchy is obvious. */}
-            <div className={`${introCls("rv-grid")} grid grid-cols-3 gap-4 mt-4`}>
+            {/* Supporting strip — 2 compact cards. SinceLastLookCard was
+                here but the Today feed now covers that surface; keeping
+                it would be redundant. Market rate ticker + quick searches
+                stay as ambient utilities. */}
+            <div className={`${introCls("rv-grid")} grid grid-cols-2 gap-4 mt-4`}>
               <MarketDashCard />
-              <SinceLastLookCard activeDeals={activeDeals} />
               <QuickSearchesCard onNavigate={onNavigate} />
             </div>
 
