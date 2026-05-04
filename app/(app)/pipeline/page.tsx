@@ -677,26 +677,42 @@ function DealDetail({
           </div>
         </div>
 
-        {/* Notes */}
-        <div className="px-6 py-4" style={{ borderBottom: "0.5px solid var(--rv-border)" }}>
-          <p className="text-[10px] uppercase tracking-widest font-medium mb-2" style={{ color: "var(--rv-t4)" }}>
+        {/* Notes — feels like a writing surface (Notes.app / Bear),
+            not a form textarea. Display serif for the body, generous
+            padding, no border, looks like paper you write on. Saves
+            on blur — same auto-save behavior. */}
+        <div className="px-6 py-5" style={{ borderBottom: "0.5px solid var(--rv-border)" }}>
+          <p className="text-[10px] uppercase tracking-widest font-medium mb-3" style={{ color: "var(--rv-t4)" }}>
             Your notes
           </p>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            onBlur={saveNotes}
-            placeholder="Anything you want to remember about this one…"
-            className="w-full bg-transparent border-none outline-none text-[13px] leading-relaxed resize-none"
+          <div
+            className="rounded-[12px] transition-colors"
             style={{
-              color:        "var(--rv-t1)",
-              minHeight:    72,
-              padding:      "8px 10px",
-              borderRadius: 8,
-              background:   "var(--rv-elev-1)",
-              border:       "0.5px solid var(--rv-border)",
+              background: "var(--rv-elev-1)",
+              border:     "0.5px solid var(--rv-border)",
+              padding:    "14px 16px",
             }}
-          />
+          >
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={saveNotes}
+              placeholder="What stood out? Numbers you want to remember? Things to ask the agent…"
+              className="w-full bg-transparent border-none outline-none resize-none"
+              style={{
+                color:         "var(--rv-t1)",
+                minHeight:     96,
+                fontSize:      14,
+                fontFamily:    "var(--rv-font-display)",
+                fontWeight:    400,
+                lineHeight:    1.55,
+                letterSpacing: "-0.005em",
+              }}
+            />
+          </div>
+          <p className="text-[10.5px] mt-2 leading-snug" style={{ color: "var(--rv-t4)" }}>
+            Saved automatically when you click away.
+          </p>
         </div>
 
         {/* Footer actions */}
