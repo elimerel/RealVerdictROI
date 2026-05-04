@@ -80,13 +80,12 @@ export default function PanelToggle() {
       aria-label={isOpen ? "Hide analysis panel" : "Show analysis panel"}
       className="rv-panel-toggle inline-flex items-center gap-1.5"
       style={{
-        position:        "fixed",
-        top:             8,
-        right:           14,
-        // Matches the new URL bar height (36px) for visual balance.
+        // Inline now — lives in the toolbar, no longer window-fixed.
+        // Matches URL bar height (36px) for visual balance.
         height:          36,
         padding:         "0 14px 0 12px",
         borderRadius:    10,
+        flexShrink:      0,
         border:          "0.5px solid var(--rv-border-mid)",
         background:      restBg,
         color:           iconColor,

@@ -75,28 +75,49 @@ export default function TabStrip({
         className="flex items-stretch gap-[2px] flex-1 min-w-0 overflow-x-auto rv-tabstrip-scroll"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        {tabs.map((t, i) => (
-          <TabItem
-            key={t.id}
-            tab={t}
-            active={t.id === activeId}
-            isDragging={draggingId === t.id}
-            showDropIndicatorBefore={hoverIndex === i && draggingId !== null && draggingId !== t.id}
-            onActivate={() => onActivate(t.id)}
-            onClose={() => onClose(t.id)}
-            onDragStart={() => setDraggingId(t.id)}
-            onDragOver={(beforeOrAfter) => {
-              setHoverIndex(beforeOrAfter === "before" ? i : i + 1)
-            }}
-            onDragEnd={() => {
-              if (draggingId && hoverIndex !== null) {
-                commitReorder(draggingId, hoverIndex)
-              }
-              setDraggingId(null)
-              setHoverIndex(null)
-            }}
-          />
-        ))}
+        {tabs.map((t, i) => {
+          // Live rearrangement: while dragging, the OTHER tabs shift via
+          // transform to make space for the dragged tab to land. Same
+          // motion as Chrome's tab drag — eyes track where the tab will
+          // end up before the drop commits.
+          const draggingFromIndex = draggingId
+            ? tabs.findIndex((x) => x.id === draggingId)
+            : -1
+          const TAB_WIDTH = 222   // 220 + 2px gap
+          let xOffset = 0
+          if (draggingId && draggingFromIndex !== -1 && hoverIndex !== null && t.id !== draggingId) {
+            // Dragging right: tabs in (from, hover) shift LEFT
+            if (draggingFromIndex < hoverIndex && i > draggingFromIndex && i < hoverIndex) {
+              xOffset = -TAB_WIDTH
+            }
+            // Dragging left: tabs in [hover, from) shift RIGHT
+            if (draggingFromIndex > hoverIndex && i >= hoverIndex && i < draggingFromIndex) {
+              xOffset = TAB_WIDTH
+            }
+          }
+          return (
+            <TabItem
+              key={t.id}
+              tab={t}
+              active={t.id === activeId}
+              isDragging={draggingId === t.id}
+              xOffset={xOffset}
+              onActivate={() => onActivate(t.id)}
+              onClose={() => onClose(t.id)}
+              onDragStart={() => setDraggingId(t.id)}
+              onDragOver={(beforeOrAfter) => {
+                setHoverIndex(beforeOrAfter === "before" ? i : i + 1)
+              }}
+              onDragEnd={() => {
+                if (draggingId && hoverIndex !== null) {
+                  commitReorder(draggingId, hoverIndex)
+                }
+                setDraggingId(null)
+                setHoverIndex(null)
+              }}
+            />
+          )
+        })}
         <button
           onClick={onNew}
           title="New tab (⌘T)"
@@ -127,13 +148,15 @@ export default function TabStrip({
 }
 
 function TabItem({
-  tab, active, isDragging, showDropIndicatorBefore,
+  tab, active, isDragging, xOffset,
   onActivate, onClose, onDragStart, onDragOver, onDragEnd,
 }: {
   tab:        TabInfo
   active:     boolean
   isDragging: boolean
-  showDropIndicatorBefore: boolean
+  /** Horizontal pixel offset for live rearrangement during drag.
+   *  CSS transition handles the slide animation. */
+  xOffset:    number
   onActivate: () => void
   onClose:    () => void
   onDragStart: () => void
@@ -188,7 +211,8 @@ function TabItem({
         background:   active ? "var(--rv-surface)" : "transparent",
         color:        active ? "var(--rv-t1)" : "var(--rv-t3)",
         opacity:      isDragging ? 0.4 : 1,
-        transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms",
+        transform:    xOffset !== 0 ? `translateX(${xOffset}px)` : undefined,
+        transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms, transform 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       }}
       onMouseEnter={(e) => {
         if (!active) {

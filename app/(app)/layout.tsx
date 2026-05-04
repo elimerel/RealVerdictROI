@@ -6,7 +6,8 @@ import Sidebar from "@/components/sidebar"
 import { SidebarProvider, useSidebar } from "@/components/sidebar/context"
 import SidebarToggle from "@/components/sidebar/toggle"
 import { PanelStateProvider } from "@/components/panel/context"
-import PanelToggle from "@/components/browser/PanelToggle"
+// PanelToggle is no longer mounted at app-layout level — it lives inline
+// inside the Toolbar now, so it sits naturally in the chrome.
 import CommandPalette from "@/components/command-palette"
 import ToastHost from "@/components/ToastHost"
 
@@ -99,9 +100,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <RouteFader>{children}</RouteFader>
           </main>
         </div>
-        {/* Two pinned window-level toggles. */}
         <SidebarToggle />
-        <PanelToggle />
         <CommandPalette />
         {/* Buddy toast surface — bottom-right. The buddy's voice in
             the moment (saved, stage moved, price drop, etc.). */}

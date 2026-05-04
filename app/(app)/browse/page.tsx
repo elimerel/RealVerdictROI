@@ -852,95 +852,85 @@ function BrowsePageInner() {
   const showPlaceholder = browserReady && !nav.url
 
   return (
-    // No background on this root — toolbar (transparent) shows vibrancy.
-    // StartScreen and WebContentsView handle their own backgrounds below.
-    <div className="flex flex-col w-full h-full overflow-hidden">
-      <TabStrip
-        tabs={tabs}
-        activeId={activeTabId}
-        paddingLeft={tabStripPadL}
-        onActivate={(id) => {
-          // Optimistic update — the strip flips highlight immediately so
-          // the click feels instant. main's broadcast a few ms later
-          // confirms the same id (no visible re-render).
-          setActiveTabId(id)
-          void api?.activateTab(id)
-        }}
-        onClose={(id)    => api?.closeTab(id)}
-        onNew={()        => api?.newTab()}
-        onReorder={(orderedIds) => {
-          // Optimistic local reorder — the strip rearranges immediately
-          // so the drop feels instant. Main's broadcast confirms it
-          // a few ms later (idempotent, no visible re-render).
-          setTabs((prev) => {
-            const byId = new Map(prev.map((t) => [t.id, t]))
-            return orderedIds.map((id) => byId.get(id)).filter(Boolean) as typeof prev
-          })
-          void api?.reorderTabs(orderedIds)
-        }}
-      />
-      <Toolbar
-        nav={nav}
-        // Show analyzing dots whenever an extraction is in flight, even
-        // when the panel itself is still closed — gives the user a tiny
-        // "we're working on this" signal during the background analysis
-        // window (URL detected as a listing → panel will pop when ready).
-        isAnalyzing={panelContent.phase === "analyzing"}
-        onBack={goBack}
-        onForward={goForward}
-        onReload={reload}
-        onNavigate={navigate}
-        urlbarRef={urlbarRef}
-      />
+    // FULL-HEIGHT PANEL ARCHITECTURE: the page is a top-level flex-row.
+    // The chrome (tabs + toolbar + browser) lives in the LEFT column;
+    // the analysis panel is its sibling on the right, full window height.
+    // Treats the panel as a primary surface like the sidebar — same
+    // pattern Cursor / Linear / VS Code use.
+    <div className="flex w-full h-full overflow-hidden">
+      {/* Left column — tabs + toolbar + browser content */}
+      <div className="flex flex-col flex-1 min-w-0">
+        <TabStrip
+          tabs={tabs}
+          activeId={activeTabId}
+          paddingLeft={tabStripPadL}
+          onActivate={(id) => {
+            setActiveTabId(id)
+            void api?.activateTab(id)
+          }}
+          onClose={(id)    => api?.closeTab(id)}
+          onNew={()        => api?.newTab()}
+          onReorder={(orderedIds) => {
+            setTabs((prev) => {
+              const byId = new Map(prev.map((t) => [t.id, t]))
+              return orderedIds.map((id) => byId.get(id)).filter(Boolean) as typeof prev
+            })
+            void api?.reorderTabs(orderedIds)
+          }}
+        />
+        <Toolbar
+          nav={nav}
+          isAnalyzing={panelContent.phase === "analyzing"}
+          onBack={goBack}
+          onForward={goForward}
+          onReload={reload}
+          onNavigate={navigate}
+          urlbarRef={urlbarRef}
+        />
 
-      {/* Browser pane. The embedded BrowserView is inset by 6px on three
-          sides (see BV_INSET in main.js); the dark frame color below paints
-          through that gap so Zillow / Redfin reads as RENDERED INSIDE
-          RealVerdict, not slammed against it. The StartScreen still uses
-          this whole area when no URL is loaded — the inset only matters
-          while a real page is showing. */}
-      <div
-        className="flex flex-1 min-h-0 relative"
-        style={{
-          background: nav.url ? "var(--rv-scrim-strong)" : "transparent",
-        }}
-      >
-        <div className="flex-1 min-w-0 relative">
-          {showPlaceholder && (
-            <>
-              {watchNotice && (
-                <WatchNoticeBanner
-                  notice={watchNotice}
-                  onClick={() => router.push("/pipeline")}
-                  onDismiss={() => setWatchNotice(null)}
+        {/* Browser pane — fills remaining vertical space in this column */}
+        <div
+          className="flex-1 min-h-0 relative"
+          style={{
+            background: nav.url ? "var(--rv-scrim-strong)" : "transparent",
+          }}
+        >
+          <div className="absolute inset-0">
+            {showPlaceholder && (
+              <>
+                {watchNotice && (
+                  <WatchNoticeBanner
+                    notice={watchNotice}
+                    onClick={() => router.push("/pipeline")}
+                    onDismiss={() => setWatchNotice(null)}
+                  />
+                )}
+                <StartScreen
+                  onNavigate={navigate}
+                  ctx={startCtx}
+                  activeDeals={activeDeals}
+                  onSaveCurrent={saveCurrentListing}
+                  canSave={!!nav.url && panelContent.phase === "ready" && !isCurrentSaved}
+                  onCompare={() => router.push("/pipeline")}
+                  onReanalyze={reanalyze}
+                  canReanalyze={!!nav.url && nav.isListing}
+                  onManual={startManualEntry}
+                  onOpenInPipeline={(id) => router.push(`/pipeline?id=${id}`)}
                 />
-              )}
-              <StartScreen
-                onNavigate={navigate}
-                ctx={startCtx}
-                activeDeals={activeDeals}
-                onSaveCurrent={saveCurrentListing}
-                canSave={!!nav.url && panelContent.phase === "ready" && !isCurrentSaved}
-                onCompare={() => router.push("/pipeline")}
-                onReanalyze={reanalyze}
-                canReanalyze={!!nav.url && nav.isListing}
-                onManual={startManualEntry}
-                onOpenInPipeline={(id) => router.push(`/pipeline?id=${id}`)}
-              />
-            </>
-          )}
+              </>
+            )}
+          </div>
+
+          {downloadToast && <DownloadToast payload={downloadToast} onDismiss={() => setDownloadToast(null)} />}
         </div>
+      </div>
 
-        {/* Download toast — floats bottom-right of the browse area. Quiet
-            ambient feedback that a file is being saved; auto-dismisses
-            so it never blocks UI. */}
-        {downloadToast && <DownloadToast payload={downloadToast} onDismiss={() => setDownloadToast(null)} />}
-
-        {panelOpen && (
-          <>
-            <div
-              ref={splitterRef}
-              role="separator"
+      {/* Panel column — full window height when open */}
+      {panelOpen && (
+        <>
+          <div
+            ref={splitterRef}
+            role="separator"
               aria-orientation="vertical"
               aria-label="Resize panel"
               onPointerDown={startDrag}
@@ -976,7 +966,6 @@ function BrowsePageInner() {
             </div>
           </>
         )}
-      </div>
     </div>
   )
 }

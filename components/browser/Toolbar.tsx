@@ -5,6 +5,7 @@ import type { NavUpdate } from "@/lib/electron"
 import { useSidebar } from "@/components/sidebar/context"
 import { SNAP_ICONS } from "@/components/sidebar/context"
 import UrlSuggestions, { type SuggestionRow } from "./UrlSuggestions"
+import PanelToggle from "./PanelToggle"
 
 function BackIcon() {
   return (
@@ -202,11 +203,13 @@ export default function Toolbar({
       style={{
         height:          52,
         WebkitAppRegion: "drag",
-        // Toolbar uses the SAME bg as the active tab (var(--rv-surface))
-        // so they merge into one continuous lit surface. The active tab
-        // overlaps this by 2px so the seam is invisible.
         background:      "var(--rv-surface)",
+        // Hairline at the bottom defines the chrome → content boundary.
+        // Was missing — content below was bleeding into the toolbar's
+        // bg, looking like a harsh cutoff. Subtle border keeps it clean.
+        borderBottom:    "0.5px solid var(--rv-border)",
         paddingLeft:     toolbarPadL,
+        paddingRight:    8,
         transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       } as React.CSSProperties}
     >
@@ -273,9 +276,7 @@ export default function Toolbar({
               </>
             )}
           </div>
-          {/* Suggestion dropdown — Chrome-omnibox-style autocomplete.
-              Recent listings filtered by typed text + suggested sites
-              + Google search fallback. Arrow keys + Enter to navigate. */}
+          {/* Suggestion dropdown — Chrome-omnibox-style autocomplete. */}
           {editing && (
             <UrlSuggestions
               draft={draft}
@@ -289,9 +290,10 @@ export default function Toolbar({
           )}
         </div>
 
-        {/* The panel-toggle moved out to a window-level pinned button —
-            see components/browser/PanelToggle.tsx, mounted in the (app)
-            layout. Keeping the right side of the URL bar clean. */}
+        {/* Analysis panel toggle — lives inline in the toolbar now (was a
+            fixed-position window button). Right side, after the URL bar,
+            same height. Reads as a primary control. */}
+        <PanelToggle />
       </div>
     </div>
   )
