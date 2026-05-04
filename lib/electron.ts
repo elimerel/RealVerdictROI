@@ -316,6 +316,9 @@ export interface ElectronAPI {
   newTab:          (url?: string) => Promise<{ id: string }>
   closeTab:        (id: string) => Promise<void>
   activateTab:     (id: string) => Promise<void>
+  /** Drag-to-reorder support. Send the full ordered list of tab ids
+   *  in the new sequence. Main rebuilds the tab Map preserving values. */
+  reorderTabs:     (orderedIds: string[]) => Promise<void>
   onTabsState:     (cb: (payload: { tabs: TabInfo[]; activeId: string | null }) => void) => () => void
 
   // Navigation

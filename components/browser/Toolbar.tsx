@@ -222,16 +222,18 @@ export default function Toolbar({
             className="w-full h-[36px] flex items-center gap-2 rounded-[9px] px-4 cursor-text
                        transition-all duration-150"
             style={{
-              // Matte: focus brightens the surface and firms the hairline,
-              // no glowing accent ring. Reads as a real input that woke up,
-              // not as a marketing focus state.
+              // Recessed input — the URL bar is a depression carved into
+              // the toolbar surface, NOT a button. Darker than the
+              // surrounding surface (toolbar is rv-surface), with a
+              // subtle dark inset shadow at the top hinting at depth.
+              // No highlight — that's what made it look like a button.
               background: editing
-                ? "var(--rv-elev-4)"
-                : "var(--rv-elev-2)",
+                ? "var(--rv-bg)"
+                : "var(--rv-bg)",
               border: editing
                 ? "0.5px solid var(--rv-border-mid)"
-                : "0.5px solid var(--rv-elev-3)",
-              boxShadow: "var(--rv-shadow-inset)",
+                : "0.5px solid var(--rv-border)",
+              boxShadow: "inset 0 1px 1px rgba(0, 0, 0, 0.18)",
               WebkitAppRegion: "no-drag",
             } as React.CSSProperties}
             onClick={startEdit}

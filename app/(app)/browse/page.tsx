@@ -33,7 +33,7 @@ import {
 import { useRegisterPanelState } from "@/components/panel/context"
 import { SourceMark } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
-import type { ScenarioOverrides } from "@/lib/scenario"
+import { applyScenarioFromBus, type ScenarioOverrides } from "@/lib/scenario"
 import ActivityFeed from "@/components/ActivityFeed"
 import { showToast } from "@/lib/toast"
 
@@ -115,6 +115,19 @@ function BrowsePageInner() {
     })
     return () => { cancelled = true }
   }, [])
+
+  // AI tool-use bridge — when Claude calls adjust_scenario via the chat
+  // handler in main.js, the renderer hears it here and forwards the
+  // partial overrides into the scenario bus. The active ResultPane is
+  // subscribed and merges the change live; metrics recompute instantly.
+  useEffect(() => {
+    if (!api?.onApplyScenario) return
+    return api.onApplyScenario((changes) => {
+      // Cast: the IPC payload is Record<string, number>, the bus
+      // accepts Partial<ScenarioOverrides>. Same shape modulo typing.
+      applyScenarioFromBus(changes as Partial<ScenarioOverrides>)
+    })
+  }, [api])
 
   // Log every listing-URL navigation to browse_history. Listing-only by
   // design — non-real-estate URLs aren't tracked. The nav.isListing flag
@@ -855,6 +868,16 @@ function BrowsePageInner() {
         }}
         onClose={(id)    => api?.closeTab(id)}
         onNew={()        => api?.newTab()}
+        onReorder={(orderedIds) => {
+          // Optimistic local reorder — the strip rearranges immediately
+          // so the drop feels instant. Main's broadcast confirms it
+          // a few ms later (idempotent, no visible re-render).
+          setTabs((prev) => {
+            const byId = new Map(prev.map((t) => [t.id, t]))
+            return orderedIds.map((id) => byId.get(id)).filter(Boolean) as typeof prev
+          })
+          void api?.reorderTabs(orderedIds)
+        }}
       />
       <Toolbar
         nav={nav}

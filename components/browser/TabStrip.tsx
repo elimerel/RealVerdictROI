@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { Plus, X } from "lucide-react"
 import type { TabInfo } from "@/lib/electron"
 
@@ -12,20 +13,45 @@ interface TabStripProps {
   onActivate:  (id: string) => void
   onClose:     (id: string) => void
   onNew:       () => void
+  /** Drag-to-reorder commit handler. Receives the new ordered list of
+   *  tab ids when the user drops a tab. Wired to electronAPI.reorderTabs
+   *  in the host page. */
+  onReorder?:  (orderedIds: string[]) => void
 }
 
 /** Compact tab strip — sits above the toolbar on /browse only. Renders
  *  nothing when there's only a single tab and it's empty (i.e., the
  *  start screen state). */
 export default function TabStrip({
-  tabs, activeId, paddingLeft, onActivate, onClose, onNew,
+  tabs, activeId, paddingLeft, onActivate, onClose, onNew, onReorder,
 }: TabStripProps) {
+  // Track drag state — which tab id is being dragged, and which gap
+  // the cursor is hovering over. Used for the visual drop indicator
+  // and to compute the reorder on drop.
+  const [draggingId, setDraggingId]   = useState<string | null>(null)
+  const [hoverIndex, setHoverIndex]   = useState<number | null>(null)
+
   if (tabs.length === 0) return null
   // Hide the strip entirely when there's just one empty tab — keeps the
   // start screen feeling clean. The "+" still lives in the toolbar (next
   // to the panel toggle) for users who want to make a second tab early.
   const onlyOneEmpty = tabs.length === 1 && !tabs[0].url
   if (onlyOneEmpty) return null
+
+  // Commit a reorder. Insert the dragged tab at the targetIndex (in the
+  // new array, with the dragged tab removed first), then fire onReorder
+  // with the resulting id sequence.
+  const commitReorder = (draggedId: string, targetIndex: number) => {
+    if (!onReorder) return
+    const ids = tabs.map((t) => t.id)
+    const fromIndex = ids.indexOf(draggedId)
+    if (fromIndex === -1 || fromIndex === targetIndex) return
+    ids.splice(fromIndex, 1)
+    // Adjust target if it was after the dragged tab (since we removed one).
+    const adjusted = targetIndex > fromIndex ? targetIndex - 1 : targetIndex
+    ids.splice(adjusted, 0, draggedId)
+    onReorder(ids)
+  }
 
   return (
     <div
@@ -49,13 +75,26 @@ export default function TabStrip({
         className="flex items-stretch gap-[2px] flex-1 min-w-0 overflow-x-auto rv-tabstrip-scroll"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        {tabs.map((t) => (
+        {tabs.map((t, i) => (
           <TabItem
             key={t.id}
             tab={t}
             active={t.id === activeId}
+            isDragging={draggingId === t.id}
+            showDropIndicatorBefore={hoverIndex === i && draggingId !== null && draggingId !== t.id}
             onActivate={() => onActivate(t.id)}
             onClose={() => onClose(t.id)}
+            onDragStart={() => setDraggingId(t.id)}
+            onDragOver={(beforeOrAfter) => {
+              setHoverIndex(beforeOrAfter === "before" ? i : i + 1)
+            }}
+            onDragEnd={() => {
+              if (draggingId && hoverIndex !== null) {
+                commitReorder(draggingId, hoverIndex)
+              }
+              setDraggingId(null)
+              setHoverIndex(null)
+            }}
           />
         ))}
         <button
@@ -88,12 +127,18 @@ export default function TabStrip({
 }
 
 function TabItem({
-  tab, active, onActivate, onClose,
+  tab, active, isDragging, showDropIndicatorBefore,
+  onActivate, onClose, onDragStart, onDragOver, onDragEnd,
 }: {
   tab:        TabInfo
   active:     boolean
+  isDragging: boolean
+  showDropIndicatorBefore: boolean
   onActivate: () => void
   onClose:    () => void
+  onDragStart: () => void
+  onDragOver:  (beforeOrAfter: "before" | "after") => void
+  onDragEnd:   () => void
 }) {
   return (
     <div
@@ -101,6 +146,28 @@ function TabItem({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onActivate() }}
+      // Native HTML5 drag — works smoothly with React's render. The
+      // tab is the drag source AND a drop target; we compute whether
+      // the cursor is in the left or right half to decide insert before
+      // or after this tab.
+      draggable
+      onDragStart={(e) => {
+        // Set a transparent drag image so the browser doesn't render a
+        // ghost — the visual feedback comes from the dimmed source tab
+        // + the drop indicator line.
+        e.dataTransfer.effectAllowed = "move"
+        e.dataTransfer.setData("text/plain", tab.id)
+        onDragStart()
+      }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = "move"
+        const rect = e.currentTarget.getBoundingClientRect()
+        const midX = rect.left + rect.width / 2
+        onDragOver(e.clientX < midX ? "before" : "after")
+      }}
+      onDragEnd={onDragEnd}
+      onDrop={(e) => { e.preventDefault(); onDragEnd() }}
       className="group relative flex items-center gap-2 cursor-default select-none"
       style={{
         width:        220,
@@ -120,10 +187,8 @@ function TabItem({
         borderBottomRightRadius: 0,
         background:   active ? "var(--rv-surface)" : "transparent",
         color:        active ? "var(--rv-t1)" : "var(--rv-t3)",
-        // No border on the active tab — clean continuous merge with
-        // the toolbar below. Visual definition comes purely from the
-        // bg color difference (light tab over dark strip).
-        transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1)",
+        opacity:      isDragging ? 0.4 : 1,
+        transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms",
       }}
       onMouseEnter={(e) => {
         if (!active) {

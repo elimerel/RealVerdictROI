@@ -1397,6 +1397,22 @@ ipcMain.handle("browser:tabs:activate", (_e, id) => {
   activateTab(id)
 })
 
+// Reorder tabs — drag-to-reorder support. The renderer sends the new
+// id sequence (the full ordered list of tab ids); we rebuild the tabs
+// Map preserving values but in the new key order, then broadcast.
+ipcMain.handle("browser:tabs:reorder", (_e, orderedIds) => {
+  if (!Array.isArray(orderedIds)) return
+  // Validate: every id must exist and the count must match (don't
+  // accept partial reorders or unknown ids).
+  if (orderedIds.length !== tabs.size) return
+  for (const id of orderedIds) if (!tabs.has(id)) return
+  const next = new Map()
+  for (const id of orderedIds) next.set(id, tabs.get(id))
+  tabs.clear()
+  for (const [id, t] of next) tabs.set(id, t)
+  broadcastTabsState()
+})
+
 ipcMain.handle("browser:extract-dom", async () => {
   if (!browserView) return null
   try {

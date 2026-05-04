@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   newTab:         (url)    => ipcRenderer.invoke("browser:tabs:create", url ? { url } : {}),
   closeTab:       (id)     => ipcRenderer.invoke("browser:tabs:close", id),
   activateTab:    (id)     => ipcRenderer.invoke("browser:tabs:activate", id),
+  reorderTabs:    (orderedIds) => ipcRenderer.invoke("browser:tabs:reorder", orderedIds),
   onTabsState:    (cb) => {
     const h = (_e, payload) => cb(payload)
     ipcRenderer.on("browser:tabs:state", h)
