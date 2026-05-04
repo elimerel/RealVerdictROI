@@ -115,6 +115,24 @@ export default function PanelChat({
 
   const empty = messages.length === 0
 
+  // Suggestion-pick handler — either pre-applies a scenario change (the
+  // ✦ chips) or just sends the canned question. Same logic the inline
+  // chat bar uses; lifted here so both surfaces share the behavior.
+  const onPickSuggestion = useCallback((suggestion: SmartSuggestion) => {
+    if (suggestion.scenario) {
+      applyScenarioFromBus(suggestion.scenario)
+      // No toast needed — the user can SEE the metrics change in real
+      // time above the chat now that the panel is one continuous surface.
+    }
+    const userMsg: ChatMessage = {
+      id:      `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+      role:    "user",
+      content: suggestion.query,
+      at:      Date.now(),
+    }
+    void onSend(userMsg)
+  }, [onSend])
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Conversation scroll area */}
@@ -123,36 +141,7 @@ export default function PanelChat({
         className="flex-1 min-h-0 overflow-y-auto panel-scroll px-4 py-4 flex flex-col gap-3"
       >
         {empty ? (
-          <ChatEmpty
-            onPickSuggestion={(suggestion) => {
-              // If the chip carries a scenario change, apply it via the
-              // bus immediately — ResultPane will re-mount when the user
-              // returns to metrics view, but the bus dispatch happens
-              // synchronously and any mounted ResultPane updates live.
-              // Then send the question to the AI so it can narrate.
-              if (suggestion.scenario) {
-                applyScenarioFromBus(suggestion.scenario)
-                if (suggestion.toast) {
-                  showToast({
-                    message: suggestion.toast,
-                    detail:  "Switch to metrics view to see the new numbers.",
-                    tone:    "pos",
-                  })
-                }
-              }
-              // Send the message immediately rather than just filling the
-              // draft — chips are an action, not a typing helper.
-              const text = suggestion.query
-              const userMsg: ChatMessage = {
-                id:      `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
-                role:    "user",
-                content: text,
-                at:      Date.now(),
-              }
-              void onSend(userMsg)
-            }}
-            disabled={disabled}
-          />
+          <ChatEmpty onPickSuggestion={onPickSuggestion} disabled={disabled} />
         ) : (
           messages.map((m) => <ChatBubble key={m.id} message={m} />)
         )}

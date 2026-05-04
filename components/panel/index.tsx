@@ -1314,10 +1314,8 @@ export default function Panel({
   const canSave   = isReady && !!onSave
   const canReanalyze = (isReady || isError) && !!onReanalyze
 
-  // View toggle — "metrics" (default analysis surface) vs "chat" (Q&A).
-  // Available only when there's a real result to chat about. Resets to
-  // metrics whenever the panel mounts a fresh listing.
-  const [viewMode, setViewMode] = useState<"metrics" | "chat">("metrics")
+  // Chat is always visible at the bottom now (no more mode toggle).
+  // canChat just gates whether the chat zone renders at all.
   const canChat = isReady && !!onChatSend && !!chatContext
 
   // Sources drawer — slides over the panel body listing every fact + origin.
@@ -1325,12 +1323,9 @@ export default function Panel({
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const result = state.phase === "ready" ? state.result : null
 
-  // Esc behavior — layered. The drawer registers its own handler when
-  // open (topmost), then chat-mode does, then the panel itself. Each
-  // layer pops one step back: drawer → chat → metrics → close panel.
-  // Chat-mode Esc returns to metrics view first; another Esc closes panel.
-  useEscape(viewMode === "chat" && !sourcesOpen, () => setViewMode("metrics"))
-  useEscape(viewMode !== "chat" && !sourcesOpen && !!onClose, () => onClose?.())
+  // Esc layers — drawer first (topmost when open), then close the panel.
+  // No more chat-mode escape since chat is always inline.
+  useEscape(!sourcesOpen && !!onClose, () => onClose?.())
 
   return (
     <div
@@ -1394,17 +1389,6 @@ export default function Panel({
           )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          {canChat && (
-            <HeaderIconBtn
-              onClick={() => setViewMode((m) => m === "chat" ? "metrics" : "chat")}
-              title={viewMode === "chat" ? "Show metrics" : "Ask about this listing"}
-              active={viewMode === "chat"}
-            >
-              {viewMode === "chat"
-                ? <BarChart3      size={13} strokeWidth={2} />
-                : <MessagesSquare size={13} strokeWidth={2} />}
-            </HeaderIconBtn>
-          )}
           {canSave && (
             <HeaderIconBtn
               onClick={onSave}
@@ -1433,33 +1417,51 @@ export default function Panel({
         </div>
       </div>
 
-      {/* Body — chat takes over when toggled, otherwise standard state machine.
-          Wrapped in a relative container so the Sources drawer can absolute-
-          position itself flush against the right edge of the body. */}
+      {/* Body — analysis surface on top, persistent chat at the bottom.
+          The chat zone is always visible (no more mode toggle): when empty
+          it's just the suggestion chips + input bar; when there's
+          conversation it grows to ~50% of the panel. The user can scroll
+          either area independently. AI scenario changes (via the smart
+          chips) update the metrics above in real time, so the user SEES
+          the AI doing things instead of toggling between modes. */}
       <div className="flex flex-col flex-1 min-h-0 relative">
-        {viewMode === "chat" && canChat ? (
-          <PanelChat
-            messages={chatMessages}
-            context={chatContext!}
-            loading={chatLoading}
-            onSend={onChatSend!}
-            onClear={onChatClear}
-            disabled={!isReady}
-          />
-        ) : (
-          <>
-            {state.phase === "empty"       && <EmptyPane     hasListing={state.hasListing} onAnalyze={onReanalyze ?? (() => {})} />}
-            {state.phase === "analyzing"   && <AnalyzingPane />}
-            {state.phase === "ready"       && <ResultPane    result={state.result} pipelineAverages={pipelineAverages} initialScenario={initialScenario} onScenarioChange={onScenarioChange} />}
-            {state.phase === "error"       && <ErrorPane     message={state.message} onRetry={onReanalyze} onManualEntry={onStartManualEntry} />}
-            {state.phase === "manual-entry" && (
-              <ManualEntryPane
-                initial={state.initial}
-                onSubmit={(f) => onSubmitManualEntry?.(f)}
-                onCancel={() => onCancelManualEntry?.()}
-              />
-            )}
-          </>
+        <div className="flex-1 min-h-0 flex flex-col">
+          {state.phase === "empty"       && <EmptyPane     hasListing={state.hasListing} onAnalyze={onReanalyze ?? (() => {})} />}
+          {state.phase === "analyzing"   && <AnalyzingPane />}
+          {state.phase === "ready"       && <ResultPane    result={state.result} pipelineAverages={pipelineAverages} initialScenario={initialScenario} onScenarioChange={onScenarioChange} />}
+          {state.phase === "error"       && <ErrorPane     message={state.message} onRetry={onReanalyze} onManualEntry={onStartManualEntry} />}
+          {state.phase === "manual-entry" && (
+            <ManualEntryPane
+              initial={state.initial}
+              onSubmit={(f) => onSubmitManualEntry?.(f)}
+              onCancel={() => onCancelManualEntry?.()}
+            />
+          )}
+        </div>
+        {/* Inline chat — always at the bottom when we have a real result
+            to talk about. Hidden in empty/error states (nothing to chat
+            about). Has its own internal scroll for history + fixed input. */}
+        {canChat && (
+          <div
+            className="shrink-0 flex flex-col"
+            style={{
+              borderTop:  "0.5px solid var(--rv-border)",
+              // Tall enough for history when there's a conversation,
+              // collapses naturally when empty (the chat empty state
+              // is a few suggestion chips + input ≈ 220px).
+              height: chatMessages.length > 0 ? Math.min(360, Math.max(280, chatMessages.length * 90 + 140)) : 280,
+              maxHeight: "55%",
+            }}
+          >
+            <PanelChat
+              messages={chatMessages}
+              context={chatContext!}
+              loading={chatLoading}
+              onSend={onChatSend!}
+              onClear={onChatClear}
+              disabled={!isReady}
+            />
+          </div>
         )}
 
         {/* Sources drawer — overlays the body when the user clicks the
