@@ -1223,7 +1223,7 @@ async function resolveGreeting(ctx: StartScreenContext): Promise<string | null> 
 
 /** Subhead that types itself in character-by-character on mount.
  *  Cursor blinks subtly while typing, fades out when done. */
-function TypingSubhead({ text, className, animate = true }: { text: string; className?: string; animate?: boolean }) {
+function TypingSubhead({ text, className, animate = true, style }: { text: string; className?: string; animate?: boolean; style?: React.CSSProperties }) {
   // When animate is false (subsequent mounts in the same session), render the
   // full text immediately and skip the cursor — no point replaying the
   // character-by-character cascade every time the user navigates back to
@@ -1255,7 +1255,12 @@ function TypingSubhead({ text, className, animate = true }: { text: string; clas
   return (
     <p
       className={className}
-      style={{ color: "var(--rv-t3)", letterSpacing: "-0.005em", minHeight: "1.4em" }}
+      style={{
+        color:         "var(--rv-t3)",
+        letterSpacing: "-0.005em",
+        minHeight:     "1.4em",
+        ...style,
+      }}
     >
       {shown}
       <span
@@ -1991,30 +1996,45 @@ function StartScreen({
           </>
         ) : (
           // ── WELCOME / SPARSE MODE ───────────────────────────────────────
-          // Centered greeting hero + AI-generated subhead. Used for first-
-          // time users and the brief moment between sign-up and first save.
+          // Centered greeting hero. Used for first-time users and the brief
+          // moment between sign-up and first save. Bigger, breathable,
+          // inviting — the "first impression" surface of the whole app.
           <>
             <h1
-              className={`${introCls("rv-greeting")} font-semibold tracking-[-0.028em] text-center`}
-              style={{ color: "var(--rv-t1)", lineHeight: 1.1, fontSize: 34 }}
+              className={`${introCls("rv-greeting")} text-center leading-[1.0] tracking-[-0.025em]`}
+              style={{
+                color:      "var(--rv-t1)",
+                fontSize:   54,
+                fontFamily: "var(--rv-font-display)",
+                fontWeight: 500,
+              }}
             >
               {greetWithName || " "}
             </h1>
             {sub && (
               <TypingSubhead
                 text={sub}
-                className={`${introCls("rv-subhead")} mt-2 text-[12.5px] text-center`}
+                className={`${introCls("rv-subhead")} mt-4 text-center leading-snug`}
                 animate={playIntro}
+                style={{
+                  color:      "var(--rv-t2)",
+                  fontSize:   17,
+                  fontFamily: "var(--rv-font-display)",
+                  fontWeight: 400,
+                  letterSpacing: "-0.012em",
+                  maxWidth:   560,
+                }}
               />
             )}
 
-            {/* First-time welcome — three concrete steps. */}
+            {/* First-time welcome — three concrete steps, bigger card.  */}
             {isFirstTime && (
               <div
-                className="mt-7 w-full max-w-[460px] flex flex-col gap-3 rounded-[12px] px-5 py-5"
+                className="mt-10 w-full max-w-[520px] flex flex-col gap-4 rounded-[14px] px-6 py-6"
                 style={{
                   background: "var(--rv-elev-2)",
-                  border:     "0.5px solid var(--rv-border)",
+                  border:     "0.5px solid var(--rv-border-mid)",
+                  boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
                 }}
               >
                 <p
@@ -2026,17 +2046,17 @@ function StartScreen({
                 <OnboardStep
                   n={1}
                   title="Open a listing"
-                  body="Click any card below — Zillow, Redfin, Realtor — or paste a URL into the bar above. The right-side panel slides in automatically."
+                  body="Click any card below — Zillow, Redfin, Realtor — or paste a URL into the bar above. The analysis panel opens automatically."
                 />
                 <OnboardStep
                   n={2}
                   title="Save what's worth a second look"
-                  body="Hit ⌘S or the bookmark icon. Saved deals land in Watching."
+                  body="Hit ⌘S or the bookmark. Saved deals land in your Watching pipeline."
                 />
                 <OnboardStep
                   n={3}
                   title="Run your pipeline from one place"
-                  body="Open Pipeline (⌘2). Drag deals between stages, add notes, compare side-by-side."
+                  body="Open Pipeline (⌘2). See your portfolio on a map, compare side-by-side, move deals between stages."
                 />
               </div>
             )}
