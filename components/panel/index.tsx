@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { RefreshCw, Bookmark, BookmarkCheck, Eye, ExternalLink, MessagesSquare, BarChart3, X } from "lucide-react"
+import { RefreshCw, Bookmark, BookmarkCheck, Eye, ExternalLink, MessagesSquare, BarChart3, X, Sparkles } from "lucide-react"
 import type { ChatContext, ChatMessage, PanelResult, SourceField, SourceKind } from "@/lib/electron"
 import type { PipelineAverages } from "@/lib/pipeline"
 import { SourceMark, sourceMeta, freshnessLabel } from "@/components/source/SourceMark"
@@ -998,19 +998,15 @@ function formatDelta(
 
 
 function ResultPane({
-  result, pipelineAverages, initialScenario, onScenarioChange,
+  result, pipelineAverages, initialScenario, onScenarioChange, onOpenSources,
 }: {
   result:            PanelResult
   pipelineAverages?: PipelineAverages
-  /** Scenario to hydrate the editor with on mount. From the saved deal
-   *  row when the listing is in the user's pipeline; otherwise undefined.
-   *  Re-mounted ResultPane reads this once per panel:ready cycle. */
   initialScenario?:  ScenarioOverrides | null
-  /** Persist callback fired (debounced ~350ms) whenever the user changes
-   *  an override, including clearing back to default. Only called when
-   *  the listing is saved — host page passes undefined for unsaved
-   *  listings, in which case overrides stay in-memory only. */
   onScenarioChange?: (scenario: ScenarioOverrides | null) => void
+  /** Open the Sources drawer — wired by the parent Panel which owns
+   *  the drawer's open state. */
+  onOpenSources?:    () => void
 }) {
   // Scenario overrides. When the listing is a saved pipeline deal, this
   // hydrates from the row's `scenario` column and persists back via
@@ -1178,18 +1174,38 @@ function ResultPane({
         </div>
       </div>
 
-      {/* Notes */}
-      {result.take && (
-        <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+      {/* AI Noticed — combined Notes (the AI take) + Worth Knowing flags
+          + portfolio benchmark line. Was three separate sections that all
+          said "the AI is observing things"; now one unified surface in
+          the buddy's voice (display serif). */}
+      {(result.take || result.riskFlags.length > 0) && (
+        <div className="px-4 py-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
           <p
-            className="text-[10px] uppercase tracking-widest font-medium mb-2"
-            style={{ color: "var(--rv-t4)" }}
+            className="text-[10px] uppercase tracking-widest font-semibold mb-3 flex items-center gap-1.5"
+            style={{ color: "var(--rv-accent)" }}
           >
-            Notes
+            <Sparkles size={10} strokeWidth={2} />
+            AI Noticed
           </p>
-          <p className="text-[13px] leading-relaxed" style={{ color: "var(--rv-t1)" }}>
-            {result.take}
-          </p>
+          {result.take && (
+            <p
+              className="leading-snug"
+              style={{
+                color:         "var(--rv-t1)",
+                fontSize:      14.5,
+                fontFamily:    "var(--rv-font-display)",
+                fontWeight:    400,
+                letterSpacing: "-0.012em",
+              }}
+            >
+              {result.take}
+            </p>
+          )}
+          {result.riskFlags.length > 0 && (
+            <div className={`flex flex-col gap-2 ${result.take ? "mt-3" : ""}`}>
+              {result.riskFlags.map((flag, i) => <RiskFlag key={i} text={flag} />)}
+            </div>
+          )}
         </div>
       )}
 
@@ -1274,40 +1290,28 @@ function ResultPane({
         setOpen={setEditorOpen}
       />
 
-      {/* Risk flags — neutral framing. We surface facts the user might miss
-          ("foreclosure", "crawl space"), we don't tell them whether the deal
-          is good or bad. */}
-      {result.riskFlags.length > 0 && (
-        <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--rv-border)" }}>
-          <p
-            className="text-[10px] uppercase tracking-widest font-medium mb-2"
-            style={{ color: "var(--rv-t4)" }}
+      {/* Risk flags + Provenance section both removed:
+          - Risk flags are now in the unified "AI Noticed" section above
+          - Provenance was duplicating the Sources drawer; the drawer is
+            the source of truth, accessed via the footer link below */}
+
+      {/* Sources footer link — opens the drawer with the full provenance
+          breakdown. Quiet, lives at the bottom of the panel; the drawer
+          is where the brand promise gets shown in detail. */}
+      {onOpenSources && (
+        <div className="px-4 pt-3 pb-1">
+          <button
+            onClick={onOpenSources}
+            className="inline-flex items-center gap-1.5 text-[12px] tracking-tight transition-colors"
+            style={{ color: "var(--rv-t3)" }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-accent)" }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
           >
-            Worth knowing
-          </p>
-          <div className="flex flex-col gap-2">
-            {result.riskFlags.map((flag, i) => <RiskFlag key={i} text={flag} />)}
-          </div>
+            <Sparkles size={11} strokeWidth={2} style={{ color: "var(--rv-accent)" }} />
+            Where every number comes from →
+          </button>
         </div>
       )}
-
-      {/* Data provenance — every number here can be pointed at. */}
-      <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--rv-border)" }}>
-        <p
-          className="text-[10px] uppercase tracking-widest font-medium mb-1"
-          style={{ color: "var(--rv-t4)" }}
-        >
-          Where numbers come from
-        </p>
-        <ProvenanceRow label="List price"    value={fmtCurrency(result.listPrice)}                     field={provenance.listPrice}    siteName={result.siteName} />
-        <ProvenanceRow label="Rent"          value={`${fmtCurrency(provenance.rent.value)}/mo`}        field={provenance.rent}         siteName={result.siteName} />
-        <ProvenanceRow label="Interest rate" value={fmtPct(provenance.interestRate.value / 100)}       field={provenance.interestRate} siteName={result.siteName} fetchedAt={provenance.interestRate.fetchedAt} />
-        <ProvenanceRow label="Property tax"  value={`${fmtCurrency(provenance.propertyTax.value)}/yr`} field={provenance.propertyTax}  siteName={result.siteName} />
-        {provenance.hoa && (
-          <ProvenanceRow label="HOA" value={`${fmtCurrency(provenance.hoa.value)}/mo`} field={provenance.hoa} siteName={result.siteName} />
-        )}
-        <ProvenanceRow label="Insurance"     value={`${fmtCurrency(provenance.insurance.value)}/yr`}   field={provenance.insurance}    siteName={result.siteName} />
-      </div>
     </div>
   )
 }
@@ -1513,7 +1517,7 @@ export default function Panel({
         <div className="flex-1 min-h-0 flex flex-col">
           {state.phase === "empty"       && <EmptyPane     hasListing={state.hasListing} onAnalyze={onReanalyze ?? (() => {})} />}
           {state.phase === "analyzing"   && <AnalyzingPane />}
-          {state.phase === "ready"       && <ResultPane    result={state.result} pipelineAverages={pipelineAverages} initialScenario={initialScenario} onScenarioChange={onScenarioChange} />}
+          {state.phase === "ready"       && <ResultPane    result={state.result} pipelineAverages={pipelineAverages} initialScenario={initialScenario} onScenarioChange={onScenarioChange} onOpenSources={() => setSourcesOpen(true)} />}
           {state.phase === "error"       && <ErrorPane     message={state.message} onRetry={onReanalyze} onManualEntry={onStartManualEntry} />}
           {state.phase === "manual-entry" && (
             <ManualEntryPane
