@@ -129,7 +129,7 @@ function DealListRow({
         borderBottom:  "0.5px solid var(--rv-border)",
       }}
       onMouseEnter={(e) => {
-        if (!active && !multiSelected) e.currentTarget.style.background = "rgba(255,255,255,0.03)"
+        if (!active && !multiSelected) e.currentTarget.style.background = "var(--rv-elev-2)"
       }}
       onMouseLeave={(e) => {
         if (!active && !multiSelected) e.currentTarget.style.background = "transparent"

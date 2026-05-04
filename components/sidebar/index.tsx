@@ -73,7 +73,7 @@ function NavItem({
       onMouseEnter={(e) => {
         if (!active) {
           e.currentTarget.style.color      = "var(--rv-t1)"
-          e.currentTarget.style.background = "rgba(255,255,255,0.05)"
+          e.currentTarget.style.background = "var(--rv-elev-3)"
         }
       }}
       onMouseLeave={(e) => {
@@ -278,7 +278,7 @@ function StageSubItem({
       onMouseEnter={(e) => {
         if (!active) {
           e.currentTarget.style.color      = "var(--rv-t1)"
-          e.currentTarget.style.background = "rgba(255,255,255,0.04)"
+          e.currentTarget.style.background = "var(--rv-elev-2)"
         }
       }}
       onMouseLeave={(e) => {
