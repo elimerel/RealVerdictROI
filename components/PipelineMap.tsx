@@ -18,7 +18,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import mapboxgl, { type Map as MapboxMap, type Marker } from "mapbox-gl"
-import "mapbox-gl/dist/mapbox-gl.css"
+// Mapbox CSS is imported globally in app/globals.css (Turbopack
+// sometimes loads in-component CSS imports too late, causing the
+// canvas to render at 0×0 on first paint).
 import { geocode, type Coords } from "@/lib/mapbox"
 import { STAGE_COLOR, type SavedDeal } from "@/lib/pipeline"
 
@@ -92,6 +94,16 @@ export default function PipelineMap({
     }), "bottom-right")
 
     mapRef.current = m
+
+    // Force a resize after the next paint — covers the case where
+    // Mapbox initialized before the container's flex dimensions were
+    // computed (which would leave a 0×0 canvas even though the wrapper
+    // is sized correctly). This is the standard "blank map" fix.
+    m.on("load", () => {
+      requestAnimationFrame(() => {
+        try { m.resize() } catch { /* ignore */ }
+      })
+    })
 
     // ResizeObserver — when the detail rail slides in/out, the map's
     // container changes width. Mapbox doesn't re-render automatically
@@ -216,8 +228,22 @@ export default function PipelineMap({
   }
 
   return (
-    <div className="relative w-full h-full" style={{ background: "var(--rv-elev-1)" }}>
-      <div ref={containerRef} className="absolute inset-0" />
+    <div
+      className="relative w-full h-full"
+      style={{
+        background: "var(--rv-elev-1)",
+        minHeight:  300,  // safety net so flex doesn't collapse the map
+        minWidth:   300,
+      }}
+    >
+      <div
+        ref={containerRef}
+        className="absolute inset-0"
+        // Mapbox needs the container to have explicit dimensions before
+        // init. Setting them inline here avoids any flex/CSS race where
+        // the canvas measures 0×0 on first paint.
+        style={{ width: "100%", height: "100%" }}
+      />
 
       {/* Empty state — when there are deals but none have geocoded yet */}
       {deals.length > 0 && placedDeals.length === 0 && (
