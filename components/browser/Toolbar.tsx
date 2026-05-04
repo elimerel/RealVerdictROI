@@ -222,18 +222,18 @@ export default function Toolbar({
             className="w-full h-[36px] flex items-center gap-2 rounded-[9px] px-4 cursor-text
                        transition-all duration-150"
             style={{
-              // Recessed input — the URL bar is a depression carved into
-              // the toolbar surface, NOT a button. Darker than the
-              // surrounding surface (toolbar is rv-surface), with a
-              // subtle dark inset shadow at the top hinting at depth.
-              // No highlight — that's what made it look like a button.
-              background: editing
-                ? "var(--rv-bg)"
-                : "var(--rv-bg)",
-              border: editing
+              // Default state: FLAT — same surface as the toolbar (rv-surface),
+              // no inset shadow, no border. Reads as part of the toolbar
+              // chrome, no chrome competing for attention.
+              //
+              // Editing state: recessed — darker bg (rv-bg) with a subtle
+              // dark inset shadow at the top. Now it reads as a depression
+              // you're filling in. This is the moment when the input matters.
+              background: editing ? "var(--rv-bg)" : "transparent",
+              border:     editing
                 ? "0.5px solid var(--rv-border-mid)"
-                : "0.5px solid var(--rv-border)",
-              boxShadow: "inset 0 1px 1px rgba(0, 0, 0, 0.18)",
+                : "0.5px solid transparent",
+              boxShadow:  editing ? "inset 0 1px 1px rgba(0, 0, 0, 0.18)" : "none",
               WebkitAppRegion: "no-drag",
             } as React.CSSProperties}
             onClick={startEdit}

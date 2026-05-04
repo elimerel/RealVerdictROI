@@ -31,12 +31,12 @@ export default function TabStrip({
   const [draggingId, setDraggingId]   = useState<string | null>(null)
   const [hoverIndex, setHoverIndex]   = useState<number | null>(null)
 
+  // Always render the strip — even with zero tabs or a single empty
+  // tab. Reserving the space removes the layout shift that happens
+  // when the second tab opens (the toolbar would otherwise jump down
+  // by 40px). Same behavior as Chrome/Safari — the strip is part of
+  // the chrome, not contingent on tab count.
   if (tabs.length === 0) return null
-  // Hide the strip entirely when there's just one empty tab — keeps the
-  // start screen feeling clean. The "+" still lives in the toolbar (next
-  // to the panel toggle) for users who want to make a second tab early.
-  const onlyOneEmpty = tabs.length === 1 && !tabs[0].url
-  if (onlyOneEmpty) return null
 
   // Commit a reorder. Insert the dragged tab at the targetIndex (in the
   // new array, with the dragged tab removed first), then fire onReorder

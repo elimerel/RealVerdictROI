@@ -1112,10 +1112,16 @@ function closeTab(id) {
     if (nextId) {
       activateTab(nextId)
     } else {
+      // Closing the last tab: don't leave the window tab-less. Open a
+      // new empty tab so the strip always has at least one tab. Same
+      // behavior as Chrome/Safari — closing the last tab opens a fresh
+      // empty one, no layout shift, no awkward chromeless state.
       activeTabId = null
       browserView = null
       broadcast("browser:nav-update", emptyNavState())
       broadcast("panel:hide")
+      createTab(undefined, { activate: true })
+      return  // createTab broadcasts on its own
     }
   }
   broadcastTabsState()
