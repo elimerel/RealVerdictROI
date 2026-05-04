@@ -100,12 +100,17 @@ interface SaveInput {
   scenario?: ScenarioOverrides | null
 }
 
+// Track whether the `scenario` column has been confirmed missing from
+// the user's Supabase. Set on first PGRST204 response so saveDeal +
+// updateDealScenario stop writing the column (and stop console-spamming)
+// for the rest of the session. Apply migration 013_scenarios.sql in
+// Supabase to re-enable persistence.
+let _scenarioColumnMissing = false
+
 /**
  * Save a deal to the user's pipeline at stage = "watching" by default.
  * Idempotent: if the URL is already saved for this user, returns the
- * existing row without changing stage. The unique index on (user_id,
- * source_url) is what enforces this — `upsert` with onConflict skips the
- * write when the row exists.
+ * existing row without changing stage.
  */
 export async function saveDeal({ sourceUrl, result, scenario }: SaveInput): Promise<SavedDeal | null> {
   const supabase = createClient()
@@ -115,7 +120,11 @@ export async function saveDeal({ sourceUrl, result, scenario }: SaveInput): Prom
     return null
   }
 
-  const row = {
+  // Build the row. The `scenario` field requires migration 013 — if
+  // that migration hasn't been applied to the user's Supabase, including
+  // the column in the insert will fail with PGRST204. We try with it
+  // first; on column-missing error, retry without it (graceful degrade).
+  const baseRow = {
     user_id:    user.id,
     stage:      "watching" as const,
     source_url: sourceUrl,
@@ -130,12 +139,11 @@ export async function saveDeal({ sourceUrl, result, scenario }: SaveInput): Prom
     sqft:       result.sqft,
     year_built: result.yearBuilt,
     snapshot:   result,
-    scenario:   scenario && Object.keys(scenario).length > 0 ? scenario : null,
     tags:       [] as string[],
   }
+  const scenarioValue = scenario && Object.keys(scenario).length > 0 ? scenario : null
 
-  // First try to fetch an existing row — if one exists, return it as-is
-  // (don't bump updated_at by re-saving the same URL).
+  // First try to fetch an existing row — if one exists, return it as-is.
   const existing = await supabase
     .from("saved_deals")
     .select("*")
@@ -145,11 +153,33 @@ export async function saveDeal({ sourceUrl, result, scenario }: SaveInput): Prom
 
   if (existing.data) return existing.data as SavedDeal
 
-  const { data, error } = await supabase
+  // Try insert with scenario field unless we already know the column
+  // doesn't exist (process-wide flag from updateDealScenario).
+  const tryWith = !_scenarioColumnMissing
+  const rowToInsert = tryWith ? { ...baseRow, scenario: scenarioValue } : baseRow
+
+  let { data, error } = await supabase
     .from("saved_deals")
-    .insert(row)
+    .insert(rowToInsert)
     .select()
     .single()
+
+  // If the scenario column is missing on this Supabase, retry without it.
+  // Migration 013_scenarios.sql adds the column; until then, scenarios
+  // work in memory but don't persist (already handled in updateDealScenario).
+  if (error && error.code === "PGRST204" && tryWith) {
+    _scenarioColumnMissing = true
+    console.warn(
+      "[pipeline] saveDeal: scenario column missing — retrying without it. Apply supabase/migrations/013_scenarios.sql to enable persistence."
+    )
+    const retry = await supabase
+      .from("saved_deals")
+      .insert(baseRow)
+      .select()
+      .single()
+    data  = retry.data
+    error = retry.error
+  }
 
   if (error) {
     console.error("[pipeline] saveDeal insert error:", error)
@@ -329,11 +359,6 @@ export async function updateDealTags(dealId: string, tags: string[]): Promise<bo
  *
  *  Caller pattern: debounce edits in the UI (~300ms) so we're not writing
  *  on every keystroke, then call once. */
-// Track whether the `scenario` column has been confirmed missing from
-// the user's Supabase. Set on first PGRST204 response so we stop writing
-// (and stop console-spamming) for the rest of the session. The user can
-// always apply migration 013_scenarios.sql to re-enable persistence.
-let _scenarioColumnMissing = false
 
 export async function updateDealScenario(
   dealId:   string,
