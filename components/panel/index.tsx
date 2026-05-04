@@ -462,24 +462,112 @@ function HeaderIconBtn({
 }
 
 // ── Analyzing ─────────────────────────────────────────────────────────────────
+//
+// Skeleton-first rendering: instead of a centered spinner that says "wait,"
+// we render the SHAPE of the result panel immediately — map placeholder,
+// price placeholder, metric card placeholders — with subtle shimmer. When
+// the analysis arrives, the skeleton fades into the real content with no
+// layout jump. The user's eye lands on where the answer is GOING to be,
+// not on a spinner. This is the speed promise made visible.
+
+function ShimmerBlock({
+  width, height, radius = 6,
+}: {
+  width:    number | string
+  height:   number
+  radius?:  number
+}) {
+  return (
+    <div
+      style={{
+        width,
+        height,
+        borderRadius: radius,
+        background:   "var(--rv-elev-2)",
+        position:     "relative",
+        overflow:     "hidden",
+      }}
+      className="rv-shimmer"
+    />
+  )
+}
 
 function AnalyzingPane() {
+  // Mirror the ResultPane layout exactly so the transition feels like
+  // content RESOLVING, not a screen swap.
   return (
-    <div className="flex flex-col items-center justify-center gap-5 flex-1 px-6">
-      <div
-        className="w-9 h-9 rounded-full ring-pulse"
-        style={{
-          border: "1.5px solid var(--rv-accent-border)",
-          background: "var(--rv-accent-dim)",
-        }}
-      />
-      <div className="text-center">
-        <p className="text-[13px] font-medium" style={{ color: "var(--rv-t1)" }}>
-          Analyzing listing
-        </p>
-        <p className="text-[12px] mt-1 leading-relaxed" style={{ color: "var(--rv-t3)" }}>
-          Pulling rates, rent data,<br />and crunching the math
-        </p>
+    <div className="flex flex-col flex-1 min-h-0 panel-enter">
+      {/* Hero skeleton — map → price → cash flow → address */}
+      <div className="px-4 pt-4 pb-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+        <ShimmerBlock width="100%" height={140} radius={10} />
+        <div style={{ marginTop: 14 }}>
+          <ShimmerBlock width={180} height={32} radius={6} />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <ShimmerBlock width={140} height={20} radius={5} />
+        </div>
+        <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
+          <ShimmerBlock width={60} height={11} radius={3} />
+          <ShimmerBlock width={50} height={11} radius={3} />
+          <ShimmerBlock width={70} height={11} radius={3} />
+        </div>
+      </div>
+
+      {/* Metrics skeleton — three cards */}
+      <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+        <div className="grid grid-cols-3 gap-2">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              style={{
+                padding:    "10px 12px 11px",
+                background: "var(--rv-elev-2)",
+                border:     "0.5px solid var(--rv-border-mid)",
+                borderRadius: 12,
+                boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
+              }}
+            >
+              <ShimmerBlock width={50} height={9} radius={3} />
+              <div style={{ marginTop: 8 }}>
+                <ShimmerBlock width={60} height={18} radius={4} />
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <ShimmerBlock width={45} height={9} radius={3} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Status line — one quiet line that names what's happening, so the
+          user knows the AI is thinking, not the app frozen. Replaces the
+          old "Pulling rates, rent data..." centered text. */}
+      <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+        <span className="flex gap-[3px] items-center shrink-0">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="w-[4px] h-[4px] rounded-full dot-pulse"
+              style={{ background: "var(--rv-accent)", animationDelay: `${i * 0.18}s` }}
+            />
+          ))}
+        </span>
+        <span className="text-[11px]" style={{ color: "var(--rv-t3)" }}>
+          Reading listing, pulling rates and comps…
+        </span>
+      </div>
+
+      {/* Bottom skeleton — provenance rows */}
+      <div className="px-4 py-3 flex flex-col gap-2.5">
+        {[120, 90, 110, 100, 80].map((w, i) => (
+          <div key={i} className="flex items-center justify-between">
+            <ShimmerBlock width={w} height={11} radius={3} />
+            <div className="flex items-center gap-2">
+              <ShimmerBlock width={60} height={11} radius={3} />
+              <ShimmerBlock width={18} height={18} radius={9} />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
