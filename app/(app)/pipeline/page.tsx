@@ -36,6 +36,7 @@ import { ScenarioDisclosure } from "@/components/panel/ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
 import PipelineMap from "@/components/PipelineMap"
 import { useEscape } from "@/lib/escapeStack"
+import { Button } from "@/components/ui/Button"
 
 // ── Format helpers ────────────────────────────────────────────────────────
 
@@ -474,30 +475,19 @@ function DealDetail({
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <button
+          <Button
+            variant={deal.watching ? "primary" : "secondary"}
+            size="sm"
             onClick={async () => {
               const next = !deal.watching
               const ok = await setDealWatching(deal.id, next)
               if (ok) onChange({ ...deal, watching: next })
             }}
             title={deal.watching ? "Stop watching this deal" : "Watch — get notified on price changes"}
-            className="inline-flex items-center gap-1.5 rounded-[7px] text-[12px] font-medium tracking-tight transition-colors"
-            style={{
-              padding:    "5px 9px",
-              color:      deal.watching ? "var(--rv-accent)" : "var(--rv-t3)",
-              background: deal.watching ? "rgba(48,164,108,0.10)" : "var(--rv-elev-2)",
-              border:     `0.5px solid ${deal.watching ? "rgba(48,164,108,0.22)" : "var(--rv-border)"}`,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = deal.watching ? "rgba(48,164,108,0.18)" : "var(--rv-elev-4)"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = deal.watching ? "rgba(48,164,108,0.10)" : "var(--rv-elev-2)"
-            }}
+            icon={deal.watching ? <Bell size={11} strokeWidth={2} /> : <BellOff size={11} strokeWidth={2} />}
           >
-            {deal.watching ? <Bell size={11} strokeWidth={2} /> : <BellOff size={11} strokeWidth={2} />}
             {deal.watching ? "Watching" : "Watch"}
-          </button>
+          </Button>
           <StageMenu stage={deal.stage} onChange={onMoveStage} />
         </div>
       </div>
@@ -1703,34 +1693,15 @@ function PipelinePageInner() {
                 </button>
               </>
             ) : (
-              // Idle Compare button — accent-tinted so it reads as a
-              // real feature, not just a header chip. Bigger padding,
-              // accent-colored icon, accent-tinted background that
-              // strengthens on hover. This is the entry point users
-              // actually need to find.
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setCompareMode(true)}
-                title="Pick 2-4 deals to see them side-by-side. Tip: right-click or drag a row up to add it without entering this mode."
-                className="inline-flex items-center gap-1.5 rounded-[8px] text-[12px] font-medium tracking-tight transition-all"
-                style={{
-                  padding:    "6px 12px",
-                  color:      "var(--rv-accent)",
-                  background: "rgba(48,164,108,0.10)",
-                  border:     "0.5px solid rgba(48,164,108,0.28)",
-                  boxShadow:  "0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.10)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(48,164,108,0.18)"
-                  e.currentTarget.style.borderColor = "rgba(48,164,108,0.40)"
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(48,164,108,0.10)"
-                  e.currentTarget.style.borderColor = "rgba(48,164,108,0.28)"
-                }}
+                title="Pick 2-4 deals to see them side-by-side"
+                icon={<GitCompareArrows size={11} strokeWidth={2} />}
               >
-                <GitCompareArrows size={12} strokeWidth={2.2} />
-                Compare deals
-              </button>
+                Compare
+              </Button>
             )}
           </div>
         )}
@@ -1748,32 +1719,23 @@ function PipelinePageInner() {
                 {checkResult}
               </span>
             )}
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={onCheckUpdates}
               disabled={checking}
               title={`Re-check ${watchedCount} watched ${watchedCount === 1 ? "deal" : "deals"} for price changes`}
-              className="inline-flex items-center gap-1.5 rounded-[7px] text-[12px] font-medium tracking-tight transition-colors disabled:opacity-50"
-              style={{
-                padding:    "6px 10px",
-                color:      "var(--rv-t2)",
-                background: "var(--rv-elev-2)",
-                border:     "0.5px solid var(--rv-border)",
-              }}
-              onMouseEnter={(e) => {
-                if (!checking) e.currentTarget.style.background = "var(--rv-elev-4)"
-              }}
-              onMouseLeave={(e) => {
-                if (!checking) e.currentTarget.style.background = "var(--rv-elev-2)"
-              }}
+              icon={
+                <RefreshCw
+                  size={11}
+                  strokeWidth={2}
+                  className={checking ? "animate-spin" : ""}
+                  style={{ animationDuration: checking ? "1s" : undefined }}
+                />
+              }
             >
-              <RefreshCw
-                size={11}
-                strokeWidth={2}
-                className={checking ? "animate-spin" : ""}
-                style={{ animationDuration: checking ? "1s" : undefined }}
-              />
               {checking ? `Checking ${watchedCount}…` : `Check ${watchedCount}`}
-            </button>
+            </Button>
           </div>
         )}
       </div>
