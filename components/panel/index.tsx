@@ -13,6 +13,7 @@ import {
 } from "@/lib/scenario"
 import PanelChat from "./Chat"
 import { ScenarioDisclosure } from "./ScenarioDisclosure"
+import PropertyMap from "@/components/PropertyMap"
 
 // ── Metric card ───────────────────────────────────────────────────────────────
 //
@@ -895,6 +896,22 @@ function ResultPane({
 
       {/* Property identity */}
       <div className="px-4 pt-4 pb-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+        {/* Mapbox thumbnail — small inline map gives every analyzed listing
+            a physical anchor. Sits above the price so the user sees WHERE
+            before they dig into the financial picture. */}
+        {(result.address || result.city) && (
+          <div className="mb-3 -mx-1">
+            <PropertyMap
+              address={result.address}
+              city={result.city}
+              state={result.state}
+              zip={result.zip}
+              size="inline"
+              radius={8}
+              className="w-full"
+            />
+          </div>
+        )}
         {result.listPrice != null && (
           <p
             className="leading-tight tabular-nums"

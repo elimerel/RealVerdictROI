@@ -31,6 +31,7 @@ import {
 } from "@/lib/pipeline"
 import { hasActiveScenario, recomputeMetrics, type ScenarioOverrides } from "@/lib/scenario"
 import { ScenarioDisclosure } from "@/components/panel/ScenarioDisclosure"
+import PropertyMap from "@/components/PropertyMap"
 
 // ── Format helpers ────────────────────────────────────────────────────────
 
@@ -384,16 +385,22 @@ function DealDetail({
 
   return (
     <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
-      {/* Atmospheric top glow — gives the detail pane a light source behind
-          the price/address hero, same technique as Browse + Pipeline page. */}
-      <div
-        className="absolute inset-x-0 top-0 pointer-events-none"
-        style={{
-          height:     "45%",
-          background: "radial-gradient(ellipse 90% 50% at 50% 0%, rgba(48,164,108,0.04) 0%, transparent 65%)",
-          zIndex: 0,
-        }}
-      />
+      {/* Property location banner — slim Mapbox static-image preview that
+          grounds the deal in physical space. Sits above the financial
+          header so price/cash-flow stays the visual hero, but every deal
+          now has a "where" not just a "what." */}
+      {(deal.address || deal.city) && (
+        <div className="px-6 pt-5 shrink-0 relative" style={{ zIndex: 1 }}>
+          <PropertyMap
+            address={deal.address}
+            city={deal.city}
+            state={deal.state}
+            zip={deal.zip}
+            size="banner"
+            radius={10}
+          />
+        </div>
+      )}
       {/* Header — title + actions */}
       <div
         className="flex items-start gap-3 px-6 py-5 shrink-0 relative"
