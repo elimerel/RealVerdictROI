@@ -996,7 +996,15 @@ function ResultPane({
   const address = [result.address, result.city, result.state].filter(Boolean).join(", ")
 
   return (
-    <div className="flex flex-col overflow-y-auto panel-scroll flex-1 min-h-0">
+    <div
+      className="flex flex-col overflow-y-auto panel-scroll flex-1 min-h-0"
+      style={{
+        // Bottom padding so content scrolls PAST the floating chat
+        // input bar (52px + 12px margin = ~70px). Without this the
+        // last section of the panel was hidden under the chat.
+        paddingBottom: 80,
+      }}
+    >
 
       {/* Hero — the moment the user opens the panel. Map → price + cash
           flow paired as co-heroes, so in 4 seconds the user knows what
