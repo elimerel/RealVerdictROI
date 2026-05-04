@@ -21,6 +21,20 @@ function dispatchDealsChanged() {
 
 export type DealStage = "watching" | "interested" | "offered" | "won" | "passed"
 
+/** Color a deal's pin/dot/badge gets across every surface where it
+ *  appears (map pins, list-row dots, stage chips). Defining it once here
+ *  guarantees the map and the list show identical visual identity per
+ *  stage — flip a row's stage in the list, the matching pin changes
+ *  color in the map without coordination. Forest green family for
+ *  active progress; clay for "needs attention"; muted for inactive. */
+export const STAGE_COLOR: Record<DealStage, string> = {
+  watching:   "#c2754a",  // clay — passive interest
+  interested: "#30a46c",  // accent green — active interest
+  offered:    "#2f9c69",  // pos green — committed
+  won:        "#1f6f4a",  // dark green — closed
+  passed:     "#666666",  // muted — out
+}
+
 export const DEAL_STAGES: DealStage[] = [
   "watching",
   "interested",

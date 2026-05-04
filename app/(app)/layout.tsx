@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import Sidebar from "@/components/sidebar"
 import { SidebarProvider, useSidebar } from "@/components/sidebar/context"
 import SidebarToggle from "@/components/sidebar/toggle"
@@ -50,6 +50,25 @@ function ThemeHydrator() {
   return null
 }
 
+/** RouteFader — soft cross-fade + tiny Y-translate when the user
+ *  navigates between top-level surfaces (Browse / Pipeline / Settings).
+ *  Keyed on pathname so each surface gets its own mount cycle, with the
+ *  CSS animation re-running on every key change. The motion is short
+ *  (180ms) and small (4px) — present enough that surface swaps feel
+ *  intentional, quiet enough that it never feels like the app is
+ *  showing off. Same easing as the rest of the chrome. */
+function RouteFader({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
+  return (
+    <div
+      key={pathname}
+      className="flex flex-col flex-1 min-h-0 rv-route-fade"
+    >
+      {children}
+    </div>
+  )
+}
+
 /** Mirror the THEME_SCRIPT logic at runtime. Called on every
  *  theme:changed broadcast. Writes to localStorage as the pre-paint
  *  hint for the next mount. */
@@ -76,7 +95,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         >
           <Sidebar />
           <main className="flex flex-col flex-1 min-w-0 h-full relative">
-            {children}
+            <RouteFader>{children}</RouteFader>
           </main>
         </div>
         {/* Two pinned window-level toggles. SidebarToggle never moves

@@ -20,22 +20,9 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import mapboxgl, { type Map as MapboxMap, type Marker } from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { geocode, type Coords } from "@/lib/mapbox"
-import type { SavedDeal } from "@/lib/pipeline"
-import type { DealStage } from "@/lib/pipeline"
+import { STAGE_COLOR, type SavedDeal } from "@/lib/pipeline"
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ""
-
-// Stage colors — forest green family for active progress (watching →
-// won), clay for "needs attention" stages, dim for inactive (passed).
-// These match the app's accent + clay tokens so the map reads as a
-// continuation of the brand.
-const STAGE_COLOR: Record<DealStage, string> = {
-  watching:   "#c2754a", // clay — passive interest
-  interested: "#30a46c", // accent green — active interest
-  offered:    "#2f9c69", // pos green — committed
-  won:        "#1f6f4a", // dark green — closed
-  passed:     "#666",    // muted — out
-}
 
 interface Props {
   deals:        SavedDeal[]

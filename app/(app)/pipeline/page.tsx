@@ -19,6 +19,7 @@ import { Currency } from "@/lib/format"
 import {
   DEAL_STAGES,
   STAGE_LABEL,
+  STAGE_COLOR,
   deleteDeal,
   fetchPipeline,
   moveDealStage,
@@ -195,14 +196,27 @@ function DealListRow({
           </span>
         </div>
         <div className="flex items-center gap-2 text-[10.5px]" style={{ color: "var(--rv-t4)" }}>
+          {/* Stage chip — colored dot matches the map pin for this stage,
+              so toggling List ↔ Map maintains visual identity. The dot
+              is the same hue as the corresponding pin on the map; the
+              label is what makes it readable in a row. */}
           <span
-            className="inline-flex items-center text-[10px] rounded px-[5px] py-[1px]"
+            className="inline-flex items-center gap-1.5 text-[10px] rounded px-[6px] py-[1.5px]"
             style={{
-              color: "var(--rv-t3)",
+              color: "var(--rv-t2)",
               background: "var(--rv-elev-2)",
-              border: "0.5px solid var(--rv-border)",
             }}
           >
+            <span
+              aria-hidden
+              className="rounded-full shrink-0"
+              style={{
+                width:  6,
+                height: 6,
+                background: STAGE_COLOR[deal.stage],
+                boxShadow: `0 0 0 1.5px ${STAGE_COLOR[deal.stage]}25`,
+              }}
+            />
             {STAGE_LABEL[deal.stage]}
           </span>
           <span
