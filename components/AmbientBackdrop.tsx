@@ -106,49 +106,92 @@ export function AmbientBackdrop() {
   )
 }
 
-// Mood → color tuple. Subtle differences — the backdrop should never
-// loudly announce a mood change, just nudge the atmosphere.
-const MOOD_PALETTE: Record<BackdropMood, { a: string; b: string; c: string }> = {
-  // Default — earthy warm charcoal with a hint of forest
-  idle:      { a: "rgba(48, 164, 108, 0.05)",  b: "rgba(194, 117, 74, 0.04)", c: "rgba(48, 164, 108, 0.03)" },
-  // Active browsing — slightly cooler, more accent green
-  browsing:  { a: "rgba(48, 164, 108, 0.07)",  b: "rgba(48, 164, 108, 0.04)", c: "rgba(120, 180, 200, 0.03)" },
-  // Deciding (panel open) — warm, calm, focus
-  deciding:  { a: "rgba(48, 164, 108, 0.06)",  b: "rgba(48, 164, 108, 0.03)", c: "rgba(194, 117, 74, 0.04)" },
-  // Comparing — neutral, balanced, gives the table breathing room
-  comparing: { a: "rgba(120, 130, 140, 0.04)", b: "rgba(48, 164, 108, 0.03)", c: "rgba(120, 130, 140, 0.03)" },
-  // Alerting — clay shifts dominant
-  alerting:  { a: "rgba(194, 117, 74, 0.08)",  b: "rgba(194, 117, 74, 0.05)", c: "rgba(245, 158, 11, 0.04)" },
+// RealVerdict atmospheric palette — the actual colors that show up in the
+// backdrop, not generic green/orange. Tuned to feel like firelight on
+// aged wood, dawn over hilly landscape, moss on warm stone. Each mood
+// is six colors mapping to the six gradient blobs (a-f). The far layer
+// (a, b) sets base mood; near layer (c, d) adds saturated highlights;
+// e is the bright catch-the-light spot; f is the warm shadow weight.
+
+interface BackdropPalette {
+  a: string  // far blob — top-left, base warmth
+  b: string  // far blob — bottom-right, base depth
+  c: string  // near blob — right, screen-blend highlight
+  d: string  // near blob — left, screen-blend highlight
+  e: string  // tiny bright spot — composition catch
+  f: string  // bottom shadow — compositional weight
 }
 
-/** CSS-mesh-gradient placeholder. Three radial gradients positioned at
- *  fixed anchors; opacity and color shift smoothly on mood change. The
- *  gradients themselves drift via a long-period CSS keyframe so the
- *  atmosphere feels alive without ever being distracting. */
+const MOOD_PALETTE: Record<BackdropMood, BackdropPalette> = {
+  // Idle — dusk over hills. Deep forest base, clay edge, amber catch.
+  idle: {
+    a: "rgba(31, 79, 61, 0.55)",     // deep forest — base mood
+    b: "rgba(58, 38, 28, 0.50)",     // dark umber — depth
+    c: "rgba(48, 164, 108, 0.18)",   // forest green highlight
+    d: "rgba(194, 117, 74, 0.18)",   // clay highlight
+    e: "rgba(245, 198, 130, 0.20)",  // warm amber catch
+    f: "rgba(45, 30, 22, 0.45)",     // bottom warm shadow
+  },
+  // Browsing — slightly more forest, more active "scanning" energy.
+  browsing: {
+    a: "rgba(36, 90, 70, 0.60)",
+    b: "rgba(58, 38, 28, 0.50)",
+    c: "rgba(48, 164, 108, 0.24)",   // brighter green
+    d: "rgba(194, 117, 74, 0.16)",
+    e: "rgba(220, 230, 200, 0.22)",  // cooler catch (morning light)
+    f: "rgba(45, 30, 22, 0.45)",
+  },
+  // Deciding — panel open, focused. Warmer, slower, more contemplative.
+  deciding: {
+    a: "rgba(31, 79, 61, 0.50)",
+    b: "rgba(78, 50, 38, 0.55)",     // warmer umber
+    c: "rgba(48, 164, 108, 0.16)",
+    d: "rgba(194, 117, 74, 0.22)",   // more clay
+    e: "rgba(245, 198, 130, 0.22)",
+    f: "rgba(60, 38, 28, 0.50)",
+  },
+  // Comparing — neutral cooler, lets the comparison data breathe.
+  comparing: {
+    a: "rgba(36, 70, 80, 0.55)",     // cool slate
+    b: "rgba(45, 50, 56, 0.55)",
+    c: "rgba(48, 164, 108, 0.14)",
+    d: "rgba(120, 140, 160, 0.16)",
+    e: "rgba(200, 215, 225, 0.20)",
+    f: "rgba(40, 45, 52, 0.50)",
+  },
+  // Alerting — clay dominates, amber catch brighter. Calm urgency.
+  alerting: {
+    a: "rgba(78, 45, 30, 0.65)",     // deep terracotta base
+    b: "rgba(58, 38, 28, 0.55)",
+    c: "rgba(194, 117, 74, 0.30)",   // big clay highlight
+    d: "rgba(245, 158, 11, 0.18)",   // amber
+    e: "rgba(255, 210, 140, 0.28)",
+    f: "rgba(60, 32, 22, 0.55)",
+  },
+}
+
+/** Six-blob volumetric backdrop. Far layer (a, b) sets base mood; near
+ *  layer (c, d) adds saturated highlights via mix-blend-mode: screen so
+ *  overlaps brighten like firelight on wood; e adds a bright catch-the-
+ *  light spot; f anchors the bottom with a warm shadow. The colors come
+ *  from the mood palette and transition over 1.2s when mood changes. */
 function CSSMeshBackdrop({
   palette, mood,
 }: {
-  palette: { a: string; b: string; c: string }
+  palette: BackdropPalette
   mood:    BackdropMood
 }) {
+  const grad = (color: string, falloff = 60) =>
+    `radial-gradient(circle at center, ${color} 0%, transparent ${falloff}%)`
+  const trans = "background 1400ms cubic-bezier(0.32, 0.72, 0, 1)"
   return (
     <>
-      {/* Three orbiting blobs. Each is a radial gradient anchored to a
-          point that drifts slowly via CSS animation. The colors come
-          from the mood palette. Opacity transitions on mood change. */}
-      <div
-        className="rv-ambient-blob rv-ambient-blob-a"
-        style={{ background: `radial-gradient(circle at center, ${palette.a} 0%, transparent 60%)`, transition: "background 1200ms ease" }}
-      />
-      <div
-        className="rv-ambient-blob rv-ambient-blob-b"
-        style={{ background: `radial-gradient(circle at center, ${palette.b} 0%, transparent 65%)`, transition: "background 1200ms ease" }}
-      />
-      <div
-        className="rv-ambient-blob rv-ambient-blob-c"
-        style={{ background: `radial-gradient(circle at center, ${palette.c} 0%, transparent 70%)`, transition: "background 1200ms ease" }}
-      />
-      {/* Mood label for debugging — invisible but inspectable */}
+      <div className="rv-ambient-blob rv-ambient-blob-a" style={{ background: grad(palette.a, 55), transition: trans }} />
+      <div className="rv-ambient-blob rv-ambient-blob-b" style={{ background: grad(palette.b, 55), transition: trans }} />
+      <div className="rv-ambient-blob rv-ambient-blob-c" style={{ background: grad(palette.c, 65), transition: trans }} />
+      <div className="rv-ambient-blob rv-ambient-blob-d" style={{ background: grad(palette.d, 65), transition: trans }} />
+      <div className="rv-ambient-blob rv-ambient-blob-e" style={{ background: grad(palette.e, 70), transition: trans }} />
+      <div className="rv-ambient-blob rv-ambient-blob-f" style={{ background: grad(palette.f, 60), transition: trans }} />
       <span data-rv-backdrop-mood={mood} style={{ display: "none" }} />
     </>
   )
