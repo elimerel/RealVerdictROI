@@ -38,10 +38,10 @@
   --rv-glass-mid:    rgba(255, 255, 255, 0.04);
   --rv-glass-light:  transparent;
   /* Tint applied OVER macOS vibrancy on the sidebar / panel chrome.
-     Bumped slightly so the sidebar reads as solid surface against the
-     ambient backdrop instead of feeling translucent. */
-  --rv-glass-tint:        rgba(20, 16, 12, 0.45);
-  --rv-glass-tint-strong: rgba(20, 16, 12, 0.55);
+     Subtle — the sidebar reads as a slightly lifted surface against
+     the canvas, never as a translucent veil. */
+  --rv-glass-tint:        rgba(255, 255, 255, 0.025);
+  --rv-glass-tint-strong: rgba(255, 255, 255, 0.04);
 
   /* Scrim / overlay darkening — for modal backdrops + dropdown shadows.
      Always a dark color regardless of theme, since modals dim what's
@@ -590,34 +590,6 @@
 @keyframes rv-map-fade {
   from { opacity: 0; }
   to   { opacity: 1; }
-}
-
-/* Ambient backdrop — RealVerdict's atmospheric layer.
-   ──────────────────────────────────────────────────────────────────────
-   Time-of-day adaptive. Two anchored gradients: a horizon glow rising
-   from the bottom (the dominant light) and a counter-glow in the
-   opposite top corner (compositional balance). Both drift slowly on
-   long-period sine animations — light "breathing" rather than blobs
-   orbiting at random.
-
-   Colors come from the JS palette in components/AmbientBackdrop.tsx,
-   recomputed every 10 minutes from current hour: dawn / morning /
-   midday / golden hour / dusk / night / late night each get their own
-   anchor positions and color tuples. */
-
-.rv-horizon-glow {
-  animation: rv-horizon-breathe 22s ease-in-out infinite;
-}
-.rv-counter-glow {
-  animation: rv-counter-drift 30s ease-in-out infinite;
-}
-@keyframes rv-horizon-breathe {
-  0%, 100% { transform: translateX(0)    scale(1); }
-  50%      { transform: translateX(3vw)  scale(1.04); }
-}
-@keyframes rv-counter-drift {
-  0%, 100% { transform: translateX(0)     scale(1); }
-  50%      { transform: translateX(-4vw)  scale(0.96); }
 }
 
 /* Suggestion dropdown pop-in animation — fast spring-like entry, same

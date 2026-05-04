@@ -8,7 +8,6 @@ import SidebarToggle from "@/components/sidebar/toggle"
 import { PanelStateProvider } from "@/components/panel/context"
 import PanelToggle from "@/components/browser/PanelToggle"
 import CommandPalette from "@/components/command-palette"
-import { BackdropProvider, AmbientBackdrop } from "@/components/AmbientBackdrop"
 
 /**
  * Wires menu-accelerator IPC events from main.js into the React tree:
@@ -86,42 +85,24 @@ function applyThemeClass(resolved: string, picked?: string) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <BackdropProvider>
-      <SidebarProvider>
-        <PanelStateProvider>
-          <ShortcutHost />
-          <ThemeHydrator />
-          {/* Ambient backdrop — z-index -1 atmospheric layer behind every
-              surface. Mood is driven by route + interactions (see
-              useSetMoodWhileMounted). Today renders a CSS placeholder;
-              swaps to Rive when a .riv file is provided. */}
-          <AmbientBackdrop />
-          <div
-            className="flex w-screen h-screen overflow-hidden"
-            style={{
-              // Fully transparent — the AmbientBackdrop IS the page
-              // background now. Cards, panels, and the sidebar provide
-              // their own surface bgs, so empty page areas show the
-              // atmospheric layer directly.
-              background: "transparent",
-            }}
-          >
-            <Sidebar />
-            <main className="flex flex-col flex-1 min-w-0 h-full relative">
-              <RouteFader>{children}</RouteFader>
-            </main>
-          </div>
-          {/* Two pinned window-level toggles. SidebarToggle never moves
-              (top-left). PanelToggle hides itself unless /browse has
-              registered active panel state. */}
-          <SidebarToggle />
-          <PanelToggle />
-          {/* ⌘K palette — global. Opens with the keyboard or a code call to
-              openCommandPalette(). Routes inject context-specific actions via
-              the usePaletteActions hook. */}
-          <CommandPalette />
-        </PanelStateProvider>
-      </SidebarProvider>
-    </BackdropProvider>
+    <SidebarProvider>
+      <PanelStateProvider>
+        <ShortcutHost />
+        <ThemeHydrator />
+        <div
+          className="flex w-screen h-screen overflow-hidden"
+          style={{ background: "var(--rv-bg)" }}
+        >
+          <Sidebar />
+          <main className="flex flex-col flex-1 min-w-0 h-full relative">
+            <RouteFader>{children}</RouteFader>
+          </main>
+        </div>
+        {/* Two pinned window-level toggles. */}
+        <SidebarToggle />
+        <PanelToggle />
+        <CommandPalette />
+      </PanelStateProvider>
+    </SidebarProvider>
   )
 }

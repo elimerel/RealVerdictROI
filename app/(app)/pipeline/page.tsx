@@ -102,11 +102,9 @@ function DealListRow({
   // detail focus" tint. Outside compare mode, the focal row gets the same
   // accent treatment. Reads as: "this row is one of the things I picked."
   const bg =
-    multiSelected
-      ? "linear-gradient(90deg, rgba(48,164,108,0.20) 0%, rgba(48,164,108,0.08) 60%, rgba(48,164,108,0.02) 100%)"
-    : active
-      ? "linear-gradient(90deg, rgba(48,164,108,0.14) 0%, rgba(48,164,108,0.05) 60%, rgba(48,164,108,0.01) 100%)"
-    : "transparent"
+    multiSelected ? "var(--rv-accent-dim)" :
+    active        ? "var(--rv-accent-dim)" :
+                    "transparent"
 
   return (
     <button
@@ -1924,7 +1922,7 @@ function CompareSelectingPane({
         // Subtle accent wash signals "you're in compare mode" without
         // overwhelming. Pulls the eye back to the list (the action
         // surface) rather than competing with it.
-        background:           "linear-gradient(180deg, rgba(48,164,108,0.04) 0%, transparent 40%), var(--rv-bg)",
+        background:           "var(--rv-bg)",
       }}
     >
       <div className="flex flex-col items-center gap-3 text-center max-w-[420px]">

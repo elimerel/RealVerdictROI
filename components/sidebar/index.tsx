@@ -58,10 +58,8 @@ function NavItem({
         padding:       iconsOnly ? 0 : "0 10px",
         justifyContent: iconsOnly ? "center" : "flex-start",
         color:         active ? "var(--rv-t1)" : "var(--rv-t2)",
-        background:    active
-          ? "linear-gradient(90deg, rgba(48,164,108,0.22) 0%, rgba(48,164,108,0.07) 60%, rgba(48,164,108,0.02) 100%)"
-          : "transparent",
-        boxShadow:     active ? "inset 0 0 0 0.5px rgba(48,164,108,0.18)" : "none",
+        background:    active ? "var(--rv-accent-dim)" : "transparent",
+        boxShadow:     active ? "inset 0 0 0 0.5px var(--rv-accent-border)" : "none",
         fontSize:      13,
         fontWeight:    active ? 500 : 400,
         letterSpacing: "-0.005em",
@@ -263,10 +261,8 @@ function StageSubItem({
         padding:       "0 10px",
         gap:           8,
         color:         active ? "var(--rv-t1)" : "var(--rv-t2)",
-        background:    active
-          ? "linear-gradient(90deg, rgba(48,164,108,0.18) 0%, rgba(48,164,108,0.05) 60%, transparent 100%)"
-          : "transparent",
-        boxShadow:     active ? "inset 0 0 0 0.5px rgba(48,164,108,0.14)" : "none",
+        background:    active ? "var(--rv-accent-dim)" : "transparent",
+        boxShadow:     active ? "inset 0 0 0 0.5px var(--rv-accent-border)" : "none",
         fontSize:      12,
         fontWeight:    active ? 500 : 400,
         letterSpacing: "-0.005em",
