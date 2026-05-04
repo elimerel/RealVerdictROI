@@ -705,73 +705,51 @@ function DealDetail({
           </p>
         </div>
 
-        {/* Footer actions */}
-        <div className="flex items-center gap-2 px-6 py-4">
-          <button
+        {/* Footer actions — primary "Open listing" since that's the most
+            common follow-up; everything else secondary or ghost. */}
+        <div className="flex items-center gap-2 px-6 py-5">
+          <Button
+            variant="primary"
             onClick={onOpenInBrowse}
-            className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] font-medium tracking-tight transition-colors"
-            style={{
-              color:      "var(--rv-t1)",
-              background: "var(--rv-elev-3)",
-              border:     "0.5px solid var(--rv-border)",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-4)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--rv-elev-3)" }}
+            icon={<ExternalLink size={11} strokeWidth={2} />}
           >
-            <ExternalLink size={11} strokeWidth={2} />
             Open listing
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
             onClick={onOpenInBrowse}
-            className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] font-medium tracking-tight transition-colors"
-            style={{
-              color:      "var(--rv-t2)",
-              background: "var(--rv-elev-2)",
-              border:     "0.5px solid var(--rv-border)",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-4)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--rv-elev-2)" }}
             title="Open in browser, then re-analyze from the panel"
+            icon={<RefreshCw size={11} strokeWidth={2} />}
           >
-            <RefreshCw size={11} strokeWidth={2} />
             Re-analyze
-          </button>
+          </Button>
           <span className="flex-1" />
           {confirmDelete ? (
             <>
               <span className="text-[11.5px]" style={{ color: "var(--rv-t3)" }}>
                 Delete this deal?
               </span>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={onDelete}
-                className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] font-medium tracking-tight transition-colors"
-                style={{
-                  color:      "var(--rv-bad)",
-                  background: "rgba(255,87,87,0.10)",
-                  border:     "0.5px solid rgba(255,87,87,0.25)",
-                }}
+                style={{ color: "var(--rv-neg)", borderColor: "var(--rv-neg-bg)" }}
               >
                 Delete
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] tracking-tight transition-colors"
-                style={{ color: "var(--rv-t3)" }}
-              >
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
                 Cancel
-              </button>
+              </Button>
             </>
           ) : (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setConfirmDelete(true)}
-              className="inline-flex items-center gap-1.5 rounded-[7px] px-3 py-2 text-[12px] font-medium tracking-tight transition-colors"
-              style={{ color: "var(--rv-t3)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-bad)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
+              icon={<Trash2 size={11} strokeWidth={2} />}
             >
-              <Trash2 size={11} strokeWidth={2} />
               Delete
-            </button>
+            </Button>
           )}
         </div>
       </div>
