@@ -590,6 +590,52 @@
   to   { opacity: 1; }
 }
 
+/* Ambient backdrop — three slow-orbiting radial gradient blobs that
+   live at z-index -1 behind the entire app. Each blob is positioned
+   absolutely at a different starting point and rotates around its own
+   center on a long-period keyframe. The result: a calm, drifting
+   atmospheric layer that subtly fills the space behind cards and
+   panels without ever competing with content. Will be replaced by a
+   Rive .riv file once the user sources one — until then, this is the
+   placeholder that proves the architecture. */
+.rv-ambient-blob {
+  position: absolute;
+  width:    65vw;
+  height:   65vw;
+  border-radius: 50%;
+  filter:   blur(40px);
+  will-change: transform;
+}
+.rv-ambient-blob-a {
+  top:   -10vw;
+  left:  -10vw;
+  animation: rv-blob-orbit-a 38s ease-in-out infinite;
+}
+.rv-ambient-blob-b {
+  bottom: -15vw;
+  right:  -15vw;
+  animation: rv-blob-orbit-b 46s ease-in-out infinite;
+}
+.rv-ambient-blob-c {
+  top:    25vh;
+  right:  -20vw;
+  animation: rv-blob-orbit-c 52s ease-in-out infinite;
+}
+@keyframes rv-blob-orbit-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(8vw, 6vh) scale(1.08); }
+  66%      { transform: translate(-4vw, 10vh) scale(0.95); }
+}
+@keyframes rv-blob-orbit-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40%      { transform: translate(-10vw, -8vh) scale(1.10); }
+  70%      { transform: translate(4vw, -4vh) scale(0.92); }
+}
+@keyframes rv-blob-orbit-c {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-12vw, 8vh) scale(1.06); }
+}
+
 /* Route surface transitions — tiny Y-translate + opacity fade when
    navigating between Browse / Pipeline / Settings. Short and quiet
    (180ms, 4px) so surface swaps feel like a continuous space, not

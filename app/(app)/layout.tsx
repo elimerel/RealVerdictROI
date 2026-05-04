@@ -8,6 +8,7 @@ import SidebarToggle from "@/components/sidebar/toggle"
 import { PanelStateProvider } from "@/components/panel/context"
 import PanelToggle from "@/components/browser/PanelToggle"
 import CommandPalette from "@/components/command-palette"
+import { BackdropProvider, AmbientBackdrop } from "@/components/AmbientBackdrop"
 
 /**
  * Wires menu-accelerator IPC events from main.js into the React tree:
@@ -85,29 +86,42 @@ function applyThemeClass(resolved: string, picked?: string) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SidebarProvider>
-      <PanelStateProvider>
-        <ShortcutHost />
-        <ThemeHydrator />
-        <div
-          className="flex w-screen h-screen overflow-hidden"
-          style={{ background: "var(--rv-bg)" }}
-        >
-          <Sidebar />
-          <main className="flex flex-col flex-1 min-w-0 h-full relative">
-            <RouteFader>{children}</RouteFader>
-          </main>
-        </div>
-        {/* Two pinned window-level toggles. SidebarToggle never moves
-            (top-left). PanelToggle hides itself unless /browse has
-            registered active panel state. */}
-        <SidebarToggle />
-        <PanelToggle />
-        {/* ⌘K palette — global. Opens with the keyboard or a code call to
-            openCommandPalette(). Routes inject context-specific actions via
-            the usePaletteActions hook. */}
-        <CommandPalette />
-      </PanelStateProvider>
-    </SidebarProvider>
+    <BackdropProvider>
+      <SidebarProvider>
+        <PanelStateProvider>
+          <ShortcutHost />
+          <ThemeHydrator />
+          {/* Ambient backdrop — z-index -1 atmospheric layer behind every
+              surface. Mood is driven by route + interactions (see
+              useSetMoodWhileMounted). Today renders a CSS placeholder;
+              swaps to Rive when a .riv file is provided. */}
+          <AmbientBackdrop />
+          <div
+            className="flex w-screen h-screen overflow-hidden"
+            style={{
+              // Keep the page bg semi-transparent so the backdrop bleeds
+              // through. The bg color was solid; now it's the canvas
+              // tint OVER the backdrop. Tuned per theme so light mode
+              // doesn't wash out the backdrop entirely.
+              background: "color-mix(in srgb, var(--rv-bg) 90%, transparent)",
+            }}
+          >
+            <Sidebar />
+            <main className="flex flex-col flex-1 min-w-0 h-full relative">
+              <RouteFader>{children}</RouteFader>
+            </main>
+          </div>
+          {/* Two pinned window-level toggles. SidebarToggle never moves
+              (top-left). PanelToggle hides itself unless /browse has
+              registered active panel state. */}
+          <SidebarToggle />
+          <PanelToggle />
+          {/* ⌘K palette — global. Opens with the keyboard or a code call to
+              openCommandPalette(). Routes inject context-specific actions via
+              the usePaletteActions hook. */}
+          <CommandPalette />
+        </PanelStateProvider>
+      </SidebarProvider>
+    </BackdropProvider>
   )
 }
