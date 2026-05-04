@@ -124,49 +124,47 @@ interface BackdropPalette {
 }
 
 const MOOD_PALETTE: Record<BackdropMood, BackdropPalette> = {
-  // Idle — dusk over hills. Forest + clay + amber, BRIGHT enough to
-  // actually register against the warm-charcoal canvas. Each color is
-  // LIGHTER than #16120e so it adds light, not darkness. This is what
-  // separates a visible backdrop from an invisible one.
+  // Idle — dusk over hills. Toned down ~30% from the first visible pass
+  // — the user said "a bit too loud." Backdrop should be felt, not seen.
   idle: {
-    a: "rgba(70, 140, 100, 0.65)",   // bright forest — base mood, visible
-    b: "rgba(140, 80, 50, 0.60)",    // warm clay — visible depth
-    c: "rgba(48, 164, 108, 0.55)",   // accent green highlight
-    d: "rgba(220, 130, 80, 0.50)",   // bright clay highlight
-    e: "rgba(255, 210, 140, 0.45)",  // warm amber catch (the glint)
-    f: "rgba(120, 70, 45, 0.55)",    // warm bottom shadow
+    a: "rgba(70, 140, 100, 0.42)",
+    b: "rgba(140, 80, 50, 0.40)",
+    c: "rgba(48, 164, 108, 0.32)",
+    d: "rgba(220, 130, 80, 0.30)",
+    e: "rgba(255, 210, 140, 0.28)",
+    f: "rgba(120, 70, 45, 0.35)",
   },
   browsing: {
-    a: "rgba(60, 150, 110, 0.70)",
-    b: "rgba(140, 80, 50, 0.55)",
-    c: "rgba(70, 200, 130, 0.55)",   // brighter green
-    d: "rgba(200, 130, 90, 0.45)",
-    e: "rgba(230, 240, 200, 0.45)",  // cooler catch
-    f: "rgba(120, 70, 45, 0.50)",
+    a: "rgba(60, 150, 110, 0.45)",
+    b: "rgba(140, 80, 50, 0.36)",
+    c: "rgba(70, 200, 130, 0.34)",
+    d: "rgba(200, 130, 90, 0.28)",
+    e: "rgba(230, 240, 200, 0.28)",
+    f: "rgba(120, 70, 45, 0.32)",
   },
   deciding: {
-    a: "rgba(70, 140, 100, 0.60)",
-    b: "rgba(160, 95, 60, 0.65)",    // warmer umber
-    c: "rgba(48, 164, 108, 0.50)",
-    d: "rgba(220, 130, 80, 0.60)",   // more clay
-    e: "rgba(255, 210, 140, 0.50)",
-    f: "rgba(135, 75, 50, 0.55)",
+    a: "rgba(70, 140, 100, 0.38)",
+    b: "rgba(160, 95, 60, 0.42)",
+    c: "rgba(48, 164, 108, 0.30)",
+    d: "rgba(220, 130, 80, 0.38)",
+    e: "rgba(255, 210, 140, 0.32)",
+    f: "rgba(135, 75, 50, 0.36)",
   },
   comparing: {
-    a: "rgba(80, 130, 150, 0.60)",   // cool slate
-    b: "rgba(95, 105, 115, 0.55)",
-    c: "rgba(48, 164, 108, 0.40)",
-    d: "rgba(150, 175, 195, 0.45)",
-    e: "rgba(220, 230, 240, 0.45)",
-    f: "rgba(70, 80, 90, 0.55)",
+    a: "rgba(80, 130, 150, 0.40)",
+    b: "rgba(95, 105, 115, 0.36)",
+    c: "rgba(48, 164, 108, 0.24)",
+    d: "rgba(150, 175, 195, 0.28)",
+    e: "rgba(220, 230, 240, 0.28)",
+    f: "rgba(70, 80, 90, 0.36)",
   },
   alerting: {
-    a: "rgba(170, 90, 55, 0.75)",    // deep terracotta base
-    b: "rgba(140, 80, 50, 0.65)",
-    c: "rgba(220, 130, 80, 0.65)",   // big clay highlight
-    d: "rgba(245, 158, 11, 0.50)",   // amber
-    e: "rgba(255, 210, 140, 0.55)",
-    f: "rgba(130, 65, 40, 0.60)",
+    a: "rgba(170, 90, 55, 0.50)",
+    b: "rgba(140, 80, 50, 0.42)",
+    c: "rgba(220, 130, 80, 0.42)",
+    d: "rgba(245, 158, 11, 0.32)",
+    e: "rgba(255, 210, 140, 0.36)",
+    f: "rgba(130, 65, 40, 0.40)",
   },
 }
 

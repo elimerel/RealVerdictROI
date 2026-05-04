@@ -1489,15 +1489,8 @@ function PipelinePageInner() {
   }, [checking, watchedCount, refresh])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
-      {/* Atmospheric bloom — same source-light technique as Browse */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: "radial-gradient(ellipse 65% 28% at 50% -1%, rgba(48,164,108,0.05) 0%, transparent 55%)",
-          zIndex: 0,
-        }}
-      />
+    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "transparent" }}>
+      {/* Per-page gradient removed — global AmbientBackdrop carries atmosphere now */}
       {/* Header */}
       <div
         className="flex items-center shrink-0 relative"

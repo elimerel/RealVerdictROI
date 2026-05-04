@@ -37,9 +37,11 @@
   --rv-glass:        transparent;
   --rv-glass-mid:    rgba(255, 255, 255, 0.04);
   --rv-glass-light:  transparent;
-  /* Tint applied OVER macOS vibrancy on the sidebar / panel chrome. */
-  --rv-glass-tint:        rgba(255, 255, 255, 0.05);
-  --rv-glass-tint-strong: rgba(255, 255, 255, 0.07);
+  /* Tint applied OVER macOS vibrancy on the sidebar / panel chrome.
+     Bumped slightly so the sidebar reads as solid surface against the
+     ambient backdrop instead of feeling translucent. */
+  --rv-glass-tint:        rgba(20, 16, 12, 0.45);
+  --rv-glass-tint-strong: rgba(20, 16, 12, 0.55);
 
   /* Scrim / overlay darkening — for modal backdrops + dropdown shadows.
      Always a dark color regardless of theme, since modals dim what's

@@ -938,17 +938,73 @@ function greeting() {
   return "Good evening"
 }
 
-/** Tiny time-of-day glyph that rides next to the greeting. Calm warmth, not
- *  decoration — same energy as Modulix's "Welcome, Calvin 👋" or Finexy's
- *  sun/moon mode toggle. Rendered slightly smaller than the greeting and
- *  baseline-aligned so it reads as part of the line, not pasted on. */
-function timeOfDayGlyph(): string {
-  const h = new Date().getHours()
-  if (h < 6)  return "✦"   // late night / pre-dawn — calm
-  if (h < 12) return "☀️"  // morning
-  if (h < 17) return "👋"  // afternoon — warm hello
-  if (h < 21) return "🌇"  // evening
-  return "🌙"              // night
+/** Buddy observation — one substantive line under the greeting.
+ *  This is what a partner would say glancing at your pipeline over
+ *  morning coffee. NOT a stat strip ("3 watching · 2 interested") —
+ *  a real noticing ("Two of your watching deals haven't moved in a
+ *  week"). One observation per visit, picked from a priority order
+ *  so the most interesting truth always wins.
+ *
+ *  Returns plain text. Calling code wraps in display serif so the
+ *  observation reads as the buddy's voice, not a system label. */
+function buddyObservation(activeDeals: SavedDeal[], ctx: StartScreenContext | null): string {
+  const empty = activeDeals.length === 0
+
+  // First-time / empty pipeline — invitation, not data.
+  if (empty) {
+    const lines = [
+      "Open a listing and I'll start the math.",
+      "Nothing in your pipeline yet — let's find the first one.",
+      "Drop any Zillow or Redfin URL in the bar above. I'll do the rest.",
+    ]
+    return lines[Math.floor(Math.random() * lines.length)]
+  }
+
+  // Stale watching — most actionable observation, surface first.
+  const stale = ctx?.pipeline?.staleWatching ?? 0
+  if (stale > 0) {
+    return stale === 1
+      ? "One of your watching deals hasn't moved in over a week."
+      : `${stale} of your watching deals haven't moved in over a week.`
+  }
+
+  // Recent activity — fresh saves are a good signal.
+  const recentSaves = ctx?.pipeline?.savedThisWeek ?? 0
+  if (recentSaves >= 3) {
+    return `You've saved ${recentSaves} listings this week. Want to compare them?`
+  }
+  if (recentSaves === 0 && activeDeals.length > 0) {
+    // Quiet week — gentle nudge.
+    const newest = activeDeals.reduce((a, b) =>
+      new Date(a.created_at).getTime() > new Date(b.created_at).getTime() ? a : b
+    )
+    const days = Math.floor((Date.now() - new Date(newest.created_at).getTime()) / 86400000)
+    if (days >= 7) {
+      return days >= 14
+        ? `It's been ${days} days since your last save. Quiet stretch.`
+        : "Quiet week so far — nothing new in your pipeline since last weekend."
+    }
+  }
+
+  // Cash flow story — calm portfolio observation.
+  const cf = activeDeals.map((d) => d.snapshot?.metrics?.monthlyCashFlow).filter((n): n is number => Number.isFinite(n))
+  if (cf.length >= 2) {
+    const positive = cf.filter((n) => n > 0).length
+    const total    = cf.length
+    if (positive === total)  return "Every deal in your pipeline cash flows positive."
+    if (positive === 0)      return "None of your saved deals cash flow positive yet — worth filtering by your defaults."
+  }
+
+  // Watching count — neutral fallback.
+  const watching = ctx?.pipeline?.watchingCount ?? 0
+  if (watching > 0) {
+    return watching === 1
+      ? "One deal in Watching. Quiet day."
+      : `${watching} deals in Watching. Calm in here today.`
+  }
+
+  // Generic friendly fallback — never says nothing.
+  return "Welcome back."
 }
 
 /** Best-effort first name from a Supabase user. Tries OAuth metadata first
@@ -1791,18 +1847,8 @@ function StartScreen({
         isWorkstation ? "justify-start pt-16" : "justify-center"
       }`}
     >
-      {/* Atmospheric bloom — gives the dead-black canvas a light source.
-          Workstation: top-anchored behind the greeting (depth, not sheen).
-          Welcome: centered, frames the hero. Both are subtle enough to
-          feel designed rather than decorative. */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: isWorkstation
-            ? "radial-gradient(ellipse 75% 38% at 50% -2%, rgba(48,164,108,0.055) 0%, transparent 60%)"
-            : "radial-gradient(ellipse 55% 36% at 50% 36%, rgba(48,164,108,0.06) 0%, transparent 72%)",
-        }}
-      />
+      {/* Per-screen atmospheric gradient removed — the global
+          AmbientBackdrop (z-index -1) handles atmosphere everywhere now. */}
 
       <div className={`relative flex flex-col w-full ${
         isWorkstation
@@ -1816,13 +1862,15 @@ function StartScreen({
           // old 2×2 equal-weight card grid — the pipeline is the main thing,
           // everything else is supporting context.
           <>
-            {/* Greeting — bigger and bolder, with a small time-of-day glyph
-                for warmth. The buddy doesn't shout; the glyph just lets the
-                user feel addressed instead of titled. Same trick Modulix and
-                Finexy use ("Welcome, X 👋"). */}
-            <div className={`${introCls("rv-greeting")} flex flex-col items-stretch w-full mb-6`}>
+            {/* Greeting + buddy observation — the personal moment. The
+                greeting names you; the line below is what your buddy would
+                say if they were sitting across from you, glancing at your
+                pipeline. Bigger and quieter than a stat strip — this is
+                supposed to feel like someone paying attention, not a
+                dashboard heading. */}
+            <div className={`${introCls("rv-greeting")} flex flex-col items-stretch w-full mb-10`}>
               <h1
-                className="tracking-[-0.025em] leading-[1.0] flex items-baseline gap-3 flex-wrap"
+                className="tracking-[-0.025em] leading-[1.0]"
                 style={{
                   color:      "var(--rv-t1)",
                   fontSize:   52,
@@ -1830,26 +1878,20 @@ function StartScreen({
                   fontWeight: 500,
                 }}
               >
-                <span>{greetWithName || " "}</span>
-                {greetWithName && (
-                  <span
-                    aria-hidden
-                    style={{
-                      fontSize:   32,
-                      lineHeight: 1,
-                      transform:  "translateY(-2px)",
-                      fontFamily: "system-ui",  // emoji renders better in system stack
-                    }}
-                  >
-                    {timeOfDayGlyph()}
-                  </span>
-                )}
+                {greetWithName || " "}
               </h1>
               <p
-                className={`${introCls("rv-subhead")} mt-2 text-[13px] tracking-[-0.005em]`}
-                style={{ color: "var(--rv-t3)" }}
+                className={`${introCls("rv-subhead")} mt-4 leading-snug`}
+                style={{
+                  color:      "var(--rv-t2)",
+                  fontSize:   17,
+                  fontFamily: "var(--rv-font-display)",
+                  fontWeight: 400,
+                  letterSpacing: "-0.012em",
+                  maxWidth:   560,
+                }}
               >
-                {workstationSubtitle(activeDeals, ctx)}
+                {buddyObservation(activeDeals, ctx)}
               </p>
             </div>
 
@@ -1863,39 +1905,26 @@ function StartScreen({
             />
 
             {/* Today feed — what changed since you last looked. Only
-                renders when there's actual recent activity; absent state
-                is silent (the buddy doesn't make conversation). Sits
-                above the hero stats so the user lands in the WHAT
-                CHANGED before the WHAT IS. */}
-            <div className={`${introCls("rv-grid")} mt-7`}>
-              <ActivityFeed limit={10} />
+                renders when there's actual recent activity. Generous
+                top spacing so it doesn't crowd the buddy line. */}
+            <div className={`${introCls("rv-grid")} mt-2`}>
+              <ActivityFeed limit={8} />
             </div>
 
-            {/* Hero stat cards — 4 across. Constant context. Sits below
-                the activity feed so it reads as the steady backdrop
-                against which today's events register. */}
+            {/* Hero stat cards — 4 across. Constant context. Generous
+                spacing for the breathable workstation feel. */}
             {activeDeals.length > 0 && (
-              <div className={introCls("rv-grid")}>
+              <div className={`${introCls("rv-grid")} mt-6`}>
                 <HeroStatsStrip activeDeals={activeDeals} ctx={ctx} />
               </div>
             )}
 
-            {/* Pipeline — full-width list. The deal list IS the content,
-                not a card inside a grid. Visible only when there are deals. */}
+            {/* Pipeline — full-width list. The deal list IS the content. */}
             {activeDeals.length > 0 && onOpenInPipeline && (
-              <div className={`${introCls("rv-grid")} mt-4`}>
+              <div className={`${introCls("rv-grid")} mt-6 mb-10`}>
                 <PipelineDashCard deals={activeDeals} onOpenInPipeline={onOpenInPipeline} />
               </div>
             )}
-
-            {/* Supporting strip — 2 compact cards. SinceLastLookCard was
-                here but the Today feed now covers that surface; keeping
-                it would be redundant. Market rate ticker + quick searches
-                stay as ambient utilities. */}
-            <div className={`${introCls("rv-grid")} grid grid-cols-2 gap-4 mt-4`}>
-              <MarketDashCard />
-              <QuickSearchesCard onNavigate={onNavigate} />
-            </div>
 
             <p
               className={`${introCls("rv-hint")} mt-6 flex items-center gap-1.5 text-[11px] px-1`}
