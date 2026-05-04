@@ -899,31 +899,35 @@ function ResultPane({
   return (
     <div className="flex flex-col overflow-y-auto panel-scroll flex-1 min-h-0">
 
-      {/* Property identity */}
-      <div className="px-4 pt-4 pb-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
-        {/* Mapbox thumbnail — small inline map gives every analyzed listing
-            a physical anchor. Sits above the price so the user sees WHERE
-            before they dig into the financial picture. */}
+      {/* Hero — the moment the user opens the panel. Map → price + cash
+          flow paired as co-heroes, so in 4 seconds the user knows what
+          this listing IS ($474k for +$340/mo). Address + stats sit below
+          as supporting context. The visual ratio is intentional: this
+          section takes a third of the panel height so the "what's the
+          deal" answer lands hard before the user scrolls. */}
+      <div className="px-4 pt-4 pb-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
         {(result.address || result.city) && (
-          <div className="mb-3 -mx-1">
+          <div className="mb-4 -mx-1">
             <PropertyMap
               address={result.address}
               city={result.city}
               state={result.state}
               zip={result.zip}
               size="inline"
-              radius={8}
+              radius={10}
               className="w-full"
             />
           </div>
         )}
+
+        {/* Price — the financial anchor. Display serif, big, weighted. */}
         {result.listPrice != null && (
           <p
-            className="leading-tight tabular-nums"
+            className="leading-[1.0] tabular-nums"
             style={{
               color:         "var(--rv-t1)",
-              fontSize:      26,
-              letterSpacing: "-0.022em",
+              fontSize:      36,
+              letterSpacing: "-0.030em",
               fontFamily:    "var(--rv-font-display)",
               fontWeight:    500,
             }}
@@ -931,12 +935,54 @@ function ResultPane({
             <Currency value={result.listPrice} whole />
           </p>
         )}
+
+        {/* Cash flow as the co-hero — the actual answer to "is this a
+            deal?" rendered with confidence right next to the price.
+            Color follows sign (calm rose for negative, calm green for
+            positive); never green-as-judgment, just data hygiene. */}
+        {Number.isFinite(metrics.monthlyCashFlow) && (
+          <div className="flex items-baseline gap-2 mt-2">
+            <span
+              className="tabular-nums leading-none"
+              style={{
+                color:         metrics.monthlyCashFlow < 0 ? "var(--rv-neg)" : "var(--rv-pos)",
+                fontSize:      22,
+                letterSpacing: "-0.020em",
+                fontFamily:    "var(--rv-font-display)",
+                fontWeight:    500,
+              }}
+            >
+              <Currency value={metrics.monthlyCashFlow} signed />
+            </span>
+            <span
+              className="text-[11.5px] tracking-tight"
+              style={{ color: "var(--rv-t3)" }}
+            >
+              cash flow / mo
+            </span>
+            {scenarioActive && (
+              <span
+                className="ml-auto inline-flex items-center gap-1 rounded-full text-[10px] font-medium tracking-tight shrink-0"
+                style={{
+                  color:      "var(--rv-accent)",
+                  background: "var(--rv-accent-dim)",
+                  border:     "0.5px solid var(--rv-accent-border)",
+                  padding:    "2px 7px",
+                }}
+                title="You've adjusted assumptions on this listing"
+              >
+                Your scenario
+              </span>
+            )}
+          </div>
+        )}
+
         {address && (
-          <p className="text-[12px] mt-1 leading-snug" style={{ color: "var(--rv-t3)" }}>
+          <p className="text-[12.5px] mt-3 leading-snug" style={{ color: "var(--rv-t2)" }}>
             {address}
           </p>
         )}
-        <div className="flex items-center gap-3 mt-2 text-[11px]" style={{ color: "var(--rv-t4)" }}>
+        <div className="flex items-center gap-3 mt-1.5 text-[11px]" style={{ color: "var(--rv-t4)" }}>
           {result.beds      && <span>{result.beds} bd</span>}
           {result.baths     && <span>{result.baths} ba</span>}
           {result.sqft      && <span>{result.sqft.toLocaleString()} sqft</span>}
@@ -967,18 +1013,7 @@ function ResultPane({
           they're looking at modeled-not-default numbers. */}
       <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
         {scenarioActive && (
-          <div className="flex items-center justify-between mb-3">
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full text-[10.5px] font-medium tracking-tight"
-              style={{
-                color:      "var(--rv-accent)",
-                background: "var(--rv-accent-dim)",
-                border:     "0.5px solid var(--rv-accent-border)",
-                padding:    "3px 8px",
-              }}
-            >
-              Your scenario
-            </span>
+          <div className="flex items-center justify-end mb-2">
             <button
               onClick={() => setOverrides({})}
               className="text-[11px] tracking-tight transition-colors"
@@ -987,7 +1022,7 @@ function ResultPane({
               onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)" }}
               title="Clear all overrides and return to the default analysis"
             >
-              Reset
+              Reset scenario
             </button>
           </div>
         )}
