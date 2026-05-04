@@ -88,10 +88,11 @@ export function AmbientBackdrop() {
         inset:          0,
         zIndex:         -1,
         pointerEvents:  "none",
-        // Crucial: the body needs to be transparent / show this through.
-        // We layer the app on top using its own bg tokens; the backdrop
-        // peeks through panels via the existing glass treatment.
         overflow:       "hidden",
+        // Solid base color so blobs render against a defined canvas.
+        // The body above is transparent so this is what shows through
+        // empty page areas. Theme-aware via --rv-bg.
+        background:     "var(--rv-bg)",
       }}
     >
       {hasRive ? (
@@ -123,50 +124,49 @@ interface BackdropPalette {
 }
 
 const MOOD_PALETTE: Record<BackdropMood, BackdropPalette> = {
-  // Idle — dusk over hills. Deep forest base, clay edge, amber catch.
+  // Idle — dusk over hills. Forest + clay + amber, BRIGHT enough to
+  // actually register against the warm-charcoal canvas. Each color is
+  // LIGHTER than #16120e so it adds light, not darkness. This is what
+  // separates a visible backdrop from an invisible one.
   idle: {
-    a: "rgba(31, 79, 61, 0.55)",     // deep forest — base mood
-    b: "rgba(58, 38, 28, 0.50)",     // dark umber — depth
-    c: "rgba(48, 164, 108, 0.18)",   // forest green highlight
-    d: "rgba(194, 117, 74, 0.18)",   // clay highlight
-    e: "rgba(245, 198, 130, 0.20)",  // warm amber catch
-    f: "rgba(45, 30, 22, 0.45)",     // bottom warm shadow
+    a: "rgba(70, 140, 100, 0.65)",   // bright forest — base mood, visible
+    b: "rgba(140, 80, 50, 0.60)",    // warm clay — visible depth
+    c: "rgba(48, 164, 108, 0.55)",   // accent green highlight
+    d: "rgba(220, 130, 80, 0.50)",   // bright clay highlight
+    e: "rgba(255, 210, 140, 0.45)",  // warm amber catch (the glint)
+    f: "rgba(120, 70, 45, 0.55)",    // warm bottom shadow
   },
-  // Browsing — slightly more forest, more active "scanning" energy.
   browsing: {
-    a: "rgba(36, 90, 70, 0.60)",
-    b: "rgba(58, 38, 28, 0.50)",
-    c: "rgba(48, 164, 108, 0.24)",   // brighter green
-    d: "rgba(194, 117, 74, 0.16)",
-    e: "rgba(220, 230, 200, 0.22)",  // cooler catch (morning light)
-    f: "rgba(45, 30, 22, 0.45)",
+    a: "rgba(60, 150, 110, 0.70)",
+    b: "rgba(140, 80, 50, 0.55)",
+    c: "rgba(70, 200, 130, 0.55)",   // brighter green
+    d: "rgba(200, 130, 90, 0.45)",
+    e: "rgba(230, 240, 200, 0.45)",  // cooler catch
+    f: "rgba(120, 70, 45, 0.50)",
   },
-  // Deciding — panel open, focused. Warmer, slower, more contemplative.
   deciding: {
-    a: "rgba(31, 79, 61, 0.50)",
-    b: "rgba(78, 50, 38, 0.55)",     // warmer umber
-    c: "rgba(48, 164, 108, 0.16)",
-    d: "rgba(194, 117, 74, 0.22)",   // more clay
-    e: "rgba(245, 198, 130, 0.22)",
-    f: "rgba(60, 38, 28, 0.50)",
+    a: "rgba(70, 140, 100, 0.60)",
+    b: "rgba(160, 95, 60, 0.65)",    // warmer umber
+    c: "rgba(48, 164, 108, 0.50)",
+    d: "rgba(220, 130, 80, 0.60)",   // more clay
+    e: "rgba(255, 210, 140, 0.50)",
+    f: "rgba(135, 75, 50, 0.55)",
   },
-  // Comparing — neutral cooler, lets the comparison data breathe.
   comparing: {
-    a: "rgba(36, 70, 80, 0.55)",     // cool slate
-    b: "rgba(45, 50, 56, 0.55)",
-    c: "rgba(48, 164, 108, 0.14)",
-    d: "rgba(120, 140, 160, 0.16)",
-    e: "rgba(200, 215, 225, 0.20)",
-    f: "rgba(40, 45, 52, 0.50)",
+    a: "rgba(80, 130, 150, 0.60)",   // cool slate
+    b: "rgba(95, 105, 115, 0.55)",
+    c: "rgba(48, 164, 108, 0.40)",
+    d: "rgba(150, 175, 195, 0.45)",
+    e: "rgba(220, 230, 240, 0.45)",
+    f: "rgba(70, 80, 90, 0.55)",
   },
-  // Alerting — clay dominates, amber catch brighter. Calm urgency.
   alerting: {
-    a: "rgba(78, 45, 30, 0.65)",     // deep terracotta base
-    b: "rgba(58, 38, 28, 0.55)",
-    c: "rgba(194, 117, 74, 0.30)",   // big clay highlight
-    d: "rgba(245, 158, 11, 0.18)",   // amber
-    e: "rgba(255, 210, 140, 0.28)",
-    f: "rgba(60, 32, 22, 0.55)",
+    a: "rgba(170, 90, 55, 0.75)",    // deep terracotta base
+    b: "rgba(140, 80, 50, 0.65)",
+    c: "rgba(220, 130, 80, 0.65)",   // big clay highlight
+    d: "rgba(245, 158, 11, 0.50)",   // amber
+    e: "rgba(255, 210, 140, 0.55)",
+    f: "rgba(130, 65, 40, 0.60)",
   },
 }
 

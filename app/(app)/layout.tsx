@@ -99,11 +99,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div
             className="flex w-screen h-screen overflow-hidden"
             style={{
-              // Keep the page bg semi-transparent so the backdrop bleeds
-              // through. The bg color was solid; now it's the canvas
-              // tint OVER the backdrop. Tuned per theme so light mode
-              // doesn't wash out the backdrop entirely.
-              background: "color-mix(in srgb, var(--rv-bg) 90%, transparent)",
+              // Fully transparent — the AmbientBackdrop IS the page
+              // background now. Cards, panels, and the sidebar provide
+              // their own surface bgs, so empty page areas show the
+              // atmospheric layer directly.
+              background: "transparent",
             }}
           >
             <Sidebar />
