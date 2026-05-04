@@ -312,7 +312,7 @@ export interface ElectronAPI {
   getState:        () => Promise<BrowserState>
 
   // Tabs
-  listTabs:        () => Promise<TabInfo[]>
+  listTabs:        () => Promise<{ tabs: TabInfo[]; activeId: string | null }>
   newTab:          (url?: string) => Promise<{ id: string }>
   closeTab:        (id: string) => Promise<void>
   activateTab:     (id: string) => Promise<void>
@@ -416,7 +416,25 @@ export interface InvestmentPrefs {
   capexPct:          number
   /** Basis points added on top of FRED-quoted 30Y rate for investor loans. */
   rateAdjustmentBps: number
+  /** Personal "buy bar" thresholds. null = no bar set (no pill rendered). */
+  minCapRate?:       number | null
+  minCashFlow?:      number | null
+  minDscr?:          number | null
+  /** Mapbox style for the persistent map shell. "auto" follows the
+   *  current app theme (charcoal-warm/dark → dark-v11, light → light-v11).
+   *  Specific values override the theme-derived choice. */
+  mapStyle?:         MapStyleKey
 }
+
+/** Mapbox style keys exposed to the user. "auto" defers to the theme. */
+export type MapStyleKey =
+  | "auto"
+  | "dark-v11"
+  | "light-v11"
+  | "streets-v12"
+  | "outdoors-v12"
+  | "navigation-night-v1"
+  | "satellite-streets-v12"
 
 /** Menu-accelerator shortcuts broadcast from main.js via IPC. preload.js
  *  registers a fan-out listener and exposes this subscriber on window so

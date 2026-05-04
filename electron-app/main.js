@@ -739,17 +739,24 @@ function shrinkToLogin() {
 // Toolbar height in CSS pixels — must match the React Toolbar's height
 // (52px). If this drifts, browserView overlaps the bottom strip of the
 // toolbar and intercepts clicks meant for the URL bar / nav buttons.
+// Chrome heights above the embedded BrowserView. Must match the
+// renderer's layout exactly:
+//   - AppTopBar: 52px (always present, holds URL toolbar in Browse).
+//   - BrowseTabsRow: 40px (always 40 in Browse mode — collapses to 0
+//     on other routes, but BrowserView is only shown on Browse so
+//     we always assume the 40 here).
+// Total chrome above the BrowserView = 92px in Browse.
 const TOOLBAR_H   = 52
-const TAB_STRIP_H = 34
+const TAB_STRIP_H = 40
 
-// Total chrome height above browserView. Mirrors the TabStrip render rule
-// in components/browser/TabStrip.tsx: hidden when there's no tab or only
-// one empty (no-URL) tab; otherwise visible at 34px.
+// Total chrome height above the embedded BrowserView in Browse mode.
+// The new architecture (AppTopBar + BrowseTabsRow at the layout
+// level) renders BOTH bars unconditionally when in Browse — the
+// previous "hide tab strip when only one empty tab" optimization no
+// longer applies because the BrowseTabsRow is always 40px in Browse
+// and just shows the (single) tab inside it. So chrome is always
+// 92px (40 tabs + 52 toolbar) when the BrowserView is shown.
 function activeChromeHeight() {
-  if (tabs.size <= 1) {
-    const t = activeTabId ? tabs.get(activeTabId) : null
-    if (!t || !t.navState.url) return TOOLBAR_H
-  }
   return TOOLBAR_H + TAB_STRIP_H
 }
 
@@ -1381,14 +1388,16 @@ ipcMain.handle("watch:check-all", async (_e, deals) => {
 
 // ── Tab management IPC ────────────────────────────────────────────────────
 ipcMain.handle("browser:tabs:list", () => {
-  return Array.from(tabs.entries()).map(([id, t]) => ({
-    id,
-    url:       t.navState.url,
-    title:     t.navState.title || prettyTabTitle(t.navState.url),
-    isListing: t.navState.isListing,
-    loading:   t.navState.loading,
-    activeId:  activeTabId,
-  }))
+  return {
+    tabs: Array.from(tabs.entries()).map(([id, t]) => ({
+      id,
+      url:       t.navState.url,
+      title:     t.navState.title || prettyTabTitle(t.navState.url),
+      isListing: t.navState.isListing,
+      loading:   t.navState.loading,
+    })),
+    activeId: activeTabId,
+  }
 })
 
 ipcMain.handle("browser:tabs:create", (_e, opts) => {
@@ -2420,6 +2429,17 @@ const DEFAULT_INVESTMENT_PREFS = {
   maintenancePct:   0.05,
   capexPct:         0.05,
   rateAdjustmentBps: 0, // basis points added to FRED rate (e.g. for investor loan premium)
+  // Personal "buy bar" thresholds — when set, the panel renders a
+  // quiet "above bar / below bar" pill on each metric card. NOT a
+  // verdict; just memory of the user's own criteria so they don't
+  // have to re-evaluate from scratch on every listing. null =
+  // threshold not set (no pill rendered for that metric).
+  minCapRate:        null, // e.g., 0.06 for "I only buy at ≥6% cap"
+  minCashFlow:       null, // e.g., 200 for "≥$200/mo cash flow"
+  minDscr:           null, // e.g., 1.20 for "≥1.20 debt coverage"
+  // Mapbox style for the persistent shell map. "auto" follows the
+  // current app theme; explicit keys override.
+  mapStyle:          "auto",
 }
 
 ipcMain.handle("config:get-investment-prefs", () => {

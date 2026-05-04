@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
+import { useTopBarSlots } from "@/lib/topBarSlots"
 import {
   Check,
   ChevronDown,
@@ -17,7 +19,8 @@ import {
 } from "lucide-react"
 import { useSidebar, SNAP_ICONS } from "@/components/sidebar/context"
 import { createClient } from "@/lib/supabase/client"
-import type { InvestmentPrefs, ThemePicked } from "@/lib/electron"
+import type { InvestmentPrefs, ThemePicked, MapStyleKey } from "@/lib/electron"
+import { PREFS_CHANGED_EVENT } from "@/lib/useMapStyle"
 
 // ── Section frame ─────────────────────────────────────────────────────────
 //
@@ -336,6 +339,102 @@ function ThemePickerSection() {
   )
 }
 
+// ── Map appearance ────────────────────────────────────────────────────────
+//
+// Picker for the persistent Mapbox shell's style. "Auto" follows the
+// current app theme (dark in charcoal, light in light). Specific keys
+// override theme. Live-updates the mounted MapShell via a custom
+// "rv:prefs-changed" event — no remount, no reload.
+
+const MAP_STYLE_OPTIONS: Array<{ key: MapStyleKey; label: string; preview: string }> = [
+  { key: "auto",                    label: "Auto · follow theme", preview: "linear-gradient(135deg,#2a2a2a 0%,#2a2a2a 49%,#f5f5f7 51%,#f5f5f7 100%)" },
+  { key: "dark-v11",                label: "Dark",                preview: "#1a1d23" },
+  { key: "light-v11",               label: "Light",               preview: "#eef0f2" },
+  { key: "streets-v12",             label: "Streets",             preview: "linear-gradient(180deg,#dfe6e3 0%,#cdd9d6 100%)" },
+  { key: "outdoors-v12",            label: "Outdoors",            preview: "linear-gradient(180deg,#d8e3c9 0%,#bdcca9 100%)" },
+  { key: "navigation-night-v1",     label: "Navigation night",    preview: "#0e1118" },
+  { key: "satellite-streets-v12",   label: "Satellite",           preview: "linear-gradient(135deg,#3a4f31 0%,#5b6b3e 60%,#a8a07a 100%)" },
+]
+
+function MapStyleSection() {
+  const api = typeof window !== "undefined" ? window.electronAPI : undefined
+  const [active, setActive] = useState<MapStyleKey>("auto")
+
+  useEffect(() => {
+    let cancelled = false
+    api?.getInvestmentPrefs?.().then((p) => {
+      if (cancelled) return
+      setActive((p.mapStyle as MapStyleKey | undefined) ?? "auto")
+    })
+    return () => { cancelled = true }
+  }, [api])
+
+  const choose = useCallback((key: MapStyleKey) => {
+    setActive(key) // optimistic
+    void api?.setInvestmentPrefs?.({ mapStyle: key })
+    // Broadcast so the persistent MapShell + any other listeners
+    // re-fetch and apply the change without remounting.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(PREFS_CHANGED_EVENT))
+    }
+  }, [api])
+
+  return (
+    <SettingsSection
+      id="map-appearance"
+      title="Map appearance"
+      description="The look of the persistent map behind Browse and inside Pipeline. Auto matches your theme; specific styles override it."
+      icon={<Palette size={14} strokeWidth={1.7} />}
+    >
+      <div className="flex flex-wrap gap-2.5">
+        {MAP_STYLE_OPTIONS.map((opt) => {
+          const isActive = active === opt.key
+          return (
+            <button
+              key={opt.key}
+              onClick={() => choose(opt.key)}
+              aria-pressed={isActive}
+              className="group relative flex flex-col items-stretch text-left transition-transform duration-100"
+              style={{ width: 120, cursor: "default" }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.02)" }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)" }}
+            >
+              <div
+                className="relative rounded-[10px] overflow-hidden"
+                style={{
+                  height:     64,
+                  border:     `0.5px solid ${isActive ? "var(--rv-accent-border)" : "var(--rv-border)"}`,
+                  background: opt.preview,
+                  boxShadow:  isActive ? "0 0 0 1px var(--rv-accent-border)" : "none",
+                }}
+              >
+                {/* Tiny pin in the corner so each preview reads as
+                    "this is a map," not just a colored rectangle. */}
+                <span
+                  className="absolute"
+                  style={{
+                    bottom: 8, right: 10,
+                    width: 7, height: 7, borderRadius: 99,
+                    background: "var(--rv-accent)",
+                    border: "1.2px solid rgba(255,255,255,0.92)",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.4)",
+                  }}
+                />
+              </div>
+              <p
+                className="mt-2 text-[12px] font-medium tracking-tight"
+                style={{ color: isActive ? "var(--rv-accent)" : "var(--rv-t2)" }}
+              >
+                {opt.label}
+              </p>
+            </button>
+          )
+        })}
+      </div>
+    </SettingsSection>
+  )
+}
+
 // ── Investment Defaults ───────────────────────────────────────────────────
 
 function InvestmentDefaultsSection() {
@@ -407,7 +506,120 @@ function InvestmentDefaultsSection() {
         value={prefs.rateAdjustmentBps}
         onChange={(v) => update({ rateAdjustmentBps: v })}
       />
+
+      {/* Personal "buy bar" — when set, the analysis panel renders a
+          quiet "above bar" / "below bar" pill on each metric card.
+          Not a verdict; just memory of the user's own criteria so
+          they don't have to re-evaluate from scratch on every listing.
+          Empty = no bar = no pill rendered for that metric. */}
+      <div
+        className="mt-2 pt-5"
+        style={{ borderTop: "0.5px solid var(--rv-border)" }}
+      >
+        <p className="text-[10px] uppercase tracking-widest font-semibold mb-1" style={{ color: "var(--rv-accent)" }}>
+          Your buy bar
+        </p>
+        <p className="text-[12px] leading-snug mb-4" style={{ color: "var(--rv-t3)" }}>
+          Optional. The numbers you actually buy at. Each metric in the panel will quietly say "above bar" or "below bar" — not a score, just memory of your criteria.
+        </p>
+        <div className="flex flex-col gap-3.5">
+          <ThresholdRow
+            label="Min cap rate"
+            hint="e.g., 6 = won't buy below 6% cap"
+            unit="%"
+            value={prefs.minCapRate ?? null}
+            onChange={(v) => update({ minCapRate: v == null ? null : v / 100 })}
+            displayScale={100}
+            placeholder="6"
+          />
+          <ThresholdRow
+            label="Min cash flow"
+            hint="e.g., 200 = won't buy below $200/mo"
+            unit="$/mo"
+            value={prefs.minCashFlow ?? null}
+            onChange={(v) => update({ minCashFlow: v })}
+            placeholder="200"
+          />
+          <ThresholdRow
+            label="Min DSCR"
+            hint="e.g., 1.20 = won't buy below 1.2× debt coverage"
+            unit="×"
+            value={prefs.minDscr ?? null}
+            onChange={(v) => update({ minDscr: v })}
+            placeholder="1.20"
+            allowDecimal
+          />
+        </div>
+      </div>
     </SettingsSection>
+  )
+}
+
+// ── Threshold row ────────────────────────────────────────────────────
+// Used for the "buy bar" personal-criteria thresholds. Empty input =
+// null = bar disabled (no pill rendered for that metric). All three
+// rows share this so the visual rhythm in Settings is consistent.
+
+function ThresholdRow({
+  label, hint, unit, value, onChange, placeholder, displayScale = 1, allowDecimal,
+}: {
+  label:        string
+  hint:         string
+  unit:         string
+  value:        number | null
+  onChange:     (v: number | null) => void
+  placeholder:  string
+  /** Scale factor for display — e.g., 100 to show 0.06 as "6". */
+  displayScale?: number
+  allowDecimal?: boolean
+}) {
+  const display = value == null ? "" : String(value * displayScale)
+  return (
+    <div className="flex items-center gap-5">
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-medium leading-tight" style={{ color: "var(--rv-t1)" }}>
+          {label}
+        </p>
+        <p className="text-[11.5px] leading-snug mt-1" style={{ color: "var(--rv-t4)" }}>
+          {hint}
+        </p>
+      </div>
+      <div
+        className="inline-flex items-center gap-1.5 rounded-[7px]"
+        style={{
+          background: "var(--rv-elev-2)",
+          border:     "0.5px solid var(--rv-border)",
+          padding:    "5px 10px",
+          width:      130,
+          // contain the input so its default min-width (which is wider
+          // than the box) doesn't push the unit chip outside.
+          minWidth:   0,
+        }}
+      >
+        <input
+          type="text"
+          inputMode={allowDecimal ? "decimal" : "numeric"}
+          value={display}
+          placeholder={placeholder}
+          onChange={(e) => {
+            const cleaned = allowDecimal
+              ? e.target.value.replace(/[^0-9.]/g, "")
+              : e.target.value.replace(/[^0-9]/g, "")
+            if (cleaned === "" || cleaned === ".") { onChange(null); return }
+            const n = Number(cleaned)
+            if (!Number.isFinite(n)) { onChange(null); return }
+            onChange(n / displayScale)
+          }}
+          // min-w-0 on the input so flex-1 actually shrinks it below
+          // the browser's default ~150px min-width — was pushing the
+          // unit (%, $/mo, ×) clean out of the box.
+          className="flex-1 min-w-0 bg-transparent border-none outline-none text-[13px] tabular-nums font-medium"
+          style={{ color: "var(--rv-t1)" }}
+          size={1}
+        />
+        <span className="text-[11.5px] shrink-0" style={{ color: "var(--rv-t4)" }}>{unit}</span>
+      </div>
+    </div>
   )
 }
 
@@ -868,40 +1080,31 @@ function AboutSection() {
 // ── Page ──────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { open: sbOpen, width: sbWidth } = useSidebar()
-  const headerPadL =
-    sbOpen && sbWidth >= SNAP_ICONS ? 16
-    : sbOpen                         ? 38
-    :                                  120
+  const { settings: settingsSlot } = useTopBarSlots()
 
   return (
     <div
       className="flex flex-col h-full overflow-hidden"
       style={{
         background: "var(--rv-bg)",
-        // RouteFader sets pe:none so transparent regions in other
-        // routes (Pipeline's exposed map middle) let drags fall
-        // through. Settings is fully opaque chrome — opt back in.
         pointerEvents: "auto",
       }}
     >
-      <div
-        className="flex items-center shrink-0"
-        style={{
-          height:          52,
-          paddingLeft:     headerPadL,
-          paddingRight:    16,
-          WebkitAppRegion: "drag",
-          borderBottom:    "0.5px solid var(--rv-border)",
-          transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
-        } as React.CSSProperties}
-      >
-        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          <h1 className="text-[15px] font-semibold tracking-tight" style={{ color: "var(--rv-t1)" }}>
-            Settings
-          </h1>
-        </div>
-      </div>
+      {/* Title portals into the persistent AppTopBar's settings slot
+          so the bar renders our content without re-mounting on
+          navigation. The portal is conditional on the slot ref being
+          attached (it gets set after AppTopBar's first render). */}
+      {settingsSlot && createPortal(
+        <h1
+          className="text-[15px] font-semibold tracking-tight px-3"
+          style={{ color: "var(--rv-t1)" }}
+        >
+          Settings
+        </h1>,
+        settingsSlot,
+      )}
+      {/* Header removed — moved to the persistent AppTopBar at the
+          shell level. Settings is now pure content. */}
 
       {/* Centered single column — Mercury-style settings surface. Hero
           intro at the top sets the tone before sections begin, so
@@ -940,6 +1143,7 @@ export default function SettingsPage() {
           </div>
 
           <ThemePickerSection />
+          <MapStyleSection />
           <InvestmentDefaultsSection />
           <AccountSection />
           <PrivacyDataSection />

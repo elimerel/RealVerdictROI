@@ -13,6 +13,10 @@ import ToastHost from "@/components/ToastHost"
 import MapShell from "@/components/MapShell"
 import { MapShellProvider, useMapShell } from "@/lib/mapShell"
 import { fetchPipeline, DEALS_CHANGED_EVENT } from "@/lib/pipeline"
+import AppTopBar from "@/components/AppTopBar"
+import BrowseTabsRow from "@/components/BrowseTabsRow"
+import PanelToggle from "@/components/browser/PanelToggle"
+import { TopBarSlotsProvider } from "@/lib/topBarSlots"
 
 /**
  * Wires menu-accelerator IPC events from main.js into the React tree:
@@ -64,6 +68,21 @@ function ThemeHydrator() {
  *  showing off. Same easing as the rest of the chrome. */
 function RouteFader({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  // Stamp a data attribute on <body> so route-dependent chrome (the
+  // sidebar's top strip color, which must match whatever bar sits to
+  // its right at y=0..52) can adapt via CSS. Browse has a darker
+  // TabStrip up there; Pipeline/Settings have lighter --rv-surface
+  // headers. Without this signal the sidebar-top would look like an
+  // off-colored rectangle next to one of the two.
+  useEffect(() => {
+    if (typeof document === "undefined") return
+    const route =
+      pathname.startsWith("/pipeline") ? "pipeline"
+      : pathname.startsWith("/settings") ? "settings"
+      : pathname.startsWith("/browse")   ? "browse"
+      : "other"
+    document.body.dataset.rvRoute = route
+  }, [pathname])
   return (
     <div
       key={pathname}
@@ -165,71 +184,108 @@ function GoogleMapsPrefetch() {
   )
 }
 
-/** MapShellLayer — the persistent map + the scrim that controls how
- *  much of it is visible per route. Sits BEHIND the routed content
- *  inside <main>. */
+/** MapShellLayer — the persistent map. Position-FIXED to the viewport
+ *  so its size is constant across route changes (Mapbox doesn't get
+ *  resize events when chrome animates above).
+ *
+ *  No scrim layer anymore. The previous design used a route-controlled
+ *  opacity overlay (0 in Pipeline, ~0.86 in Browse) to fade the map
+ *  down where it shouldn't dominate. That opacity transition was
+ *  flickering on every route change — too many animations
+ *  competing. Replaced by structural opacity: routes that don't want
+ *  the map (Browse, Settings) just render opaque content over it.
+ *  Pipeline keeps its transparent middle column so the map remains
+ *  the canvas there. Simpler, no transition glitches.
+ */
 function MapShellLayer() {
-  const { scrimOpacity } = useMapShell()
+  const { open: sbOpen, width: sbWidth } = useSidebar()
+  const left = sbOpen ? sbWidth : 0
   return (
-    <>
-      {/* The map itself, full-coverage of the main content area. */}
-      <div className="absolute inset-0" style={{ zIndex: 0 }}>
-        <MapShell />
-      </div>
-      {/* Scrim — a layer of canvas-color that fades the map down per
-          route. Browse keeps it nearly opaque (faint hint); Pipeline
-          drops it to 0 (map is the canvas). Pointer-events:none so
-          clicks pass through to the map. */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          zIndex:     1,
-          background: "var(--rv-bg)",
-          opacity:    scrimOpacity,
-          transition: "opacity 320ms cubic-bezier(0.32, 0.72, 0, 1)",
-        }}
-      />
-    </>
+    <div
+      style={{
+        position: "fixed",
+        top:      52,
+        left,
+        right:    0,
+        bottom:   0,
+        zIndex:   0,
+        transition: "left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+      }}
+    >
+      <MapShell />
+    </div>
   )
 }
+
+/** TopBarGlobalCluster — pinned to the FAR right of the AppTopBar.
+ *  Always-reachable controls regardless of route. Currently just the
+ *  PanelToggle (Analysis button) which is meaningful in Browse;
+ *  routes where the analysis panel doesn't apply just don't show it. */
+function TopBarGlobalCluster() {
+  const pathname = usePathname()
+  const inBrowse = pathname.startsWith("/browse")
+  return inBrowse ? <PanelToggle /> : null
+}
+
+/** Brand removed from AppTopBar — moved into the sidebar at the top
+ *  of nav so the wordmark is column-aligned with the nav items
+ *  below it. The AppTopBar's left zone is now just a drag region
+ *  for the macOS traffic lights. */
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <PanelStateProvider>
         <MapShellProvider>
-          <ShortcutHost />
-          <ThemeHydrator />
-          <DealsHydrator />
-          <div
-            className="flex w-screen h-screen overflow-hidden"
-            style={{ background: "var(--rv-bg)" }}
-          >
-            <Sidebar />
-            <main className="flex flex-col flex-1 min-w-0 h-full relative">
-              {/* Persistent map + scrim sit behind the routed content,
-                  so navigating between Browse and Pipeline never
-                  re-mounts the map. The route content sits at z-index
-                  2 with transparent regions where it wants the map to
-                  show through. */}
-              <MapShellLayer />
-              <div
-                className="relative flex flex-col flex-1 min-h-0"
-                style={{ zIndex: 2, pointerEvents: "none" }}
-              >
-                <RouteFader>{children}</RouteFader>
+          <TopBarSlotsProvider>
+            <ShortcutHost />
+            <ThemeHydrator />
+            <DealsHydrator />
+            <div
+              className="flex flex-col w-screen h-screen overflow-hidden"
+              style={{ background: "var(--rv-bg)" }}
+            >
+              {/* BrowseTabsRow — Chrome-style tabs row that sits
+                  ABOVE the AppTopBar. Collapses to 0 height on non-
+                  Browse routes. Browse portals its TabStrip into
+                  this row's slot; the URL toolbar stays in the
+                  AppTopBar below, restoring the "tabs above URL"
+                  ordering Chrome users expect. */}
+              <BrowseTabsRow />
+              {/* AppTopBar — persistent global chrome bar mounted ONCE
+                  at the shell level. Each route portals its mode-
+                  specific UI INTO this bar via the TopBarSlots
+                  provider; the bar itself never re-mounts on route
+                  change. */}
+              <AppTopBar
+                globalCluster={<TopBarGlobalCluster />}
+              />
+              <div className="flex flex-1 min-h-0 overflow-hidden">
+                <Sidebar />
+                <main className="flex flex-col flex-1 min-w-0 h-full relative">
+                  {/* Persistent map + scrim sit behind the routed content,
+                      so navigating between Browse and Pipeline never
+                      re-mounts the map. */}
+                  <MapShellLayer />
+                  <div
+                    className="relative flex flex-col flex-1 min-h-0"
+                    style={{ zIndex: 2, pointerEvents: "none" }}
+                  >
+                    <RouteFader>{children}</RouteFader>
+                  </div>
+                </main>
               </div>
-            </main>
-          </div>
-          <SidebarToggle />
-          <CommandPalette />
-          {/* Buddy toast surface — bottom-right. The buddy's voice in
-              the moment (saved, stage moved, price drop, etc.). */}
-          <ToastHost />
-          {/* Warm Google Maps Embed bundle so the first PropertyView
-              iframe in the panel paints fast instead of cold-loading
-              ~2 seconds of Google JS. */}
-          <GoogleMapsPrefetch />
+            </div>
+            <SidebarToggle />
+            <CommandPalette />
+            {/* Buddy toast surface — bottom-right. The buddy's voice in
+                the moment (saved, stage moved, price drop, etc.). */}
+            <ToastHost />
+            {/* Warm Google Maps Embed bundle so the first PropertyView
+                iframe in the panel paints fast instead of cold-loading
+                ~2 seconds of Google JS. */}
+            <GoogleMapsPrefetch />
+          </TopBarSlotsProvider>
         </MapShellProvider>
       </PanelStateProvider>
     </SidebarProvider>

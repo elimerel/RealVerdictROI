@@ -2,10 +2,10 @@
 
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react"
 import type { NavUpdate } from "@/lib/electron"
-import { useSidebar } from "@/components/sidebar/context"
-import { SNAP_ICONS } from "@/components/sidebar/context"
+// Sidebar imports dropped — Toolbar lives inside AppTopBar now and
+// no longer derives its left padding from sidebar state.
 import UrlSuggestions, { type SuggestionRow } from "./UrlSuggestions"
-import PanelToggle from "./PanelToggle"
+// PanelToggle moved to AppTopBar's globalCluster (layout level).
 
 function BackIcon() {
   return (
@@ -82,18 +82,13 @@ export default function Toolbar({
   // Reset selection to top whenever the user types — Chrome/Arc behavior.
   useEffect(() => { setSelectedSuggestion(0) }, [draft])
 
-  // The sidebar's mode dictates how much left padding the toolbar needs
-  // to clear the global sidebar-toggle button (fixed at window x=86-114):
-  //   - full   (sidebar >=120): toggle sits inside the sidebar; toolbar
-  //     starts past x=120 already → just an 8px visual breath.
-  //   - icons  (sidebar=80):    toolbar starts at x=80; toggle covers x=86-114
-  //     → pad 38 (toolbar-relative) to clear x=118 visible toolbar content.
-  //   - hidden (sidebar=0):     toolbar starts at x=0; toggle covers x=86-114
-  //     → pad 120 to push content past traffic lights AND toggle.
-  const { open, width } = useSidebar()
-  let toolbarPadL = 8
-  if (!open)                  toolbarPadL = 120  // hidden
-  else if (width < SNAP_ICONS) toolbarPadL = 38   // icons
+  // Toolbar now lives INSIDE AppTopBar's adaptive center slot — its
+  // left edge sits past the brand zone (which clears the macOS
+  // traffic lights). A small 6px breath separates the toolbar's
+  // first nav button from the brand. Sidebar state no longer affects
+  // this padding because the toolbar isn't at the window's left edge
+  // anymore.
+  const toolbarPadL = 6
 
   const displayUrl = nav.url ?? ""
 
@@ -199,20 +194,15 @@ export default function Toolbar({
 
   return (
     <div
-      className="flex items-center shrink-0 select-none"
+      className="flex items-center w-full select-none"
       style={{
-        height:          52,
-        WebkitAppRegion: "drag",
-        // --rv-surface so the toolbar matches the ACTIVE tab's bg
-        // exactly. That's the visual handoff: the active tab "merges"
-        // into the toolbar (same color), inactive tabs sit on the
-        // darker strip behind. Chrome's pattern. The previous attempt
-        // to push the toolbar onto --rv-bg broke that handoff.
-        background:      "var(--rv-surface)",
-        boxShadow:       "0 1px 0 rgba(0,0,0,0.30), 0 6px 18px rgba(0,0,0,0.30)",
-        paddingLeft:     toolbarPadL,
-        paddingRight:    8,
-        transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+        // Toolbar is now hosted inside AppTopBar's slot — the chrome
+        // (bg, hairline, shadow, height) is provided by AppTopBar.
+        // Toolbar just contributes its content (nav buttons + URL
+        // input). Filling width and height of the slot.
+        height:       "100%",
+        paddingLeft:  toolbarPadL,
+        paddingRight: 8,
       } as React.CSSProperties}
     >
       <div className="flex items-center gap-1 flex-1 pr-2">
@@ -292,10 +282,10 @@ export default function Toolbar({
           )}
         </div>
 
-        {/* Analysis panel toggle — lives inline in the toolbar now (was a
-            fixed-position window button). Right side, after the URL bar,
-            same height. Reads as a primary control. */}
-        <PanelToggle />
+        {/* PanelToggle moved out — now lives in AppTopBar's globalCluster
+            so the Analysis button sits at the FAR RIGHT of the window
+            (against the right edge), not bunched against the URL bar.
+            URL bar gets the full center width. */}
       </div>
     </div>
   )

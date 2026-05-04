@@ -448,19 +448,28 @@
      toolbar visually spans corner-to-corner.
    - HIDDEN (0px):    sidebar element collapses; toggle button stays put. */
 .rv-sidebar-body {
-  /* Sidebar tint IS the boundary — no hairline. The slight glass-tint
-     against the content's bare canvas creates a tonal step the eye
-     reads as separation without a visible seam. In light mode the
-     tint is a touch darker (set in .theme-light) to keep the boundary
-     legible without resorting to a stitched-on border. */
-  background: var(--rv-glass-tint);
+  /* --rv-surface (the chrome tone, one elevation step above the
+     canvas) so the sidebar harmonizes with the page header in
+     Pipeline / Settings — they read as siblings of the same chrome
+     layer instead of clashing across the top of the window. Body
+     content (deal list, map, panels) stays on --rv-bg (canvas), so
+     the two-tone hierarchy is: chrome (--rv-surface) over canvas
+     (--rv-bg). Loses some macOS glass vibrancy depth but the visual
+     unity buys far more than that nuance gave back. */
+  background: var(--rv-surface);
 }
 .rv-sidebar-top {
-  background: var(--rv-glass-tint);
-  transition: background-color 180ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-.rv-sidebar[data-icons-only] .rv-sidebar-top {
-  background: transparent;
+  /* Same bg as the body so the sidebar reads as ONE continuous
+     --rv-surface column, no internal seam at y=52. The previous
+     approach tried to make this region "merge" with the route's
+     top bar across the window — adding border + shadow at y=52
+     that turned the sidebar-top into its own visible rectangle.
+     New model: sidebar is one column with consistent integrity;
+     page chrome on the right has its own bottom shelf-edge in
+     the main area only. The visual seam is the sidebar's RIGHT
+     edge (sidebar↔main), not a horizontal y=52 line. Linear /
+     Notion / Cursor pattern. */
+  background: var(--rv-surface);
 }
 
 /* Resize handle — visible bar on hover only, pinned to the sidebar's
@@ -685,13 +694,15 @@
    navigating between Browse / Pipeline / Settings. Short and quiet
    (180ms, 4px) so surface swaps feel like a continuous space, not
    a router push. Same easing as the rest of the chrome. */
-@keyframes rv-route-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.rv-route-fade {
-  animation: rv-route-enter 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
-}
+/* Route content used to fade in over 180ms with a 4px Y-translate.
+   The fade-in created a visible "blip": old content disappears
+   instantly (Next.js unmounts on route change), then the new
+   content takes 180ms to become visible — leaving a brief empty
+   moment in between. Combined with the AppTopBar's mode cross-fade
+   and BrowseTabsRow's height transition, this read as choppy.
+   Removing the keyframe means content appears instantly on route
+   change; chrome alone handles the visual smoothness. */
+.rv-route-fade { /* no animation */ }
 
 /* Shimmer for skeleton blocks. Subtle moving highlight that signals
    "loading" without being a loud spinner. The gradient travels across

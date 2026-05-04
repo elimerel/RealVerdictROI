@@ -1,13 +1,19 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react"
+import { createPortal } from "react-dom"
 import { useSearchParams, useRouter } from "next/navigation"
+import { useTopBarSlots } from "@/lib/topBarSlots"
 import type { ChatContext, ChatMessage, NavUpdate, PanelPayload, PanelResult, TabInfo } from "@/lib/electron"
 import Toolbar from "@/components/browser/Toolbar"
 import TabStrip from "@/components/browser/TabStrip"
 import Panel, { type PanelContentState, type ManualFacts } from "@/components/panel"
-import { useSidebar, SNAP_ICONS } from "@/components/sidebar/context"
-import { Bookmark, RefreshCw, PanelRight, GitCompareArrows, FilePlus } from "lucide-react"
+// Sidebar context import dropped — Browse no longer derives any
+// chrome padding from sidebar state (tabs live above the sidebar in
+// BrowseTabsRow now).
+import { Bookmark, BookmarkCheck, ExternalLink, RefreshCw, PanelRight, GitCompareArrows, FilePlus } from "lucide-react"
+import { Button } from "@/components/ui/Button"
+import StageMenu from "@/components/StageMenu"
 import { usePaletteActions, type Action as PaletteAction } from "@/components/command-palette"
 import {
   computePipelineAverages,
@@ -20,6 +26,7 @@ import {
   runWatchChecks,
   saveDeal,
   STAGE_LABEL,
+  moveDealStage,
   updateDealScenario,
   updateDealTags,
   type DealStage,
@@ -36,6 +43,7 @@ import { Currency } from "@/lib/format"
 import { applyScenarioFromBus, resetScenarioFromBus, type ScenarioOverrides } from "@/lib/scenario"
 import ActivityFeed from "@/components/ActivityFeed"
 import { useMapShell } from "@/lib/mapShell"
+import { useBuyBar } from "@/lib/useBuyBar"
 import { showToast } from "@/lib/toast"
 
 // Default width matches the Pipeline detail rail (440px) so the panel
@@ -96,13 +104,10 @@ function BrowsePageInner() {
   // ── Tabs ──────────────────────────────────────────────────────────────────
   const [tabs,       setTabs]       = useState<TabInfo[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
-  const { open: sbOpenForTabs, width: sbWidthForTabs } = useSidebar()
-  // Tab strip's left padding mirrors the toolbar so the first tab clears
-  // the macOS traffic lights + the global sidebar-toggle button.
-  const tabStripPadL =
-    sbOpenForTabs && sbWidthForTabs >= SNAP_ICONS ? 8
-    : sbOpenForTabs                                ? 38
-    :                                                120
+  // Tabs row now lives at y=0..40 of the window (inside BrowseTabsRow,
+  // ABOVE the sidebar), so its left padding only needs to clear the
+  // macOS traffic lights — sidebar state no longer affects it.
+  const tabStripPadL = 84
 
   const api = typeof window !== "undefined" ? window.electronAPI : undefined
 
@@ -221,15 +226,24 @@ function BrowsePageInner() {
   // Hide the embedded WebContentsView whenever the start screen is showing
   // (no URL loaded). The native view is composed *over* React's DOM, so even
   // an empty browser would intercept clicks on the start-screen buttons.
+  //
+  // KEY DETAIL — gate on the COMBINED state of `tabs` + `nav.url`, not
+  // `nav.url` alone. On a Pipeline → Browse return, `nav.url` arrives via
+  // IPC a frame or two after mount. If we hideBrowser on every render
+  // where nav.url is falsy, the previously-visible BrowserView gets
+  // parked for that frame and the StartScreen flashes. Treating "tabs
+  // exist with a URL" as the show signal eliminates the flash.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!api || !browserReady) return
-    if (!nav.url) {
+    const activeTab = tabs.find((t) => t.id === activeTabId)
+    const hasUrl = !!(nav.url || activeTab?.url)
+    if (!hasUrl) {
       api.hideBrowser()
     } else {
       api.showBrowser({ panelWidth: reservedRight })
     }
-  }, [api, browserReady, nav.url])
+  }, [api, browserReady, nav.url, tabs, activeTabId])
 
   // Subscribe to tab state. Main broadcasts on every change (create, close,
   // activate, navigate). We mirror it locally for the strip + active-tab
@@ -241,11 +255,12 @@ function BrowsePageInner() {
       setActiveTabId(activeId)
     })
     // Pull the initial state too — onTabsState only fires on changes.
-    api.listTabs?.().then((arr) => {
-      setTabs(arr)
-      // listTabs payload doesn't include activeId; first onTabsState event
-      // will fix it. Pessimistically use the first tab's id as active.
-      if (arr.length && !activeTabId) setActiveTabId(arr[0].id)
+    // listTabs returns the REAL activeId from main, so we never have
+    // to guess "first tab" (which was the bug that forced you to the
+    // first tab on every Browse return).
+    api.listTabs?.().then(({ tabs: list, activeId }) => {
+      setTabs(list)
+      setActiveTabId(activeId)
     }).catch(() => {})
     return () => { off() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -893,13 +908,18 @@ function BrowsePageInner() {
     setVisibleDealIds: shellSetVisible,
     onPinClick:        shellOnPinClick,
   } = useMapShell()
+  const buyBar = useBuyBar()
+  const {
+    browse:     browseTopBarSlot,
+    browseTabs: browseTabsSlot,
+    browseAux:  browseAuxSlot,
+  } = useTopBarSlots()
   useEffect(() => {
-    // 0.86 — map reads as an ambient layer behind the start-screen
-    // content (visible enough that the geography signals "this is your
-    // app", quiet enough that text stays readable). The "see all your
-    // listings" overview moment lives in /pipeline, where scrim drops
-    // to 0 and the map IS the canvas with the auto-fit-bounds view.
-    shellSetScrim(0.86)
+    // 0.78 — slightly more map than before (was 0.86, almost
+    // invisible). Geography reads as a real ambient layer now;
+    // greeting + content panels still sit in clearly-bg territory
+    // because their own elements are opaque slabs.
+    shellSetScrim(0.78)
     shellSetVisible(null)
   }, [shellSetScrim, shellSetVisible])
   useEffect(() => {
@@ -934,7 +954,14 @@ function BrowsePageInner() {
     }
   }, [])
 
-  const showPlaceholder = browserReady && !nav.url
+  // showPlaceholder is true when there's no active page. Use the
+  // REAL state from main (nav.url + tabs) — no module-level cache,
+  // no fudging. If the user truly has no tabs / no URL, the
+  // StartScreen shows. If any tab has a URL, we keep that webpage
+  // visible. Tabs come straight from main on remount with the real
+  // activeId, so there's no stale window to paper over.
+  const activeTab = tabs.find((t) => t.id === activeTabId)
+  const showPlaceholder = browserReady && !nav.url && !activeTab?.url
 
   return (
     // FULL-HEIGHT PANEL ARCHITECTURE: the page is a top-level flex-row.
@@ -949,35 +976,104 @@ function BrowsePageInner() {
       // start-screen content are clickable.
       style={{ pointerEvents: "auto" }}
     >
-      {/* Left column — tabs + toolbar + browser content */}
+      {/* Panel-action buttons portaled into the AppTopBar's browseAux
+          slot — Save / Stage / Re-analyze live pinned right of the
+          URL bar in the top chrome instead of consuming vertical
+          space in the analysis panel. Always rendered (regardless of
+          whether the panel is open) when there's a ready result, so
+          the user can save / change stage from the top bar even
+          when the panel is collapsed. */}
+      {browseAuxSlot && panelContent.phase === "ready" && createPortal(
+        <div className="flex items-center gap-2">
+          {isCurrentSaved && currentSaved ? (
+            <>
+              <StageMenu
+                stage={currentSaved.stage}
+                onChange={async (s) => {
+                  const ok = await moveDealStage(currentSaved.id, s)
+                  if (ok) {
+                    setSavedByUrl((prev) => ({
+                      ...prev,
+                      [currentSaved.source_url]: { ...currentSaved, stage: s },
+                    }))
+                  }
+                }}
+              />
+              <span
+                className="inline-flex items-center gap-1 text-[11.5px] tracking-tight"
+                style={{ color: "var(--rv-t3)" }}
+              >
+                <BookmarkCheck size={11} strokeWidth={2.2} style={{ color: "var(--rv-accent)" }} />
+                Saved
+              </span>
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={saveCurrentListing}
+              icon={<Bookmark size={12} strokeWidth={2.2} />}
+            >
+              Save deal
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={reanalyze}
+            icon={<RefreshCw size={11} strokeWidth={2} />}
+            title="Re-analyze"
+          >
+            Re-analyze
+          </Button>
+        </div>,
+        browseAuxSlot,
+      )}
+
+      {/* Left column — browser content (tabs + toolbar are now both
+          portaled into the persistent shell chrome above). */}
       <div className="flex flex-col flex-1 min-w-0">
-        <TabStrip
-          tabs={tabs}
-          activeId={activeTabId}
-          paddingLeft={tabStripPadL}
-          onActivate={(id) => {
-            setActiveTabId(id)
-            void api?.activateTab(id)
-          }}
-          onClose={(id)    => api?.closeTab(id)}
-          onNew={()        => api?.newTab()}
-          onReorder={(orderedIds) => {
-            setTabs((prev) => {
-              const byId = new Map(prev.map((t) => [t.id, t]))
-              return orderedIds.map((id) => byId.get(id)).filter(Boolean) as typeof prev
-            })
-            void api?.reorderTabs(orderedIds)
-          }}
-        />
-        <Toolbar
-          nav={nav}
-          isAnalyzing={panelContent.phase === "analyzing"}
-          onBack={goBack}
-          onForward={goForward}
-          onReload={reload}
-          onNavigate={navigate}
-          urlbarRef={urlbarRef}
-        />
+        {/* TabStrip portals into BrowseTabsRow's slot — the row
+            ABOVE AppTopBar — restoring Chrome's "tabs above URL"
+            ordering. State + handlers stay here in BrowsePageInner;
+            DOM destination is the shell. */}
+        {browseTabsSlot && createPortal(
+          <TabStrip
+            tabs={tabs}
+            activeId={activeTabId}
+            paddingLeft={tabStripPadL}
+            onActivate={(id) => {
+              setActiveTabId(id)
+              void api?.activateTab(id)
+            }}
+            onClose={(id)    => api?.closeTab(id)}
+            onNew={()        => api?.newTab()}
+            onReorder={(orderedIds) => {
+              setTabs((prev) => {
+                const byId = new Map(prev.map((t) => [t.id, t]))
+                return orderedIds.map((id) => byId.get(id)).filter(Boolean) as typeof prev
+              })
+              void api?.reorderTabs(orderedIds)
+            }}
+          />,
+          browseTabsSlot,
+        )}
+        {/* Toolbar (URL bar + back/forward/reload) portals into the
+            persistent AppTopBar's browse slot — so the URL bar IS
+            the top bar, adapting from Pipeline's stage filter when
+            you switch routes instead of re-mounting a new chrome. */}
+        {browseTopBarSlot && createPortal(
+          <Toolbar
+            nav={nav}
+            isAnalyzing={panelContent.phase === "analyzing"}
+            onBack={goBack}
+            onForward={goForward}
+            onReload={reload}
+            onNavigate={navigate}
+            urlbarRef={urlbarRef}
+          />,
+          browseTopBarSlot,
+        )}
 
         {/* Browser pane — fills remaining vertical space in this column.
             Background stays transparent so the embedded web view runs
@@ -1043,6 +1139,17 @@ function BrowsePageInner() {
                 state={panelContent}
                 isSaved={isCurrentSaved}
                 savedStage={currentSavedStage}
+                buyBar={buyBar}
+                currentStage={currentSaved?.stage}
+                onMoveStage={currentSaved ? async (s) => {
+                  const ok = await moveDealStage(currentSaved.id, s)
+                  if (ok) {
+                    setSavedByUrl((prev) => ({
+                      ...prev,
+                      [currentSaved.source_url]: { ...currentSaved, stage: s },
+                    }))
+                  }
+                } : undefined}
                 viewStats={viewStats ?? undefined}
                 pipelineAverages={pipelineAverages}
                 initialScenario={currentInitialScenario}
@@ -1053,6 +1160,11 @@ function BrowsePageInner() {
                 onStartManualEntry={startManualEntry}
                 onSubmitManualEntry={submitManualEntry}
                 onCancelManualEntry={cancelManualEntry}
+                // Action row (Save / StageMenu / Open) lives in the
+                // AppTopBar's browseAux slot now (see portal below),
+                // freeing ~50px of vertical space at the top of the
+                // panel. Panel renders without its own action row.
+                actionRowCollapsed
                 chatMessages={activeChat}
                 chatLoading={chatLoading}
                 chatContext={chatContext}
@@ -1997,6 +2109,12 @@ function StartScreen({
       className={`absolute inset-0 flex flex-col items-center px-12 select-none ${introCls("rv-start-fade")} overflow-y-auto rv-invisible-scroll ${
         isWorkstation ? "justify-start pt-16" : "justify-center"
       }`}
+      // Opaque bg so the persistent map shell doesn't show through.
+      // Was relying on a route-controlled scrim overlay to dim the
+      // map in Browse — that scrim's opacity transition was the
+      // glitchy thing on route change. Static opacity on the start-
+      // screen container is structural and never animates.
+      style={{ background: "var(--rv-bg)" }}
     >
       {/* Per-screen atmospheric gradient removed — the global
           AmbientBackdrop (z-index -1) handles atmosphere everywhere now. */}

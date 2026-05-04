@@ -17,10 +17,12 @@
 // comes from context, and pin clicks publish through context.
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { usePathname } from "next/navigation"
 import mapboxgl, { type Map as MapboxMap, type Marker } from "mapbox-gl"
 import { geocode, type Coords } from "@/lib/mapbox"
 import { STAGE_COLOR, type SavedDeal } from "@/lib/pipeline"
 import { useMapShell } from "@/lib/mapShell"
+import { useMapStyle, resolveMapStyleUrl } from "@/lib/useMapStyle"
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ""
 
@@ -39,20 +41,25 @@ export default function MapShell() {
     setSelectedId, _broadcastPinClick, setReady,
   } = useMapShell()
 
-  // Theme — track the html class for the live style swap. Same pattern
-  // the previous PipelineMap host used; lifted in here so the shell
-  // is fully self-sufficient.
-  const [styleId, setStyleId] = useState<"dark" | "light">(() => {
-    if (typeof document === "undefined") return "dark"
-    return document.documentElement.classList.contains("theme-light") ? "light" : "dark"
-  })
+  // User's preferred Mapbox style — "auto" follows theme; specific
+  // keys override. The hook re-fires on theme change AND when the
+  // user picks a different style in Settings (via the rv:prefs-
+  // changed broadcast event), so the map stays in sync without a
+  // remount. styleId is the resolved Mapbox URL — when it changes,
+  // the map-init effect tears down + rebuilds the map (markers
+  // re-render automatically once the new instance loads).
+  const mapStyleKey = useMapStyle()
+  const [styleId, setStyleId] = useState<string>(() => resolveMapStyleUrl(mapStyleKey))
   useEffect(() => {
+    setStyleId(resolveMapStyleUrl(mapStyleKey))
+    // Also re-resolve on theme change when the pref is "auto",
+    // since "auto" reads the html theme class.
     const observer = new MutationObserver(() => {
-      setStyleId(document.documentElement.classList.contains("theme-light") ? "light" : "dark")
+      setStyleId(resolveMapStyleUrl(mapStyleKey))
     })
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
     return () => observer.disconnect()
-  }, [])
+  }, [mapStyleKey])
 
   // ── Geocode all deals lazily, in parallel ────────────────────────────
   useEffect(() => {
@@ -94,9 +101,7 @@ export default function MapShell() {
 
     const m = new mapboxgl.Map({
       container: containerRef.current,
-      style:     styleId === "light"
-        ? "mapbox://styles/mapbox/light-v11"
-        : "mapbox://styles/mapbox/dark-v11",
+      style:     styleId,
       center:    [-98.5795, 39.8283],
       zoom:      3.5,
       attributionControl: false,
@@ -117,20 +122,31 @@ export default function MapShell() {
     })
 
     let removed = false
+    // Debounced resize — ResizeObserver fires once per animation
+    // frame during transitions (route navigation 140ms, panel slide
+    // 220ms, window resize). Without coalescing, calling m.resize()
+    // every frame triggers full Mapbox canvas re-renders and reads
+    // as a stuttery flicker. 180ms trailing debounce is calibrated
+    // to fire AFTER the longest chrome transition we run (140ms +
+    // a small idle window), so the map redraws ONCE per layout
+    // change instead of per-frame.
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
     const ro = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
+      if (resizeTimer) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(() => {
         if (removed) return
         try {
           const container = m.getContainer()
           if (!container || !container.isConnected) return
           m.resize()
         } catch { /* ignore */ }
-      })
+      }, 180)
     })
     if (containerRef.current) ro.observe(containerRef.current)
 
     return () => {
       removed = true
+      if (resizeTimer) clearTimeout(resizeTimer)
       ro.disconnect()
       m.remove()
       mapRef.current = null
@@ -205,6 +221,32 @@ export default function MapShell() {
     })
   }, [selectedId, placedDeals])
 
+  // ── Deterministic resize on route change ────────────────────────────
+  //
+  // The ResizeObserver above debounces resizes by 180ms, which is
+  // great for window-level resize events (no thrashing) but creates
+  // a visible gap at the bottom of the map during route transitions:
+  // the chrome (BrowseTabsRow) collapses 40px → 0 over 140ms, the
+  // map's container grows by 40px, but the Mapbox canvas hasn't
+  // resized yet → 40px of bg color shows at the bottom for ~320ms.
+  //
+  // This effect resizes EXACTLY at the moment the chrome transition
+  // finishes (160ms after pathname change). The ResizeObserver still
+  // catches everything else; this just makes route changes
+  // deterministic instead of debounce-delayed.
+  const pathname = usePathname()
+  const lastPathnameRef = useRef(pathname)
+  useEffect(() => {
+    if (lastPathnameRef.current === pathname) return
+    lastPathnameRef.current = pathname
+    // 180ms = chrome transition (160ms) + 20ms grace so the map
+    // resize happens just AFTER the layout has fully settled.
+    const t = setTimeout(() => {
+      try { mapRef.current?.resize() } catch { /* ignore */ }
+    }, 180)
+    return () => clearTimeout(t)
+  }, [pathname])
+
   // ── Camera — flyTo when target changes; fitBounds on first deals ────
   const lastTargetRef = useRef<typeof cameraTarget>(null)
   const didInitialFitRef = useRef(false)
@@ -267,6 +309,17 @@ export default function MapShell() {
         style={{
           width:  "100%",
           height: "100%",
+          // Fallback bg matching typical Mapbox dark tile color. If
+          // the canvas is briefly the wrong size during a route
+          // transition (chrome shrinking faster than canvas can
+          // resize), this is what shows behind it instead of an
+          // obvious bright/wrong color. Light theme overrides via
+          // an inline check on the html class — keeps the gap
+          // invisible across themes.
+          background: typeof document !== "undefined" &&
+            document.documentElement.classList.contains("theme-light")
+              ? "#eaeaec"
+              : "#1a1d23",
         }}
       />
       {placedDeals.length >= 2 && (

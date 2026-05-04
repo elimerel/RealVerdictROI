@@ -623,57 +623,37 @@ function SidebarInner() {
           : "width 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       }}
     >
-      {/* Top strip — 52px, drag region for moving the window. In FULL mode
-          carries the sidebar tint up to y=0 so the sidebar visually covers
-          the corner. In ICONS mode the tint is removed, so the strip merges
-          with the toolbar (toolbar appears to span corner-to-corner). */}
-      <div
-        className="rv-sidebar-top shrink-0"
-        style={{
-          height:          52,
-          WebkitAppRegion: "drag",
-        } as React.CSSProperties}
-      />
+      {/* Sidebar-top + brand removed: the AppTopBar at the shell
+          level now spans full window width (sidebar AND main) and
+          carries the brand mark in its left zone. The sidebar starts
+          directly with its nav, no own top strip. Drag region is now
+          the AppTopBar; nothing here needs to be draggable. */}
 
-      {/* Body — nav + account row. Always tinted. */}
+      {/* Body — nav + account row. */}
       <div
         className="rv-sidebar-body flex flex-col flex-1 min-w-0"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        {/* Brand wordmark — sits right below the traffic-light drag zone.
-            Full mode: green square + "RealVerdict" text. Icons-only: just
-            the square, centered. Gives the sidebar a product identity
-            rather than a blank draggable strip. */}
-        <div
-          className="shrink-0 flex items-center"
-          style={{
-            height:          36,
-            padding:         iconsOnly ? "0 4px" : "0 12px",
-            justifyContent:  iconsOnly ? "center" : "flex-start",
-            gap:             8,
-            marginBottom:    4,
-          }}
-        >
+        {/* Brand — wordmark at the top of the sidebar nav, column-
+            aligned with the nav items below (same horizontal padding).
+            Was in the AppTopBar's left zone but couldn't sit close to
+            the window edge because the macOS traffic lights occupy
+            x=16..72. Putting it here makes "RealVerdict" naturally
+            inline with Browse / Pipeline / Settings — that's what
+            "sidebar wording alignment" means. */}
+        {!iconsOnly && (
           <div
+            className="flex items-center"
             style={{
-              width:        20,
-              height:       20,
-              borderRadius: 5,
-              background:   "var(--rv-accent)",
-              flexShrink:   0,
-              boxShadow:    "0 2px 6px rgba(48,164,108,0.35)",
+              padding:      "10px 18px 14px",
+              color:        "var(--rv-t1)",
             }}
-          />
-          {!iconsOnly && (
-            <span
-              className="text-[13px] font-semibold tracking-[-0.01em] truncate"
-              style={{ color: "var(--rv-t1)" }}
-            >
+          >
+            <span className="text-[14px] font-semibold tracking-[-0.012em]">
               RealVerdict
             </span>
-          )}
-        </div>
-
+          </div>
+        )}
         <nav
           className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden"
           style={{ padding: iconsOnly ? "2px 4px" : "2px 8px", gap: 2 }}

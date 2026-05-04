@@ -1,7 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react"
+import { createPortal } from "react-dom"
 import { useRouter, useSearchParams } from "next/navigation"
+import { useTopBarSlots } from "@/lib/topBarSlots"
 import {
   ChevronRight,
   ExternalLink,
@@ -35,6 +37,7 @@ import { hasActiveScenario, recomputeMetrics, type ScenarioOverrides } from "@/l
 import { ScenarioDisclosure } from "@/components/panel/ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
 import { useMapShell } from "@/lib/mapShell"
+import { useBuyBar } from "@/lib/useBuyBar"
 import { geocode } from "@/lib/mapbox"
 import Panel from "@/components/panel"
 import { useEscape } from "@/lib/escapeStack"
@@ -325,6 +328,8 @@ function DealDetail({
   onChange: (next: SavedDeal | null) => void
 }) {
   const router = useRouter()
+  const buyBar = useBuyBar()
+  const { browseAux: auxSlot } = useTopBarSlots()
   const snapshot = deal.snapshot
   const provenance = snapshot.provenance
   const riskFlags  = snapshot.riskFlags
@@ -410,56 +415,62 @@ function DealDetail({
   //    sit outside Panel.
   return (
     <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
-      {/* Slim pipeline-actions header — stage chip + watch toggle +
-          stage-move menu + delete. The analysis (price hero, satellite
-          view, cash flow, metrics, sources, scenario editor) lives
-          inside the Panel body below. */}
-      <div
-        className="flex items-center gap-2 px-4 py-3 shrink-0 relative"
-        style={{
-          background:   "var(--rv-bg)",
-          boxShadow:    "inset 0 -1px 0 rgba(255,255,255,0.04)",
-          zIndex:       2,
-        }}
-      >
-        <Button
-          variant={deal.watching ? "primary" : "secondary"}
-          size="sm"
-          onClick={async () => {
-            const next = !deal.watching
-            const ok = await setDealWatching(deal.id, next)
-            if (ok) onChange({ ...deal, watching: next })
-          }}
-          title={deal.watching ? "Stop watching this deal" : "Watch — get notified on price changes"}
-          icon={deal.watching ? <Bell size={11} strokeWidth={2} /> : <BellOff size={11} strokeWidth={2} />}
-        >
-          {deal.watching ? "Watching" : "Watch"}
-        </Button>
-        <StageMenu stage={deal.stage} onChange={onMoveStage} />
-        <span className="flex-1" />
-        {confirmDelete ? (
-          <>
-            <span className="text-[11.5px]" style={{ color: "var(--rv-t3)" }}>Delete this deal?</span>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onDelete}
-              style={{ color: "var(--rv-neg)", borderColor: "var(--rv-neg-bg)" }}
-            >
-              Delete
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
-          </>
-        ) : (
+      {/* Pipeline-actions strip — moved out of the panel and portaled
+          into the AppTopBar's aux slot. Watch / Stage / Open / Delete
+          live pinned right of the "All Active · Compare" header
+          content in the top bar, instead of consuming a row of space
+          above the analysis content. The Panel below renders directly
+          with its hero, no preceding strip. */}
+      {auxSlot && createPortal(
+        <div className="flex items-center gap-2">
           <Button
-            variant="ghost"
+            variant={deal.watching ? "primary" : "secondary"}
             size="sm"
-            onClick={() => setConfirmDelete(true)}
-            icon={<Trash2 size={11} strokeWidth={2} />}
-            title="Delete this deal"
-          />
-        )}
-      </div>
+            onClick={async () => {
+              const next = !deal.watching
+              const ok = await setDealWatching(deal.id, next)
+              if (ok) onChange({ ...deal, watching: next })
+            }}
+            title={deal.watching ? "Stop watching this deal" : "Watch — get notified on price changes"}
+            icon={deal.watching ? <Bell size={11} strokeWidth={2} /> : <BellOff size={11} strokeWidth={2} />}
+          >
+            {deal.watching ? "Watching" : "Watch"}
+          </Button>
+          <StageMenu stage={deal.stage} onChange={onMoveStage} />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onOpenInBrowse}
+            icon={<ExternalLink size={11} strokeWidth={2} />}
+            title="Open this listing in the browser"
+          >
+            Open
+          </Button>
+          {confirmDelete ? (
+            <>
+              <span className="text-[11.5px]" style={{ color: "var(--rv-t3)" }}>Delete?</span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onDelete}
+                style={{ color: "var(--rv-neg)", borderColor: "var(--rv-neg-bg)" }}
+              >
+                Delete
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            </>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmDelete(true)}
+              icon={<Trash2 size={11} strokeWidth={2} />}
+              title="Delete this deal"
+            />
+          )}
+        </div>,
+        auxSlot,
+      )}
 
       {/* The Panel renders the same analysis surface as Browse: hero
           (satellite + price + cash flow), action row, AI Noticed,
@@ -475,12 +486,16 @@ function DealDetail({
           state={{ phase: "ready", result: deal.snapshot }}
           isSaved
           savedStage={STAGE_LABEL[deal.stage]}
+          currentStage={deal.stage}
+          onMoveStage={onMoveStage}
+          buyBar={buyBar}
           initialScenario={deal.scenario ?? null}
           onScenarioChange={(s) => {
             void updateDealScenario(deal.id, s)
             onChange({ ...deal, scenario: s })
           }}
           onOpenSource={onOpenInBrowse}
+          actionRowCollapsed
         />
       </div>
     </div>
@@ -1356,6 +1371,7 @@ export default function PipelinePage() {
 function PipelinePageInner() {
   const router        = useRouter()
   const searchParams  = useSearchParams()
+  const { pipeline: pipelineTopBarSlot } = useTopBarSlots()
   const stageParam    = searchParams.get("stage") as DealStage | null
   const stageFilter   = stageParam && STAGES_VALID.has(stageParam) ? stageParam : null
   /** Optional `?id=<dealId>` deep-link — when present and the deal exists in
@@ -1363,11 +1379,9 @@ function PipelinePageInner() {
    *  ("open in pipeline") land directly on the right detail view. */
   const idParam       = searchParams.get("id")
 
-  const { open: sbOpen, width: sbWidth } = useSidebar()
-  const headerPadL =
-    sbOpen && sbWidth >= SNAP_ICONS ? 16
-    : sbOpen                         ? 38
-    :                                  120
+  // Sidebar-aware header padding removed — Pipeline header now lives
+  // inside the AppTopBar (always positioned past the sidebar's right
+  // edge) so the route doesn't need to compute its own offsets.
 
   const [deals,  setDeals]  = useState<SavedDeal[] | null>(null)
   const [error,  setError]  = useState<string | null>(null)
@@ -1651,29 +1665,15 @@ function PipelinePageInner() {
     }
   }, [checking, watchedCount, refresh])
 
-  return (
-    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "transparent" }}>
-      {/* Per-page gradient removed — global AmbientBackdrop carries atmosphere now */}
-      {/* Header */}
-      <div
-        className="flex items-center shrink-0 relative"
-        style={{
-          height:          52,
-          paddingLeft:     headerPadL,
-          paddingRight:    16,
-          WebkitAppRegion: "drag",
-          // Hard-coded opaque hex — was missing entirely, which let
-          // the macOS vibrancy material show through (THIS is the
-          // "see-through bar at the top" bug). Bottom shadow seals
-          // the boundary against the map.
-          background:      "#1f1f1f",
-          borderBottom:    "0.5px solid var(--rv-border)",
-          boxShadow:       "0 8px 22px rgba(0,0,0,0.45)",
-          pointerEvents:   "auto",
-          transition:      "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
-          zIndex:          3,
-        } as React.CSSProperties}
-      >
+  // Pipeline's "header content" — stage title + summary + Compare
+  // controls + Watch-check button — now portals INTO the persistent
+  // AppTopBar's pipeline slot instead of rendering its own bar at
+  // the top of the page. State stays in this component (so all the
+  // useState / handlers wire correctly); only the DOM destination
+  // changes via createPortal. The bar itself doesn't re-mount on
+  // route change.
+  const pipelineHeaderContent = (
+    <div className="flex items-center w-full px-3 gap-3" style={{ pointerEvents: "auto" }}>
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-3 min-w-0">
           <div className="flex items-baseline gap-2.5 min-w-0">
             <h1 className="text-[15px] font-semibold tracking-tight shrink-0" style={{ color: "var(--rv-t1)" }}>
@@ -1857,12 +1857,18 @@ function PipelinePageInner() {
           </div>
         )}
       </div>
+  )
 
-      {/* Compare-mode banner — slides in below the header to make the
-          mode change obvious. Stays out of the layout when not in mode
-          (max-height 0). The same accent system as the header chip,
-          but spread across the full width so it reads as a state, not a
-          control. */}
+  return (
+    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "transparent" }}>
+      {/* Pipeline header content portals into the persistent
+          AppTopBar's pipeline slot so the bar adapts without
+          re-mounting. Page renders body only. */}
+      {pipelineTopBarSlot && createPortal(pipelineHeaderContent, pipelineTopBarSlot)}
+
+      {/* Compare-mode banner — slides in to make the mode change
+          obvious. Stays out of the layout when not in mode
+          (max-height 0). */}
       <div style={{ pointerEvents: "auto" }}>
         <CompareModeBanner active={compareMode} count={compareIds.size} />
       </div>
@@ -1900,7 +1906,14 @@ function PipelinePageInner() {
               style={{
                 width:        listW,
                 background:   "var(--rv-bg)",
-                boxShadow:    "1px 0 0 rgba(255,255,255,0.04), 10px 0 30px rgba(0,0,0,0.30)",
+                // Right-edge hairline only — was a 30px-blur drop
+                // shadow whose vertical blur extended above the
+                // list's top edge, painting a faint dark band right
+                // below the AppTopBar that read as a hairline gap.
+                // Pure 1px hairline gives the same boundary
+                // separation against the map without bleeding
+                // upward.
+                boxShadow:    "1px 0 0 rgba(255,255,255,0.06)",
                 pointerEvents: "auto",
               }}
             >
@@ -1991,7 +2004,7 @@ function PipelinePageInner() {
                   style={{
                     width:        320,
                     background:   "var(--rv-bg)",
-                    boxShadow:    "-1px 0 0 rgba(255,255,255,0.04), -10px 0 30px rgba(0,0,0,0.30)",
+                    boxShadow:    "-1px 0 0 rgba(255,255,255,0.06)",
                     pointerEvents: "auto",
                   }}
                 >
@@ -2017,7 +2030,7 @@ function PipelinePageInner() {
                   width:        selected ? 460 : 0,
                   overflow:     "hidden",
                   background:   "var(--rv-bg)",
-                  boxShadow:    "-1px 0 0 rgba(255,255,255,0.04), -10px 0 30px rgba(0,0,0,0.30)",
+                  boxShadow:    "-1px 0 0 rgba(255,255,255,0.06)",
                   transition:   "width 240ms cubic-bezier(0.32, 0.72, 0, 1)",
                   pointerEvents: "auto",
                 }}
@@ -2059,8 +2072,13 @@ function CompareModeBanner({ active, count }: { active: boolean; count: number }
         opacity:      active ? 1 : 0,
         overflow:     "hidden",
         background:   "rgba(48,164,108,0.10)",
-        borderBottom: active ? "0.5px solid rgba(48,164,108,0.22)" : "0.5px solid transparent",
-        transition:   "max-height 220ms cubic-bezier(0.32,0.72,0,1), opacity 200ms cubic-bezier(0.32,0.72,0,1), border-bottom-color 200ms ease",
+        // Border collapses to 0 when inactive — was 0.5px solid
+        // transparent which still claimed 0.5px of layout space
+        // (transparent borders DO take up box-model space). That
+        // 0.5px sliver was the "hairline gap" between the AppTopBar
+        // and the list/rail in Pipeline. Now: no border = no space.
+        borderBottom: active ? "0.5px solid rgba(48,164,108,0.22)" : "none",
+        transition:   "max-height 220ms cubic-bezier(0.32,0.72,0,1), opacity 200ms cubic-bezier(0.32,0.72,0,1)",
       }}
     >
       <div className="flex items-center gap-2 px-4 h-[38px]">

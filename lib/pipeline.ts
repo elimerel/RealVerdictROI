@@ -488,20 +488,68 @@ export async function runWatchChecks(): Promise<WatchCheckSummary> {
   return summary
 }
 
+// Module-level flag — flips true the first time we detect that the
+// `watching` column doesn't exist on the user's saved_deals table.
+// Subsequent calls skip the persistence path entirely and just
+// dispatch the change-event so the local state-of-deals refreshes.
+// The user can apply a migration to add the column when ready;
+// until then the toggle works in-session, just doesn't survive a
+// reload. Same graceful-degrade pattern we use for the scenario
+// column.
+let _watchingColumnMissing = false
+
 /** Toggle the "watching" flag — when true, the deal is eligible for
  *  periodic price/status re-checks. */
 export async function setDealWatching(dealId: string, watching: boolean): Promise<boolean> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return false
+
+  // If we've already detected the column is missing, don't bother
+  // hitting Supabase — return true so the UI updates locally.
+  if (_watchingColumnMissing) {
+    dispatchDealsChanged()
+    return true
+  }
+
   const { error } = await supabase
     .from("saved_deals")
     .update({ watching })
     .eq("id", dealId)
+
   if (error) {
-    console.error("[pipeline] setDealWatching error:", error)
+    // PGRST204 = "schema cache miss" (column not found in supabase
+    // schema cache). 42703 = postgres "column does not exist".
+    // Detect both and flip the missing flag so future calls
+    // short-circuit. Empty-object errors (which serialize as {})
+    // also match this pattern in some Supabase JS versions.
+    const code = (error as { code?: string }).code
+    const message = (error as { message?: string }).message ?? ""
+    const isColumnMissing =
+      code === "PGRST204" ||
+      code === "42703" ||
+      /column.*watching/i.test(message) ||
+      /watching.*column/i.test(message)
+    if (isColumnMissing) {
+      _watchingColumnMissing = true
+      console.warn(
+        "[pipeline] setDealWatching: `watching` column missing on saved_deals — " +
+        "apply a migration adding `watching boolean default false` to enable persistence. " +
+        "Toggle still works in-session (until reload)."
+      )
+      dispatchDealsChanged()
+      return true
+    }
+    // Real error — surface it usefully (avoid the bare {} log).
+    console.error("[pipeline] setDealWatching error:", {
+      code,
+      message,
+      details: (error as { details?: string }).details,
+      hint:    (error as { hint?: string }).hint,
+    })
     return false
   }
+
   void supabase.from("deal_events").insert({
     user_id: user.id,
     deal_id: dealId,

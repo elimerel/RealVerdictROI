@@ -1,56 +1,114 @@
 "use client"
 
-import { useState } from "react"
+// TabStrip — Chrome-style tab row that lives inside BrowseTabsRow,
+// above the AppTopBar. Active tab merges DOWN into the AppTopBar
+// (same surface tone, no separating border) using rounded
+// outer-bottom corners on the strip-edge contour.
+//
+// Drag-to-reorder uses POINTER EVENTS (not HTML5 drag-and-drop) so
+// the dragged tab is constrained to the strip — it can't be dragged
+// off into the desktop like a draggable image. The dragged tab
+// follows the cursor horizontally only; other tabs reflow live as
+// the cursor crosses midpoints. Same choreography as Chrome.
+
+import { useEffect, useRef, useState } from "react"
 import { Plus, X } from "lucide-react"
 import type { TabInfo } from "@/lib/electron"
 
 interface TabStripProps {
   tabs:        TabInfo[]
   activeId:    string | null
-  /** Left padding so the strip clears the macOS traffic lights / sidebar
-   *  toggle in icons-only / hidden modes. Same logic as the Toolbar. */
   paddingLeft: number
   onActivate:  (id: string) => void
   onClose:     (id: string) => void
   onNew:       () => void
-  /** Drag-to-reorder commit handler. Receives the new ordered list of
-   *  tab ids when the user drops a tab. Wired to electronAPI.reorderTabs
-   *  in the host page. */
   onReorder?:  (orderedIds: string[]) => void
 }
 
-/** Compact tab strip — sits above the toolbar on /browse only. Renders
- *  nothing when there's only a single tab and it's empty (i.e., the
- *  start screen state). */
+const TAB_WIDTH = 222   // 220 + 2px gap
+
 export default function TabStrip({
   tabs, activeId, paddingLeft, onActivate, onClose, onNew, onReorder,
 }: TabStripProps) {
-  // Track drag state — which tab id is being dragged, and which gap
-  // the cursor is hovering over. Used for the visual drop indicator
-  // and to compute the reorder on drop.
-  const [draggingId, setDraggingId]   = useState<string | null>(null)
-  const [hoverIndex, setHoverIndex]   = useState<number | null>(null)
+  // Drag state lives in a ref (so listeners read the latest values
+  // without re-binding) plus mirror state for rendering. The mirror
+  // updates on each pointermove via setState — coalesced by React's
+  // batching so it's smooth.
+  const dragRef = useRef<{
+    id:           string
+    fromIndex:    number
+    startClientX: number
+    /** Bounding rect of the strip's inner row, captured at drag start
+     *  so we can compute the cursor's position WITHIN it as the
+     *  source of truth for "where would the dragged tab land?" */
+    stripLeft:    number
+    stripWidth:   number
+    /** Live current index — recomputed on each pointermove so other
+     *  tabs reflow as the user drags past their midpoints. */
+    currentIndex: number
+  } | null>(null)
+  const stripInnerRef = useRef<HTMLDivElement>(null)
 
-  // Always render the strip — even with zero tabs or a single empty
-  // tab. Reserving the space removes the layout shift that happens
-  // when the second tab opens (the toolbar would otherwise jump down
-  // by 40px). Same behavior as Chrome/Safari — the strip is part of
-  // the chrome, not contingent on tab count.
+  const [draggingId,   setDraggingId]   = useState<string | null>(null)
+  const [hoverIndex,   setHoverIndex]   = useState<number | null>(null)
+  const [dragOffsetX,  setDragOffsetX]  = useState(0)
+
   if (tabs.length === 0) return null
 
-  // Commit a reorder. Insert the dragged tab at the targetIndex (in the
-  // new array, with the dragged tab removed first), then fire onReorder
-  // with the resulting id sequence.
-  const commitReorder = (draggedId: string, targetIndex: number) => {
-    if (!onReorder) return
-    const ids = tabs.map((t) => t.id)
-    const fromIndex = ids.indexOf(draggedId)
-    if (fromIndex === -1 || fromIndex === targetIndex) return
-    ids.splice(fromIndex, 1)
-    // Adjust target if it was after the dragged tab (since we removed one).
-    const adjusted = targetIndex > fromIndex ? targetIndex - 1 : targetIndex
-    ids.splice(adjusted, 0, draggedId)
-    onReorder(ids)
+  const beginDrag = (tabId: string, e: React.PointerEvent<HTMLDivElement>) => {
+    if (!stripInnerRef.current) return
+    const fromIndex = tabs.findIndex((t) => t.id === tabId)
+    if (fromIndex === -1) return
+    const rect = stripInnerRef.current.getBoundingClientRect()
+    dragRef.current = {
+      id:           tabId,
+      fromIndex,
+      startClientX: e.clientX,
+      stripLeft:    rect.left,
+      stripWidth:   rect.width,
+      currentIndex: fromIndex,
+    }
+    setDraggingId(tabId)
+    setHoverIndex(fromIndex)
+    setDragOffsetX(0)
+
+    const onMove = (ev: PointerEvent) => {
+      const s = dragRef.current
+      if (!s) return
+      // Horizontal cursor delta from where we started — that's the
+      // visual offset of the dragged tab.
+      const dx = ev.clientX - s.startClientX
+      setDragOffsetX(dx)
+      // Compute "where would this tab land if released now?" by
+      // turning the cursor's position within the strip into an
+      // index. Clamp to valid range.
+      const cursorXInStrip = ev.clientX - s.stripLeft
+      const rawIndex = Math.floor(cursorXInStrip / TAB_WIDTH)
+      const newIndex = Math.max(0, Math.min(tabs.length - 1, rawIndex))
+      if (newIndex !== s.currentIndex) {
+        s.currentIndex = newIndex
+        setHoverIndex(newIndex)
+      }
+    }
+    const onUp = () => {
+      const s = dragRef.current
+      if (s && s.fromIndex !== s.currentIndex && onReorder) {
+        const ids = tabs.map((t) => t.id)
+        const [moved] = ids.splice(s.fromIndex, 1)
+        ids.splice(s.currentIndex, 0, moved)
+        onReorder(ids)
+      }
+      dragRef.current = null
+      setDraggingId(null)
+      setHoverIndex(null)
+      setDragOffsetX(0)
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup",   onUp)
+      window.removeEventListener("pointercancel", onUp)
+    }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup",   onUp)
+    window.addEventListener("pointercancel", onUp)
   }
 
   return (
@@ -61,34 +119,31 @@ export default function TabStrip({
         paddingLeft,
         paddingRight:     8,
         WebkitAppRegion:  "drag",
-        // Strip is the DARK back layer (in shadow). Toolbar + active
-        // tab are LIGHTER (alive, forward). Same Chrome-style
-        // hierarchy as before.
-        background:       "var(--rv-bg)",
+        background:       "transparent",
         transition:       "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
       } as React.CSSProperties}
     >
       <div
+        ref={stripInnerRef}
         className="flex items-stretch gap-[2px] flex-1 min-w-0 overflow-x-auto rv-tabstrip-scroll"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         {tabs.map((t, i) => {
-          // Live rearrangement: while dragging, the OTHER tabs shift via
-          // transform to make space for the dragged tab to land. Same
-          // motion as Chrome's tab drag — eyes track where the tab will
-          // end up before the drop commits.
-          const draggingFromIndex = draggingId
-            ? tabs.findIndex((x) => x.id === draggingId)
-            : -1
-          const TAB_WIDTH = 222   // 220 + 2px gap
+          const dragging = draggingId === t.id
+          // Live rearrangement: while dragging, OTHER tabs shift to
+          // make space for the dragged tab's anticipated landing
+          // position (hoverIndex). The dragged tab itself uses
+          // dragOffsetX for cursor-tracking instead of an indexed
+          // shift.
           let xOffset = 0
-          if (draggingId && draggingFromIndex !== -1 && hoverIndex !== null && t.id !== draggingId) {
-            // Dragging right: tabs in (from, hover) shift LEFT
-            if (draggingFromIndex < hoverIndex && i > draggingFromIndex && i < hoverIndex) {
+          if (draggingId && hoverIndex !== null && !dragging) {
+            const fromIndex = dragRef.current?.fromIndex ?? -1
+            // Dragging right (from < hover): tabs in (from..hover] shift LEFT
+            if (fromIndex < hoverIndex && i > fromIndex && i <= hoverIndex) {
               xOffset = -TAB_WIDTH
             }
-            // Dragging left: tabs in [hover, from) shift RIGHT
-            if (draggingFromIndex > hoverIndex && i >= hoverIndex && i < draggingFromIndex) {
+            // Dragging left (from > hover): tabs in [hover..from) shift RIGHT
+            if (fromIndex > hoverIndex && i >= hoverIndex && i < fromIndex) {
               xOffset = TAB_WIDTH
             }
           }
@@ -97,21 +152,11 @@ export default function TabStrip({
               key={t.id}
               tab={t}
               active={t.id === activeId}
-              isDragging={draggingId === t.id}
-              xOffset={xOffset}
+              isDragging={dragging}
+              xOffset={dragging ? dragOffsetX : xOffset}
               onActivate={() => onActivate(t.id)}
               onClose={() => onClose(t.id)}
-              onDragStart={() => setDraggingId(t.id)}
-              onDragOver={(beforeOrAfter) => {
-                setHoverIndex(beforeOrAfter === "before" ? i : i + 1)
-              }}
-              onDragEnd={() => {
-                if (draggingId && hoverIndex !== null) {
-                  commitReorder(draggingId, hoverIndex)
-                }
-                setDraggingId(null)
-                setHoverIndex(null)
-              }}
+              onPointerDown={(e) => beginDrag(t.id, e)}
             />
           )
         })}
@@ -146,116 +191,121 @@ export default function TabStrip({
 
 function TabItem({
   tab, active, isDragging, xOffset,
-  onActivate, onClose, onDragStart, onDragOver, onDragEnd,
+  onActivate, onClose, onPointerDown,
 }: {
   tab:        TabInfo
   active:     boolean
   isDragging: boolean
-  /** Horizontal pixel offset for live rearrangement during drag.
-   *  CSS transition handles the slide animation. */
   xOffset:    number
   onActivate: () => void
   onClose:    () => void
-  onDragStart: () => void
-  onDragOver:  (beforeOrAfter: "before" | "after") => void
-  onDragEnd:   () => void
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
 }) {
+  // Track whether this is a click vs drag. Threshold of 3px before
+  // we consider it a drag — avoids stealing clicks. The Chrome
+  // pattern: pointer-down on a tab activates it; if you start moving
+  // BEFORE releasing, that's a drag.
+  const downRef = useRef<{ startX: number; activated: boolean } | null>(null)
+
   return (
     <div
-      onClick={onActivate}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onActivate() }}
-      // Native HTML5 drag — works smoothly with React's render. The
-      // tab is the drag source AND a drop target; we compute whether
-      // the cursor is in the left or right half to decide insert before
-      // or after this tab.
-      draggable
-      onDragStart={(e) => {
-        // Set a transparent drag image so the browser doesn't render a
-        // ghost — the visual feedback comes from the dimmed source tab
-        // + the drop indicator line.
-        e.dataTransfer.effectAllowed = "move"
-        e.dataTransfer.setData("text/plain", tab.id)
-        onDragStart()
+      onPointerDown={(e) => {
+        // Left-button only.
+        if (e.button !== 0) return
+        downRef.current = { startX: e.clientX, activated: false }
+        // Activate the tab immediately on press (Chrome behavior).
+        if (!active) {
+          onActivate()
+          downRef.current.activated = true
+        }
       }}
-      onDragOver={(e) => {
-        e.preventDefault()
-        e.dataTransfer.dropEffect = "move"
-        const rect = e.currentTarget.getBoundingClientRect()
-        const midX = rect.left + rect.width / 2
-        onDragOver(e.clientX < midX ? "before" : "after")
+      onPointerMove={(e) => {
+        const d = downRef.current
+        if (!d) return
+        if (Math.abs(e.clientX - d.startX) > 3) {
+          // Movement past threshold — promote to a drag.
+          downRef.current = null
+          onPointerDown(e)
+        }
       }}
-      onDragEnd={onDragEnd}
-      onDrop={(e) => { e.preventDefault(); onDragEnd() }}
+      onPointerUp={() => { downRef.current = null }}
       className="group relative flex items-center gap-2 cursor-default select-none"
       style={{
         width:        220,
         minWidth:     220,
-        maxWidth:     220,
-        height:       34,
-        padding:      "0 10px 0 12px",
-        marginTop:    6,
-        // Active tab matches the toolbar surface (var(--rv-surface)) and
-        // overlaps the toolbar's top edge by 2px so they read as ONE
-        // continuous lit surface — no hairline. Inactive tabs are
-        // transparent over the dark strip = recessed in shadow.
+        height:       "100%",
+        padding:      "0 12px",
+        // The 2px overlap onto AppTopBar below so the active tab
+        // visually merges into the URL bar with no hairline. Same
+        // Chrome trick — active tab's bottom edge is BEHIND the
+        // toolbar's top edge.
         marginBottom: active ? -2 : 0,
-        borderTopLeftRadius:  8,
-        borderTopRightRadius: 8,
+        // Chrome-style outer bottom corners only — top corners are
+        // rounded, bottom corners are square so the active tab's
+        // bottom merges flush into AppTopBar. Keeps the "tab is
+        // part of the toolbar" reading.
+        borderTopLeftRadius:     8,
+        borderTopRightRadius:    8,
         borderBottomLeftRadius:  0,
         borderBottomRightRadius: 0,
-        background:   active ? "var(--rv-surface)" : "transparent",
+        // Inactive tabs get a subtle lifted fill + outline so they
+        // read as visible chip containers. Active tab is one step
+        // more lifted (--rv-surface) and merges DOWN into AppTopBar.
+        background:   active ? "var(--rv-surface)" : "rgba(255, 255, 255, 0.035)",
         color:        active ? "var(--rv-t1)" : "var(--rv-t3)",
-        opacity:      isDragging ? 0.4 : 1,
+        opacity:      isDragging ? 0.85 : 1,
+        // Dragged tab follows cursor at full transform speed (no
+        // transition); reflowing tabs ease into their new positions.
         transform:    xOffset !== 0 ? `translateX(${xOffset}px)` : undefined,
-        transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms, transform 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+        boxShadow:    active ? "none" : "inset 0 0 0 0.5px rgba(255, 255, 255, 0.06)",
+        transition:   isDragging
+          ? "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1)"
+          : "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), transform 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+        zIndex:       isDragging ? 5 : 1,
       }}
       onMouseEnter={(e) => {
         if (!active) {
-          e.currentTarget.style.background = "var(--rv-elev-2)"
+          e.currentTarget.style.background = "rgba(255, 255, 255, 0.07)"
           e.currentTarget.style.color      = "var(--rv-t1)"
         }
       }}
       onMouseLeave={(e) => {
         if (!active) {
-          e.currentTarget.style.background = "transparent"
+          e.currentTarget.style.background = "rgba(255, 255, 255, 0.035)"
           e.currentTarget.style.color      = "var(--rv-t3)"
         }
       }}
     >
-      {/* Loading indicator — only when this URL is actually going to
-          trigger analysis. Showing the green pulse on every page load
-          (Google searches, news sites, anything) reads as "analysis
-          starting" when nothing of the kind is happening. Quiet by
-          default; light up only when there's something to wait for. */}
-      {tab.loading && tab.isListing && (
+      {/* Site favicon / busy indicator slot (left). */}
+      {tab.loading && (
         <span
-          className="w-1.5 h-1.5 rounded-full shrink-0"
-          style={{ background: "var(--rv-accent)", animation: "dotPulse 1.4s ease-in-out infinite" }}
+          aria-hidden
+          className="shrink-0 rounded-full"
+          style={{
+            width: 8, height: 8,
+            background: "var(--rv-accent)",
+            animation: "dotPulse 1.4s ease-in-out infinite",
+          }}
         />
       )}
-      <span
-        className="text-[12px] truncate flex-1 leading-none"
-        style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.005em" }}
-      >
-        {tab.title || (tab.url ? new URL(tab.url).hostname.replace(/^www\./, "") : "New tab")}
+      <span className="flex-1 min-w-0 truncate text-[12.5px] tracking-tight">
+        {tab.title || tab.url || "New tab"}
       </span>
       <button
         onClick={(e) => { e.stopPropagation(); onClose() }}
-        title="Close tab (⌘W)"
+        onPointerDown={(e) => { e.stopPropagation() }}
+        title="Close (⌘W)"
         aria-label="Close tab"
-        className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center rounded-[4px] transition-all shrink-0"
+        className="shrink-0 inline-flex items-center justify-center rounded-[5px] opacity-0 group-hover:opacity-100 transition-opacity"
         style={{
-          width:       16,
-          height:      16,
-          color:       "var(--rv-t4)",
-          background:  "transparent",
+          width:  18,
+          height: 18,
+          color:  "var(--rv-t3)",
         }}
         onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)"; e.currentTarget.style.background = "var(--rv-elev-4)" }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)"; e.currentTarget.style.background = "transparent" }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t3)"; e.currentTarget.style.background = "transparent" }}
       >
-        <X size={10} strokeWidth={1.8} />
+        <X size={11} strokeWidth={2} />
       </button>
     </div>
   )

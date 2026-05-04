@@ -18,6 +18,9 @@ import PanelChat from "./Chat"
 import { ScenarioDisclosure } from "./ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
 import PropertyView, { hasGoogleMapsKey } from "@/components/PropertyView"
+import StageMenu from "@/components/StageMenu"
+import type { DealStage } from "@/lib/pipeline"
+import { useMapShell } from "@/lib/mapShell"
 import { useEscape } from "@/lib/escapeStack"
 
 // ── Metric card ───────────────────────────────────────────────────────────────
@@ -35,7 +38,7 @@ import { useEscape } from "@/lib/escapeStack"
 // widths.
 
 function MetricCard({
-  label, value, sub, delta, tone = "neutral", flashKey,
+  label, value, sub, delta, tone = "neutral", flashKey, bar,
 }: {
   label: string
   /** Accepts plain string or rich JSX (e.g. <Currency>) — Mercury-style
@@ -51,6 +54,11 @@ function MetricCard({
    *  the user can see "this just recomputed." Pass any stable stringified
    *  representation of the displayed number. */
   flashKey?: string | number
+  /** Personal "buy bar" pill — when set, renders a quiet "above bar"
+   *  or "below bar" indicator below the value. Tone "pos" = above
+   *  bar (good per user criteria); "neg" = below. Memory of the
+   *  user's own threshold; never a verdict from us. */
+  bar?: { passed: boolean } | null
 }) {
   const valueColor = tone === "neg" ? "var(--rv-neg)" : "var(--rv-t1)"
   const deltaColor =
@@ -122,6 +130,24 @@ function MetricCard({
           {sub}
         </span>
       )}
+      {bar && (
+        <span
+          className="inline-flex items-center gap-1 mt-2 self-start text-[10px] uppercase tracking-widest font-semibold rounded-full"
+          style={{
+            color:      bar.passed ? "var(--rv-pos)" : "var(--rv-neg)",
+            background: bar.passed ? "var(--rv-pos-bg)" : "var(--rv-neg-bg)",
+            border:     `0.5px solid ${bar.passed ? "var(--rv-pos)" : "var(--rv-neg)"}33`,
+            padding:    "3px 7px",
+          }}
+          title={bar.passed ? "Above your buy bar" : "Below your buy bar"}
+        >
+          <span
+            className="rounded-full"
+            style={{ width: 5, height: 5, background: bar.passed ? "var(--rv-pos)" : "var(--rv-neg)" }}
+          />
+          {bar.passed ? "above bar" : "below bar"}
+        </span>
+      )}
     </div>
   )
 }
@@ -179,18 +205,21 @@ function BenchmarkLine({
       </span>
       <div className="flex items-center gap-3 text-[11px] tabular-nums">
         {cashDelta != null && (
-          <span style={{ color: tone(cashDelta) }}>
-            {fmtCash(cashDelta)}
+          <span className="inline-flex items-baseline gap-1">
+            <span style={{ color: "var(--rv-t4)" }}>CASH</span>
+            <span style={{ color: tone(cashDelta) }}>{fmtCash(cashDelta)}</span>
           </span>
         )}
         {capDelta != null && (
-          <span style={{ color: tone(capDelta) }}>
-            {fmtPpts(capDelta)}
+          <span className="inline-flex items-baseline gap-1">
+            <span style={{ color: "var(--rv-t4)" }}>CAP</span>
+            <span style={{ color: tone(capDelta) }}>{fmtPpts(capDelta)}</span>
           </span>
         )}
         {dscrDelta != null && (
-          <span style={{ color: tone(dscrDelta) }}>
-            {fmtDsc(dscrDelta)}
+          <span className="inline-flex items-baseline gap-1">
+            <span style={{ color: "var(--rv-t4)" }}>DSCR</span>
+            <span style={{ color: tone(dscrDelta) }}>{fmtDsc(dscrDelta)}</span>
           </span>
         )}
       </div>
@@ -258,28 +287,51 @@ function PropertyMapWithExpand({ result }: { result: PanelResult }) {
 // ── Provenance row ────────────────────────────────────────────────────────────
 
 function ProvenanceRow({
-  label, value, field, siteName, fetchedAt,
+  label, value, field, siteName, fetchedAt, onEdit,
 }: {
   label:      string
   value:      string
   field:      SourceField
   siteName?:  string | null
   fetchedAt?: string
+  /** When set + the source is "soft" (AI estimate or industry default),
+   *  the row becomes clickable and surfaces a tiny "got better numbers?"
+   *  affordance on hover. Click opens the scenario editor below so the
+   *  user can replace the soft value with a real one — sharpening the
+   *  analysis deal-by-deal. Hard sources (listing, FRED, HUD) don't
+   *  show the affordance because the data is already authoritative. */
+  onEdit?:    () => void
 }) {
-  // Tooltip is a real human sentence — names the field, names the source,
-  // adds freshness when known. Lets the user verify any number with a hover.
   const meta = sourceMeta(field.source, siteName)
   const tooltipParts = [`${label}: ${meta.label.toLowerCase().replace(/^pulled /, "pulled ")}`]
   const ageStr = fetchedAt ? freshnessLabel(fetchedAt) : null
   if (ageStr) tooltipParts.push(ageStr)
   const tooltip = tooltipParts.join(" · ")
+
+  // Soft sources — values that could be better if the user has actual
+  // numbers from the listing or their own underwriting. Surface the
+  // edit affordance only for these so the row stays clean for hard
+  // facts (Zillow listing, FRED rate, HUD rent comps).
+  const isSoft = field.source === "ai_estimate" || field.source === "default"
+  const canEdit = isSoft && !!onEdit
+
   return (
     <div
-      className="flex items-center justify-between gap-3 py-2.5 last:border-0"
+      className={`group flex items-center justify-between gap-3 py-2.5 last:border-0 ${canEdit ? "cursor-pointer" : ""}`}
       style={{ borderBottom: "1px solid var(--rv-border)" }}
+      onClick={canEdit ? onEdit : undefined}
+      title={canEdit ? `${tooltip} · click to enter your own value` : tooltip}
     >
       <span className="text-[12.5px] shrink-0" style={{ color: "var(--rv-t2)" }}>{label}</span>
       <div className="flex items-center gap-2.5 min-w-0">
+        {canEdit && (
+          <span
+            className="text-[10px] uppercase tracking-widest font-semibold opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ color: "var(--rv-accent)" }}
+          >
+            ✎ replace
+          </span>
+        )}
         <span className="text-[13px] tabular-nums truncate font-medium" style={{ color: "var(--rv-t1)" }}>{value}</span>
         <SourceMark source={field.source} siteName={siteName} title={tooltip} />
       </div>
@@ -1066,7 +1118,8 @@ function formatDelta(
 
 function ResultPane({
   result, pipelineAverages, initialScenario, onScenarioChange, onOpenSources,
-  isSaved, savedStage, onSave, onOpenSource,
+  isSaved, savedStage, currentStage, onMoveStage, onSave, onOpenSource,
+  buyBar,
 }: {
   result:            PanelResult
   pipelineAverages?: PipelineAverages
@@ -1075,10 +1128,23 @@ function ResultPane({
   /** Open the Sources drawer — wired by the parent Panel which owns
    *  the drawer's open state. */
   onOpenSources?:    () => void
+  /** Personal-criteria thresholds. Each field nullable; null = no bar
+   *  for that metric. Drives the "above bar / below bar" pills on
+   *  MetricCard. */
+  buyBar?:           {
+    minCapRate?:  number | null
+    minCashFlow?: number | null
+    minDscr?:     number | null
+  }
   /** Pipeline-status flag wired from Panel — toggles the action row's
    *  primary CTA between "Save deal" and "Saved · {stage}". */
   isSaved?:          boolean
   savedStage?:       string
+  /** Current pipeline stage for already-saved listings. When set
+   *  along with onMoveStage, the action row replaces its disabled
+   *  Saved button with a real StageMenu dropdown. */
+  currentStage?:     DealStage
+  onMoveStage?:      (s: DealStage) => void
   /** Save the current listing — primary action of the panel. */
   onSave?:           () => void
   /** Open the listing's source URL in the user's default browser. */
@@ -1088,6 +1154,16 @@ function ResultPane({
   // (next to the cash-flow hero) can scroll the editor into view AND
   // open it. The verb sits next to the number it changes.
   const adjustRef = useRef<HTMLDivElement>(null)
+
+  // Shared "open editor + scroll" used by both the Adjust pill and
+  // the per-row "got better numbers?" affordance on soft-source
+  // provenance rows. Centralized so they stay in sync.
+  const openEditorAndScroll = () => {
+    setEditorOpen(true)
+    requestAnimationFrame(() => {
+      adjustRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+  }
   // Scenario overrides. When the listing is a saved pipeline deal, this
   // hydrates from the row's `scenario` column and persists back via
   // onScenarioChange. Unsaved listings keep overrides in memory only.
@@ -1151,6 +1227,18 @@ function ResultPane({
 
   const address = [result.address, result.city, result.state].filter(Boolean).join(", ")
 
+  // Neighborhood density — count saved deals in the same city as the
+  // current listing. Read from the persistent MapShell deal list so
+  // the value updates live when the user saves something in this
+  // city. Tells the user at a glance whether this listing is a
+  // one-off or part of a market they already track.
+  const { deals: shellDeals } = useMapShell()
+  const sameCityCount = useMemo(() => {
+    const city = result.city?.trim().toLowerCase()
+    if (!city) return 0
+    return shellDeals.filter((d) => d.city?.trim().toLowerCase() === city).length
+  }, [shellDeals, result.city])
+
   return (
     <div
       className="flex flex-col overflow-y-auto panel-scroll flex-1 min-h-0"
@@ -1168,7 +1256,7 @@ function ResultPane({
           as supporting context. The visual ratio is intentional: this
           section takes a third of the panel height so the "what's the
           deal" answer lands hard before the user scrolls. */}
-      <div className="px-4 pt-4 pb-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+      <div className="px-4 pt-2 pb-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
         {(result.address || result.city) && (
           <div className="mb-4 -mx-1">
             {/* Inline = Mapbox satellite static (no third-party badge,
@@ -1232,32 +1320,54 @@ function ResultPane({
             >
               cash flow / mo
             </span>
+            {buyBar?.minCashFlow != null && (
+              <span
+                className="inline-flex items-center gap-1 ml-1 text-[10px] uppercase tracking-widest font-semibold rounded-full"
+                style={{
+                  color:      metrics.monthlyCashFlow >= buyBar.minCashFlow ? "var(--rv-pos)" : "var(--rv-neg)",
+                  background: metrics.monthlyCashFlow >= buyBar.minCashFlow ? "var(--rv-pos-bg)" : "var(--rv-neg-bg)",
+                  border:     `0.5px solid ${(metrics.monthlyCashFlow >= buyBar.minCashFlow ? "var(--rv-pos)" : "var(--rv-neg)")}33`,
+                  padding:    "2px 6px",
+                }}
+                title={metrics.monthlyCashFlow >= buyBar.minCashFlow ? "Above your cash-flow bar" : "Below your cash-flow bar"}
+              >
+                <span
+                  className="rounded-full"
+                  style={{
+                    width: 4, height: 4,
+                    background: metrics.monthlyCashFlow >= buyBar.minCashFlow ? "var(--rv-pos)" : "var(--rv-neg)",
+                  }}
+                />
+                {metrics.monthlyCashFlow >= buyBar.minCashFlow ? "above bar" : "below bar"}
+              </span>
+            )}
             {/* Inline Adjust pill — the verb sits next to the number it
                 changes. Clicking opens the editor + scrolls it into view.
                 When a scenario is active it shifts to "Adjusting · N
                 changed" so the hero itself communicates whether the user
                 is on default or custom numbers. */}
             <button
-              onClick={() => {
-                setEditorOpen(true)
-                requestAnimationFrame(() => {
-                  adjustRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-                })
-              }}
-              className="ml-auto inline-flex items-center gap-1 rounded-full text-[10.5px] font-medium tracking-tight shrink-0 transition-colors"
+              onClick={openEditorAndScroll}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full font-semibold tracking-tight shrink-0 transition-colors"
               style={{
-                color:      scenarioActive ? "var(--rv-accent)" : "var(--rv-t2)",
-                background: scenarioActive ? "var(--rv-accent-dim)" : "var(--rv-elev-3)",
-                border:     `0.5px solid ${scenarioActive ? "var(--rv-accent-border)" : "var(--rv-border)"}`,
-                padding:    "3px 9px 3px 8px",
+                // Bumped from 10.5px tiny chip → 12px, accent-tinted
+                // even when no scenario is active. The Adjust verb is
+                // central to the panel's value (model alternatives on
+                // any listing) — making it look like the link it
+                // actually is, not an afterthought next to the price.
+                fontSize:   12,
+                color:      "var(--rv-accent)",
+                background: "var(--rv-accent-dim)",
+                border:     "0.5px solid var(--rv-accent-border)",
+                padding:    "5px 12px 5px 10px",
               }}
               title={scenarioActive ? "You've adjusted assumptions — click to edit" : "Adjust price, rate, rent, etc."}
             >
-              <SlidersHorizontal size={10} strokeWidth={2.2} />
+              <SlidersHorizontal size={12} strokeWidth={2.2} />
               {scenarioActive
                 ? `Adjusting · ${Object.keys(overrides).filter((k) => (overrides as Record<string, unknown>)[k] !== undefined).length} changed`
                 : "Adjust"}
-              <ChevronDown size={9} strokeWidth={2.2} style={{ marginLeft: 1 }} />
+              <ChevronDown size={11} strokeWidth={2.2} style={{ marginLeft: 1 }} />
             </button>
           </div>
         )}
@@ -1274,6 +1384,30 @@ function ResultPane({
           {result.yearBuilt && <span>Built {result.yearBuilt}</span>}
           {result.siteName  && <span className="ml-auto" style={{ color: "var(--rv-t2)" }}>{result.siteName}</span>}
         </div>
+
+        {/* Neighborhood density pill — quietly tells the user "you
+            already track this market." Renders only when there are
+            saved deals in this city (excluding the current listing
+            itself if it's already saved). Tiny but high-signal for
+            investors who cluster their analysis geographically. */}
+        {sameCityCount > 0 && result.city && (
+          <div
+            className="inline-flex items-center gap-1.5 mt-3 rounded-full text-[11px] tracking-tight"
+            style={{
+              color:      "var(--rv-accent)",
+              background: "var(--rv-accent-dim)",
+              border:     "0.5px solid var(--rv-accent-border)",
+              padding:    "3px 9px",
+            }}
+            title={`You have ${sameCityCount} saved deal${sameCityCount === 1 ? "" : "s"} in ${result.city}.`}
+          >
+            <span
+              className="rounded-full"
+              style={{ width: 5, height: 5, background: "var(--rv-accent)" }}
+            />
+            {sameCityCount} saved in {result.city}
+          </div>
+        )}
       </div>
 
       {/* Action row — the conversion moment. Save deal is the entire
@@ -1281,25 +1415,50 @@ function ResultPane({
           under the hero so it's unmissable. Open listing returns the
           investor to the source page. Re-analyze / settings still live
           in the slim header. */}
-      {(onSave || onOpenSource) && (
+      {(onSave || onOpenSource || (isSaved && onMoveStage && currentStage)) && (
         <div
           className="px-4 py-3 flex items-center gap-2 shrink-0"
           style={{ borderBottom: "1px solid var(--rv-border)" }}
         >
-          {onSave && (
+          {/* Saved + can move stage → StageMenu (a real dropdown that
+              actually changes the deal's stage). Replaces the previous
+              disabled "Watching" button which was a UI lie — it looked
+              like a button but did nothing.
+
+              Saved + no stage handler → fall back to a quiet status
+              chip so the user still sees they're saved.
+
+              Not saved → primary "Save deal" CTA. */}
+          {isSaved && onMoveStage && currentStage ? (
+            <div className="flex-1 flex items-center">
+              <StageMenu stage={currentStage} onChange={onMoveStage} />
+              <span
+                className="ml-2 inline-flex items-center gap-1.5 text-[11.5px] tracking-tight"
+                style={{ color: "var(--rv-t3)" }}
+              >
+                <BookmarkCheck size={11} strokeWidth={2.2} style={{ color: "var(--rv-accent)" }} />
+                Saved
+              </span>
+            </div>
+          ) : isSaved ? (
+            <div
+              className="flex-1 inline-flex items-center gap-1.5 text-[12px] tracking-tight"
+              style={{ color: "var(--rv-t2)" }}
+            >
+              <BookmarkCheck size={12} strokeWidth={2.2} style={{ color: "var(--rv-accent)" }} />
+              {savedStage ?? "Saved"}
+            </div>
+          ) : onSave ? (
             <Button
-              variant={isSaved ? "secondary" : "primary"}
+              variant="primary"
               size="md"
               onClick={onSave}
-              disabled={isSaved}
-              icon={isSaved
-                ? <BookmarkCheck size={14} strokeWidth={2.2} />
-                : <Bookmark size={14} strokeWidth={2.2} />}
+              icon={<Bookmark size={14} strokeWidth={2.2} />}
               className="flex-1"
             >
-              {isSaved ? (savedStage ?? "Saved") : "Save deal"}
+              Save deal
             </Button>
-          )}
+          ) : null}
           {onOpenSource && (
             <Button
               variant="secondary"
@@ -1380,6 +1539,7 @@ function ResultPane({
             sub={`${fmtPct(metrics.cashOnCash)} cash-on-cash`}
             delta={scenarioActive ? formatDelta(metrics.capRate, defaultMetrics.capRate, "pct") : null}
             flashKey={Math.round(metrics.capRate * 10000)}
+            bar={buyBar?.minCapRate != null ? { passed: metrics.capRate >= buyBar.minCapRate } : null}
           />
           <MetricCard
             label="DSCR"
@@ -1387,6 +1547,7 @@ function ResultPane({
             sub={metrics.dscr >= 1.0 ? "covers debt service" : "below debt service"}
             delta={scenarioActive ? formatDelta(metrics.dscr, defaultMetrics.dscr, "ratio") : null}
             flashKey={Math.round(metrics.dscr * 100)}
+            bar={buyBar?.minDscr != null ? { passed: metrics.dscr >= buyBar.minDscr } : null}
           />
         </div>
         <BenchmarkLine
@@ -1433,11 +1594,17 @@ function ResultPane({
           Numbers we used
         </p>
         <div className="flex flex-col">
+          {/* "Got better numbers?" — clicking a row whose source is
+              soft (AI estimate or industry default) opens the scenario
+              editor below so the user can replace the value with one
+              they trust. Hard sources (listing, FRED, HUD) don't
+              surface the affordance — those are already authoritative. */}
           <ProvenanceRow
             label="Rent"
             value={`${fmtCurrency(provenance.rent.value)}/mo`}
             field={provenance.rent}
             siteName={result.siteName}
+            onEdit={openEditorAndScroll}
           />
           <ProvenanceRow
             label="Interest rate"
@@ -1445,18 +1612,21 @@ function ResultPane({
             field={provenance.interestRate}
             siteName={result.siteName}
             fetchedAt={provenance.interestRate.fetchedAt}
+            onEdit={openEditorAndScroll}
           />
           <ProvenanceRow
             label="Property tax"
             value={`${fmtCurrency(provenance.propertyTax.value)}/yr`}
             field={provenance.propertyTax}
             siteName={result.siteName}
+            onEdit={openEditorAndScroll}
           />
           <ProvenanceRow
             label="Insurance"
             value={`${fmtCurrency(provenance.insurance.value)}/yr`}
             field={provenance.insurance}
             siteName={result.siteName}
+            onEdit={openEditorAndScroll}
           />
           {provenance.hoa && (
             <ProvenanceRow
@@ -1464,6 +1634,7 @@ function ResultPane({
               value={`${fmtCurrency(provenance.hoa.value)}/mo`}
               field={provenance.hoa}
               siteName={result.siteName}
+              onEdit={openEditorAndScroll}
             />
           )}
         </div>
@@ -1527,6 +1698,27 @@ interface PanelProps {
   isSaved?:     boolean
   /** Stage label to show on the Saved chip (e.g. "Watching"). */
   savedStage?:  string
+  /** Current pipeline stage as a typed enum — when set with onMoveStage,
+   *  the action row renders a real StageMenu dropdown for moving the
+   *  deal between stages (replaces the previous disabled label). */
+  currentStage?: DealStage
+  onMoveStage?:  (s: DealStage) => void
+  /** Personal-criteria thresholds (the user's "buy bar"). When set,
+   *  metric cards render quiet "above bar / below bar" pills.
+   *  Read from InvestmentPrefs in the host route. */
+  buyBar?: {
+    minCapRate?:  number | null
+    minCashFlow?: number | null
+    minDscr?:     number | null
+  }
+  /** Hosts that already render their own pipeline-actions strip
+   *  (Pipeline detail rail) set this true so the Panel doesn't
+   *  duplicate Save / StageMenu / Open in its own action row. The
+   *  in-panel action row only appears in surfaces (Browse) where
+   *  there's no outer strip. Avoids the "two action areas, same
+   *  buttons, different places" pattern that was wasting the
+   *  empty space above the panel content in Pipeline. */
+  actionRowCollapsed?: boolean
   /** History stats — drives the "You've seen this" pill. Optional; if not
    *  passed or count <= 1, no pill renders. */
   viewStats?:   { count: number; firstSeenAt: string | null }
@@ -1570,6 +1762,10 @@ export default function Panel({
   state,
   isSaved,
   savedStage,
+  currentStage,
+  onMoveStage,
+  buyBar,
+  actionRowCollapsed,
   viewStats,
   pipelineAverages,
   initialScenario,
@@ -1623,64 +1819,17 @@ export default function Panel({
         // Soft drop-shadow on the map-facing edge gives the panel
         // physical presence without a stitched border.
         background:  "var(--rv-bg)",
-        boxShadow:   "-1px 0 0 rgba(255,255,255,0.04), -10px 0 30px rgba(0,0,0,0.30)",
+        boxShadow:   "-1px 0 0 rgba(255,255,255,0.06)",
         minWidth:    0,
       }}
     >
-      {/* Header — slim. Saved chip + seen hint on the left, primary
-          actions (Save / Re-analyze / Open) + close on the right.
-          The bigger 'action row in hero zone' restructure is paused
-          pending the AI-agent decision. */}
-      <div
-        className="flex items-center justify-between px-3 shrink-0 gap-2"
-        style={{
-          height: 40,
-          WebkitAppRegion: "no-drag",
-        } as React.CSSProperties}
-      >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          {state.phase === "analyzing" && (
-            <span className="flex gap-[3px] items-center ml-0.5">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="w-[4px] h-[4px] rounded-full dot-pulse"
-                  style={{ background: "var(--rv-accent)", animationDelay: `${i * 0.18}s` }}
-                />
-              ))}
-            </span>
-          )}
-          {/* Saved-state chip removed from the header — the in-body
-              action row now shows "Watching" / "Interested" / etc. on
-              the primary button itself. Two indicators of the same
-              state in the same surface was redundant. */}
-          {seenHint && (
-            <span
-              className="inline-flex items-center gap-1 text-[10.5px] tracking-tight whitespace-nowrap shrink-0"
-              style={{ color: "var(--rv-t4)" }}
-              title="You've been here before"
-            >
-              <Eye size={10} strokeWidth={2} />
-              {seenHint}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          {/* Save + Open are promoted to the in-body action row under
-              the hero now (the conversion moment of the panel). The
-              header keeps Re-analyze (a recovery action) and close. */}
-          {canReanalyze && (
-            <HeaderIconBtn onClick={onReanalyze} title="Re-analyze">
-              <RefreshCw size={12} strokeWidth={2} />
-            </HeaderIconBtn>
-          )}
-          {onClose && (
-            <HeaderIconBtn onClick={onClose} title="Close panel (Esc)">
-              <X size={13} strokeWidth={2} />
-            </HeaderIconBtn>
-          )}
-        </div>
-      </div>
+      {/* Slim panel header removed — Re-analyze, Save, Stage, Close
+          all live in the AppTopBar's aux + global cluster slots now.
+          The panel goes straight into the satellite hero, reclaiming
+          ~30px of vertical real estate. The analyzing pulse + seen-
+          hint were the only other things in this header; the
+          analyzing pulse will be relocated into the hero itself when
+          a fresh analysis is in flight. */}
 
       {/* Body — analysis surface gets the FULL panel height. Chat
           floats over the bottom edge: collapsed it's just a 52px input
@@ -1699,8 +1848,11 @@ export default function Panel({
               onOpenSources={() => setSourcesOpen(true)}
               isSaved={isSaved}
               savedStage={savedStage}
-              onSave={onSave}
-              onOpenSource={onOpenSource}
+              currentStage={currentStage}
+              onMoveStage={onMoveStage}
+              buyBar={buyBar}
+              onSave={actionRowCollapsed ? undefined : onSave}
+              onOpenSource={actionRowCollapsed ? undefined : onOpenSource}
             />
           )}
           {state.phase === "error"       && <ErrorPane     message={state.message} onRetry={onReanalyze} onManualEntry={onStartManualEntry} />}
