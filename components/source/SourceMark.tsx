@@ -121,28 +121,39 @@ export function SourceMark({
 }) {
   const meta  = sourceMeta(source, siteName)
   const logo  = logoFor(source, siteName)
-  const dim   = size === "md" ? 18 : 16
+  // Slightly larger by default — the source mark IS the brand statement,
+  // so it deserves a confident chip size, not a tiny utility badge. md
+  // is the size used in the Sources drawer and detail headers.
+  const dim   = size === "md" ? 22 : 18
 
-  // Logo path — render the brand image inside a square frame with a hairline
-  // border. The image fills the frame; a tiny inset background reads behind
-  // any logo with transparency.
+  // Logo path — circular frame (Mercury / Apple Wallet avatar style). The
+  // brand image sits inside a soft white background with a hairline ring,
+  // so logos with their own backgrounds read consistently and logos with
+  // transparency get a clean substrate. The circle is the brand statement
+  // — every number on the screen has one of these next to it, and they
+  // all read as a unified set of "trust badges" no matter what the
+  // underlying logo's shape is.
   if (logo) {
     return (
       <span
         title={title ?? meta.label}
-        className="inline-flex items-center justify-center shrink-0 rounded-[4px] overflow-hidden"
+        className="inline-flex items-center justify-center shrink-0 rounded-full overflow-hidden"
         style={{
           width:      dim,
           height:     dim,
-          background: "var(--rv-elev-2)",
-          border:     "0.5px solid var(--rv-border)",
+          // White substrate so every logo (regardless of its native
+          // background) sits on the same visual base. Tiny shadow lifts
+          // the chip off the surface like a Mercury account avatar.
+          background: "#fff",
+          border:     "0.5px solid var(--rv-border-mid)",
+          boxShadow:  "0 1px 2px rgba(0,0,0,0.25)",
         }}
       >
         <img
           src={logo}
           alt={meta.label}
-          width={dim - 2}
-          height={dim - 2}
+          width={dim - 4}
+          height={dim - 4}
           style={{ display: "block", objectFit: "contain" }}
           draggable={false}
         />
@@ -168,18 +179,25 @@ export function SourceMark({
   const padY = size === "md" ? 2 : 1
   const fontSize = size === "md" ? 10 : 9
 
+  // Letter glyph — circular when single-character (matches logo chips so
+  // the visual rhythm is consistent), pill-shaped when multi-character
+  // ("HUD", "FRED", "AI") since 2-3 letters can't fit in a small circle
+  // without becoming illegible. Both styles share the same elevation
+  // language as the logo chips.
+  const isSingleChar = meta.glyph.length === 1
   return (
     <span
       title={title ?? meta.label}
-      className="inline-flex items-center justify-center font-semibold tracking-wider tabular-nums shrink-0 rounded-[4px]"
+      className={`inline-flex items-center justify-center font-semibold tracking-wider tabular-nums shrink-0 ${isSingleChar ? "rounded-full" : "rounded-[6px]"}`}
       style={{
         color:        fg,
         background:   bg,
         border:       `0.5px solid ${border}`,
-        padding:      `${padY}px ${padX}px`,
+        padding:      isSingleChar ? 0 : `${padY}px ${padX}px`,
         fontSize:     `${fontSize}px`,
         lineHeight:   1,
         minWidth:     dim,
+        width:        isSingleChar ? dim : undefined,
         height:       dim,
         letterSpacing: meta.glyph.length > 1 ? "0.04em" : "0",
       }}
