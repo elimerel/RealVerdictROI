@@ -139,6 +139,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("ai:apply-scenario", h)
   },
 
+  // Reset bridge — when the AI calls reset_scenario, clear all overrides.
+  onResetScenario: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on("ai:reset-scenario", h)
+    return () => ipcRenderer.removeListener("ai:reset-scenario", h)
+  },
+
   // Download lifecycle events fired by the embedded BrowserView's session.
   // Payload: { state: "started"|"completed"|"cancelled"|"interrupted",
   //            filename, savePath, totalBytes? }. Renderer surfaces a small

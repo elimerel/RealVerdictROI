@@ -10,6 +10,7 @@ import {
   hasActiveScenario,
   recomputeMetrics,
   subscribeToScenarioBus,
+  subscribeToScenarioReset,
   type ScenarioOverrides,
 } from "@/lib/scenario"
 import PanelChat from "./Chat"
@@ -1033,14 +1034,17 @@ function ResultPane({
     return () => clearTimeout(id)
   }, [overrides, onScenarioChange])
 
-  // Subscribe to the scenario bus so chat-driven scenario changes (e.g.,
-  // user clicks 'What if I put 30% down?' chip) merge into our overrides
-  // and recompute metrics live. The active ResultPane is the only
-  // subscriber at any moment; others are unmounted.
+  // Subscribe to the scenario bus so chat-driven scenario changes merge
+  // into our overrides and recompute metrics live.
   useEffect(() => {
     return subscribeToScenarioBus((partial) => {
       setOverrides((prev) => ({ ...prev, ...partial }))
     })
+  }, [])
+
+  // Subscribe to reset bus — when AI calls reset_scenario, clear overrides.
+  useEffect(() => {
+    return subscribeToScenarioReset(() => setOverrides({}))
   }, [])
 
   const scenarioActive = hasActiveScenario(overrides)

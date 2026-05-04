@@ -2593,9 +2593,6 @@ CONTEXT FORMAT
 You'll receive: { listing: { address, listPrice, beds, baths, sqft, propertyType, monthlyCashFlow, capRate, dscr, monthlyRent, ... }, prefs: { downPaymentPct, vacancyPct, ... }, pipeline: { saves count, common cities, ... }, history: [previous messages] }`
 
 // Tool definitions exposed to the AI for live scenario manipulation.
-// adjust_scenario is the only tool right now — covers the common case
-// where the user proposes a what-if and the AI should both apply it
-// AND narrate what changed.
 const CHAT_TOOLS = [
   {
     name: "adjust_scenario",
@@ -2618,6 +2615,11 @@ const CHAT_TOOLS = [
       },
       required: [],
     },
+  },
+  {
+    name: "reset_scenario",
+    description: "Clear all scenario overrides and return the listing's metrics to the default analysis. Use when the user says 'reset', 'clear my scenario', 'go back to default', 'undo my changes', etc.",
+    input_schema: { type: "object", properties: {}, required: [] },
   },
 ]
 
@@ -2703,8 +2705,6 @@ ipcMain.handle("ai:chat-deal", async (_e, payload) => {
             const v = block.input?.[k]
             if (typeof v === "number" && Number.isFinite(v)) valid[k] = v
           }
-          // Forward to the renderer — the active panel listens and applies
-          // the change via applyScenarioFromBus.
           if (Object.keys(valid).length > 0) {
             for (const win of BrowserWindow.getAllWindows()) {
               try { win.webContents.send("ai:apply-scenario", valid) } catch { /* window gone */ }
@@ -2714,6 +2714,17 @@ ipcMain.handle("ai:chat-deal", async (_e, payload) => {
             type:        "tool_result",
             tool_use_id: block.id,
             content:     JSON.stringify({ ok: true, applied: valid }),
+          })
+        } else if (block.name === "reset_scenario") {
+          // Special "reset all" sentinel: send the magic key __reset__
+          // which the renderer interprets as 'clear all overrides.'
+          for (const win of BrowserWindow.getAllWindows()) {
+            try { win.webContents.send("ai:reset-scenario") } catch { /* window gone */ }
+          }
+          toolResults.push({
+            type:        "tool_result",
+            tool_use_id: block.id,
+            content:     JSON.stringify({ ok: true, reset: true }),
           })
         } else {
           toolResults.push({

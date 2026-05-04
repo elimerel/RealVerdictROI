@@ -33,7 +33,7 @@ import {
 import { useRegisterPanelState } from "@/components/panel/context"
 import { SourceMark } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
-import { applyScenarioFromBus, type ScenarioOverrides } from "@/lib/scenario"
+import { applyScenarioFromBus, resetScenarioFromBus, type ScenarioOverrides } from "@/lib/scenario"
 import ActivityFeed from "@/components/ActivityFeed"
 import { showToast } from "@/lib/toast"
 
@@ -127,6 +127,11 @@ function BrowsePageInner() {
       // accepts Partial<ScenarioOverrides>. Same shape modulo typing.
       applyScenarioFromBus(changes as Partial<ScenarioOverrides>)
     })
+  }, [api])
+
+  useEffect(() => {
+    if (!api?.onResetScenario) return
+    return api.onResetScenario(() => resetScenarioFromBus())
   }, [api])
 
   // Log every listing-URL navigation to browse_history. Listing-only by

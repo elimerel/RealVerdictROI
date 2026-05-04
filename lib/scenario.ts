@@ -35,6 +35,20 @@ export function applyScenarioFromBus(partial: Partial<import("./scenario").Scena
   applySubscribers.forEach((fn) => fn(partial))
 }
 
+/** Reset bus — fires when the AI clears all overrides. Subscribers
+ *  (the active ResultPane) wipe their local overrides state. */
+type ResetHandler = () => void
+const resetSubscribers = new Set<ResetHandler>()
+
+export function resetScenarioFromBus(): void {
+  resetSubscribers.forEach((fn) => fn())
+}
+
+export function subscribeToScenarioReset(handler: ResetHandler): () => void {
+  resetSubscribers.add(handler)
+  return () => { resetSubscribers.delete(handler) }
+}
+
 export function subscribeToScenarioBus(handler: ApplyHandler): () => void {
   applySubscribers.add(handler)
   return () => { applySubscribers.delete(handler) }

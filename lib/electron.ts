@@ -372,6 +372,9 @@ export interface ElectronAPI {
    *  tool during a chat turn. The active ResultPane subscribes via
    *  applyScenarioFromBus to merge the changes live. */
   onApplyScenario: (cb: (changes: Record<string, number>) => void) => () => void
+  /** Reset-scenario bridge — fires when Claude calls reset_scenario.
+   *  Clears all overrides on the active panel. */
+  onResetScenario: (cb: () => void) => () => void
 
   // Download lifecycle from the embedded BrowserView's session.
   onDownloadState: (cb: (payload: DownloadState) => void) => () => void
