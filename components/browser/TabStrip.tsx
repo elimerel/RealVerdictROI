@@ -29,12 +29,16 @@ export default function TabStrip({
 
   return (
     <div
-      className="flex items-stretch shrink-0 select-none rv-tabstrip"
+      className="flex items-stretch shrink-0 select-none rv-tabstrip relative"
       style={{
         height:           34,
         paddingLeft,
         paddingRight:     8,
         WebkitAppRegion:  "drag",
+        // Bottom hairline lives on the strip itself — but the active tab
+        // overlaps it (marginBottom: -1) so the seam disappears under
+        // the focused tab. Same visual trick as Arc/Safari: the tab
+        // and toolbar read as one continuous surface.
         borderBottom:     "0.5px solid var(--rv-border)",
         background:       "transparent",
         transition:       "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
@@ -96,24 +100,30 @@ function TabItem({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onActivate() }}
-      className="group relative flex items-center gap-2 rounded-t-[6px] cursor-default select-none"
+      className="group relative flex items-center gap-2 rounded-t-[7px] cursor-default select-none"
       style={{
-        // Fixed widths so the strip never reflows when the active tab
-        // toggles its highlight or a tab's title text changes mid-load.
         width:        180,
         minWidth:     180,
         maxWidth:     180,
         height:       30,
         padding:      "0 8px 0 10px",
         marginTop:    4,
-        // Matte active state: a slightly brighter neutral surface + a
-        // hairline border + an inner top highlight. No accent tint — the
-        // tab strip should feel like Safari/Arc chrome, not like every
-        // tab is a brand status indicator.
+        // Active tab "merges" with the toolbar below — extends 1.5px
+        // past the strip's bottom border to cover it, so visually the
+        // tab and toolbar read as one continuous surface (Arc/Safari
+        // pattern). Inactive tabs sit recessed within the strip.
+        marginBottom: active ? -1.5 : 0,
+        // Active uses elev-3 (slightly more lifted than the toolbar's
+        // elev-1 background) so it reads as in-front. Inactive is
+        // transparent — quiet, recessed.
         background:   active ? "var(--rv-elev-3)" : "transparent",
-        color:        active ? "var(--rv-t1)"          : "var(--rv-t3)",
-        border:       active ? "0.5px solid var(--rv-border-mid)" : "0.5px solid transparent",
-        boxShadow:    active ? "var(--rv-shadow-inset)" : "none",
+        color:        active ? "var(--rv-t1)"    : "var(--rv-t3)",
+        // Active gets sides + top hairlines but NO bottom border (so the
+        // bleed-through into the toolbar is clean, no seam line).
+        borderTop:    active ? "0.5px solid var(--rv-border-mid)" : "0.5px solid transparent",
+        borderLeft:   active ? "0.5px solid var(--rv-border-mid)" : "0.5px solid transparent",
+        borderRight:  active ? "0.5px solid var(--rv-border-mid)" : "0.5px solid transparent",
+        boxShadow:    active ? "inset 0 1px 0 rgba(255,255,255,0.06)" : "none",
         transition:   "background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), border-color 120ms cubic-bezier(0.4, 0, 0.2, 1)",
       }}
       onMouseEnter={(e) => {
