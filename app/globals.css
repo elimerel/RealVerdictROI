@@ -606,6 +606,18 @@
   animation: rv-suggestions-in 140ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
+/* Floating chat history / suggestions popover — same spring overshoot
+   energy as toasts but slightly tighter. Used for the chat surface
+   above the input bar in the panel. */
+@keyframes rv-chat-history-in {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.rv-chat-history-pop {
+  animation: rv-chat-history-in 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  transform-origin: bottom center;
+}
+
 /* Toast pop-in — slides up from below with overshoot. The buddy showing
    up to say something. Same easing as the suggestions pop. */
 @keyframes rv-toast-in {

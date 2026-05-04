@@ -1417,13 +1417,10 @@ export default function Panel({
         </div>
       </div>
 
-      {/* Body — analysis surface on top, persistent chat at the bottom.
-          The chat zone is always visible (no more mode toggle): when empty
-          it's just the suggestion chips + input bar; when there's
-          conversation it grows to ~50% of the panel. The user can scroll
-          either area independently. AI scenario changes (via the smart
-          chips) update the metrics above in real time, so the user SEES
-          the AI doing things instead of toggling between modes. */}
+      {/* Body — analysis surface gets the FULL panel height. Chat
+          floats over the bottom edge: collapsed it's just a 52px input
+          bar; when focused or with messages it expands upward as a
+          glass overlay. Analysis stays fully visible underneath. */}
       <div className="flex flex-col flex-1 min-h-0 relative">
         <div className="flex-1 min-h-0 flex flex-col">
           {state.phase === "empty"       && <EmptyPane     hasListing={state.hasListing} onAnalyze={onReanalyze ?? (() => {})} />}
@@ -1438,30 +1435,18 @@ export default function Panel({
             />
           )}
         </div>
-        {/* Inline chat — always at the bottom when we have a real result
-            to talk about. Hidden in empty/error states (nothing to chat
-            about). Has its own internal scroll for history + fixed input. */}
+        {/* Floating chat over the bottom edge. Self-managed expand
+            state — collapsed = just the input bar, expanded = grows
+            upward to show suggestions or conversation history. */}
         {canChat && (
-          <div
-            className="shrink-0 flex flex-col"
-            style={{
-              borderTop:  "0.5px solid var(--rv-border)",
-              // Tall enough for history when there's a conversation,
-              // collapses naturally when empty (the chat empty state
-              // is a few suggestion chips + input ≈ 220px).
-              height: chatMessages.length > 0 ? Math.min(360, Math.max(280, chatMessages.length * 90 + 140)) : 280,
-              maxHeight: "55%",
-            }}
-          >
-            <PanelChat
-              messages={chatMessages}
-              context={chatContext!}
-              loading={chatLoading}
-              onSend={onChatSend!}
-              onClear={onChatClear}
-              disabled={!isReady}
-            />
-          </div>
+          <PanelChat
+            messages={chatMessages}
+            context={chatContext!}
+            loading={chatLoading}
+            onSend={onChatSend!}
+            onClear={onChatClear}
+            disabled={!isReady}
+          />
         )}
 
         {/* Sources drawer — overlays the body when the user clicks the

@@ -116,14 +116,12 @@ export default function PanelChat({
   const empty = messages.length === 0
 
   // Suggestion-pick handler — either pre-applies a scenario change (the
-  // ✦ chips) or just sends the canned question. Same logic the inline
-  // chat bar uses; lifted here so both surfaces share the behavior.
+  // ✦ chips) or just sends the canned question.
   const onPickSuggestion = useCallback((suggestion: SmartSuggestion) => {
     if (suggestion.scenario) {
       applyScenarioFromBus(suggestion.scenario)
-      // No toast needed — the user can SEE the metrics change in real
-      // time above the chat now that the panel is one continuous surface.
     }
+    setShowSuggestions(false)
     const userMsg: ChatMessage = {
       id:      `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
       role:    "user",
@@ -133,84 +131,223 @@ export default function PanelChat({
     void onSend(userMsg)
   }, [onSend])
 
-  return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* Conversation scroll area */}
-      <div
-        ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto panel-scroll px-4 py-4 flex flex-col gap-3"
-      >
-        {empty ? (
-          <ChatEmpty onPickSuggestion={onPickSuggestion} disabled={disabled} />
-        ) : (
-          messages.map((m) => <ChatBubble key={m.id} message={m} />)
-        )}
-        {loading && <ChatTyping />}
-      </div>
+  // Internal expand state — drives whether suggestions/history show.
+  // Compact (collapsed) = just the input bar at the bottom (~52px).
+  // Expanded = suggestions popover above the bar OR conversation
+  // history floating above the bar. Either way the analysis above is
+  // mostly visible — chat is unobtrusive when not in use.
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [showHistory, setShowHistory] = useState(empty ? false : true)
+  // When messages first appear, auto-show history. When clear → hide.
+  useEffect(() => { setShowHistory(messages.length > 0) }, [messages.length])
 
-      {/* Composer pinned to bottom */}
-      <div
-        className="shrink-0 px-3 py-2.5"
-        style={{ borderTop: "0.5px solid var(--rv-border)" }}
-      >
+  // Suppress unused warning
+  void context
+
+  return (
+    <div
+      className="absolute left-0 right-0 bottom-0 flex flex-col pointer-events-none"
+      style={{ zIndex: 20 }}
+    >
+      {/* Conversation history — only renders when there are messages.
+          Floats above the input as a translucent overlay. The analysis
+          above is still visible behind the soft scrim. Click the X to
+          collapse history (messages stay; just hide the panel). */}
+      {showHistory && messages.length > 0 && (
         <div
-          className="flex items-end gap-2 rounded-[10px] px-3 py-2 transition-colors"
+          className="pointer-events-auto mx-3 mb-2 rounded-[12px] flex flex-col rv-chat-history-pop"
           style={{
-            background: "var(--rv-elev-2)",
-            border:     "0.5px solid var(--rv-border)",
+            maxHeight:        "min(360px, 60vh)",
+            background:       "var(--rv-popover-bg)",
+            backdropFilter:   "blur(28px) saturate(160%)",
+            WebkitBackdropFilter: "blur(28px) saturate(160%)",
+            border:           "0.5px solid var(--rv-border-mid)",
+            boxShadow:        "0 12px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
+            overflow:         "hidden",
           }}
-          onClick={() => inputRef.current?.focus()}
         >
-          <textarea
-            ref={inputRef}
-            rows={1}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={onKey}
-            disabled={disabled || loading}
-            placeholder={disabled ? "Open a listing to ask…" : "Ask anything about this listing…"}
-            className="flex-1 bg-transparent border-none outline-none resize-none text-[12.5px] leading-snug"
-            style={{
-              color:      "var(--rv-t1)",
-              maxHeight:  120,
-              fontFamily: "inherit",
-            }}
-            spellCheck
-          />
-          <button
-            onClick={handleSend}
-            disabled={disabled || loading || !draft.trim()}
-            aria-label="Send message"
-            className="shrink-0 inline-flex items-center justify-center rounded-[6px] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            style={{
-              width:      26,
-              height:     26,
-              color:      draft.trim() ? "var(--rv-accent)" : "var(--rv-t4)",
-              background: draft.trim() ? "rgba(48,164,108,0.10)" : "transparent",
-              border:     `0.5px solid ${draft.trim() ? "rgba(48,164,108,0.22)" : "transparent"}`,
-            }}
+          <div className="flex items-center justify-between px-3 pt-2 pb-1.5 shrink-0">
+            <span className="text-[10px] uppercase tracking-widest font-medium" style={{ color: "var(--rv-t4)" }}>
+              Conversation · {messages.length}
+            </span>
+            <div className="flex items-center gap-1">
+              {onClear && (
+                <button
+                  onClick={onClear}
+                  className="text-[10.5px] tracking-tight"
+                  style={{ color: "var(--rv-t4)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t2)" }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)" }}
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={() => setShowHistory(false)}
+                aria-label="Hide conversation"
+                className="w-5 h-5 inline-flex items-center justify-center rounded-[5px] transition-colors"
+                style={{ color: "var(--rv-t4)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)"; e.currentTarget.style.background = "var(--rv-elev-3)" }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)"; e.currentTarget.style.background = "transparent" }}
+              >
+                <svg width="10" height="10" viewBox="0 0 11 11" fill="none" aria-hidden>
+                  <path d="M2.5 2.5L8.5 8.5M8.5 2.5L2.5 8.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div
+            ref={scrollRef}
+            className="flex-1 min-h-0 overflow-y-auto panel-scroll px-3 pb-3 flex flex-col gap-2.5"
           >
-            <Send size={11} strokeWidth={2} />
-          </button>
+            {messages.map((m) => <ChatBubble key={m.id} message={m} />)}
+            {loading && <ChatTyping />}
+          </div>
         </div>
-        {messages.length > 0 && onClear && (
-          <button
-            onClick={onClear}
-            className="mt-2 text-[10.5px]"
-            style={{ color: "var(--rv-t4)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t2)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)" }}
-          >
-            Clear conversation
-          </button>
-        )}
+      )}
+
+      {/* Suggestions popover — shows when user clicks the ✦ chip.
+          Floats above the input bar; click outside or pick a suggestion
+          to dismiss. Hidden when there's already conversation history. */}
+      {showSuggestions && empty && (
+        <div
+          className="pointer-events-auto mx-3 mb-2 rounded-[12px] flex flex-col gap-1.5 px-2.5 pt-2.5 pb-2 rv-chat-history-pop"
+          style={{
+            background:       "var(--rv-popover-bg)",
+            backdropFilter:   "blur(28px) saturate(160%)",
+            WebkitBackdropFilter: "blur(28px) saturate(160%)",
+            border:           "0.5px solid var(--rv-border-mid)",
+            boxShadow:        "0 12px 32px rgba(0,0,0,0.45)",
+          }}
+        >
+          <ChatSuggestions onPick={onPickSuggestion} disabled={disabled} />
+        </div>
+      )}
+
+      {/* The slim input bar — always visible at the bottom. Collapsed
+          state of the chat (52px). Click the ✦ to reveal suggestions;
+          type to ask anything. */}
+      <div
+        className="pointer-events-auto mx-3 mb-3 rounded-[10px] flex items-end gap-2 px-2.5 py-2 transition-colors"
+        style={{
+          background:     "var(--rv-popover-bg)",
+          backdropFilter: "blur(28px) saturate(160%)",
+          WebkitBackdropFilter: "blur(28px) saturate(160%)",
+          border:         "0.5px solid var(--rv-border-mid)",
+          boxShadow:      "0 6px 18px rgba(0,0,0,0.30)",
+        }}
+        onClick={() => inputRef.current?.focus()}
+      >
+        {/* ✦ Sparkle button — toggles the suggestions popover. Doubles
+            as a "show conversation" button when there are messages. */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            if (messages.length > 0) {
+              setShowHistory((v) => !v)
+            } else {
+              setShowSuggestions((v) => !v)
+            }
+          }}
+          disabled={disabled}
+          title={messages.length > 0 ? "Toggle conversation" : "Show suggestions"}
+          aria-label={messages.length > 0 ? "Toggle conversation" : "Show suggestions"}
+          className="shrink-0 inline-flex items-center justify-center rounded-[7px] transition-colors"
+          style={{
+            width:      28,
+            height:     28,
+            color:      (showSuggestions || (messages.length > 0 && showHistory)) ? "var(--rv-accent)" : "var(--rv-t3)",
+            background: (showSuggestions || (messages.length > 0 && showHistory)) ? "var(--rv-accent-dim)" : "transparent",
+          }}
+          onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = "var(--rv-elev-3)" }}
+          onMouseLeave={(e) => {
+            const active = showSuggestions || (messages.length > 0 && showHistory)
+            e.currentTarget.style.background = active ? "var(--rv-accent-dim)" : "transparent"
+          }}
+        >
+          <Sparkles size={12} strokeWidth={2} />
+        </button>
+        <textarea
+          ref={inputRef}
+          rows={1}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKey}
+          disabled={disabled || loading}
+          placeholder={disabled ? "Open a listing to ask…" : "Ask anything about this listing…"}
+          className="flex-1 bg-transparent border-none outline-none resize-none text-[12.5px] leading-snug py-1"
+          style={{
+            color:      "var(--rv-t1)",
+            maxHeight:  120,
+            fontFamily: "inherit",
+          }}
+          spellCheck
+        />
+        <button
+          onClick={handleSend}
+          disabled={disabled || loading || !draft.trim()}
+          aria-label="Send message"
+          className="shrink-0 inline-flex items-center justify-center rounded-[7px] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          style={{
+            width:      28,
+            height:     28,
+            color:      draft.trim() ? "var(--rv-accent)" : "var(--rv-t4)",
+            background: draft.trim() ? "var(--rv-accent-dim)" : "transparent",
+            border:     `0.5px solid ${draft.trim() ? "var(--rv-accent-border)" : "transparent"}`,
+          }}
+        >
+          <Send size={11} strokeWidth={2} />
+        </button>
       </div>
     </div>
   )
+}
 
-  // Suppress unused-import warning since we don't render context directly
-  // (only use it for IPC). Kept in props so the typing flows for callers.
-  void context
+/** Suggestion chip list — pulled out so it can render in the popover.
+ *  Same SmartSuggestion behavior as before. */
+function ChatSuggestions({
+  onPick, disabled,
+}: {
+  onPick: (s: SmartSuggestion) => void
+  disabled?: boolean
+}) {
+  if (disabled) return null
+  return (
+    <>
+      {SUGGESTIONS.map((s) => {
+        const isAction = !!s.scenario
+        return (
+          <button
+            key={s.label}
+            onClick={() => onPick(s)}
+            className="text-left rounded-[7px] px-3 py-2 text-[12px] transition-colors flex items-center gap-2"
+            style={{
+              color:      "var(--rv-t2)",
+              background: isAction ? "var(--rv-accent-dim)" : "var(--rv-elev-2)",
+              border:     `0.5px solid ${isAction ? "var(--rv-accent-border)" : "var(--rv-border)"}`,
+            }}
+            onMouseEnter={(e) => {
+              if (isAction) {
+                e.currentTarget.style.background = "var(--rv-accent-border)"
+              } else {
+                e.currentTarget.style.background = "var(--rv-elev-4)"
+              }
+              e.currentTarget.style.color = "var(--rv-t1)"
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = isAction ? "var(--rv-accent-dim)" : "var(--rv-elev-2)"
+              e.currentTarget.style.color      = "var(--rv-t2)"
+            }}
+          >
+            {isAction && (
+              <Sparkles size={10} strokeWidth={2} style={{ color: "var(--rv-accent)", flexShrink: 0 }} />
+            )}
+            <span className="flex-1">{s.label}</span>
+          </button>
+        )
+      })}
+    </>
+  )
 }
 
 function ChatBubble({ message }: { message: ChatMessage }) {
@@ -254,69 +391,6 @@ function ChatTyping() {
           />
         ))}
       </div>
-    </div>
-  )
-}
-
-function ChatEmpty({
-  onPickSuggestion, disabled,
-}: {
-  onPickSuggestion: (s: SmartSuggestion) => void
-  disabled?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-3.5 py-4">
-      <div className="flex items-start gap-2.5">
-        <span style={{ color: "var(--rv-accent)", marginTop: 1 }}>
-          <Sparkles size={14} strokeWidth={1.7} />
-        </span>
-        <div>
-          <p className="text-[13px] font-medium leading-tight" style={{ color: "var(--rv-t1)" }}>
-            Ask about this listing
-          </p>
-          <p className="text-[11.5px] leading-snug mt-1" style={{ color: "var(--rv-t3)" }}>
-            Hypothetical underwriting, comp ranges, why a metric is what it is. The ✦ chips actually adjust the scenario for you, then explain what changed.
-          </p>
-        </div>
-      </div>
-      {!disabled && (
-        <div className="flex flex-col gap-1.5 mt-1">
-          {SUGGESTIONS.map((s) => {
-            const isAction = !!s.scenario
-            return (
-              <button
-                key={s.label}
-                onClick={() => onPickSuggestion(s)}
-                className="text-left rounded-[7px] px-3 py-2 text-[12px] transition-colors flex items-center gap-2"
-                style={{
-                  color:      "var(--rv-t2)",
-                  background: isAction ? "var(--rv-accent-dim)" : "var(--rv-elev-1)",
-                  border:     `0.5px solid ${isAction ? "var(--rv-accent-border)" : "var(--rv-border)"}`,
-                }}
-                onMouseEnter={(e) => {
-                  if (isAction) {
-                    e.currentTarget.style.background = "var(--rv-accent-border)"
-                  } else {
-                    e.currentTarget.style.background = "var(--rv-elev-3)"
-                  }
-                  e.currentTarget.style.color = "var(--rv-t1)"
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isAction ? "var(--rv-accent-dim)" : "var(--rv-elev-1)"
-                  e.currentTarget.style.color      = "var(--rv-t2)"
-                }}
-              >
-                {/* Action chips get the sparkle marker — visual cue
-                    that the chip will DO something, not just ask. */}
-                {isAction && (
-                  <Sparkles size={10} strokeWidth={2} style={{ color: "var(--rv-accent)", flexShrink: 0 }} />
-                )}
-                <span className="flex-1">{s.label}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }
