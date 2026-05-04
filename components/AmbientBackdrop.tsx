@@ -53,97 +53,54 @@ export function useSetMoodWhileMounted(mood: BackdropMood) {
   }, [mood, setMood])
 }
 
-// ── Time-of-day palette ─────────────────────────────────────────────────
+// ── Brand-locked palette ────────────────────────────────────────────────
 //
-// Each phase defines a horizon glow (the dominant bottom-anchored light)
-// and a counter-light (a small soft glow in the opposite corner for
-// compositional balance). The colors evoke real-world light at that
-// time — golden hour is genuinely amber, night is genuinely cool.
+// The backdrop colors NEVER change. Same warm earth + forest + clay
+// family as the rest of the app, always. Like Linear's purple sky or
+// Stripe's gradient — the consistency IS the signature.
+//
+// Time of day affects only INTENSITY and ANCHOR POSITION — never color.
+// At night the whole composition quiets to ~60%; at midday it brightens
+// to 100%. The horizon's anchor rotates left→center→right through the
+// day like a sun arc, so the light feels like it's tracking the time
+// without ever escaping the brand family.
+//
+// Mood is a tiny intensity nudge (±15%) on top of that. Same color
+// palette for everything; only the dimmer moves.
 
-interface ScenePalette {
-  /** Dominant bottom-anchored glow — color, opacity, horizontal anchor (0–100%). */
-  horizon: {
-    color:  string
-    opacity: number
-    anchor:  number
-  }
-  /** Soft counter-light in the opposite top corner. Compositional weight. */
-  counter: {
-    color:  string
-    opacity: number
-    anchor:  number   // horizontal anchor (0 = left, 100 = right)
-    fromTop: number   // vertical anchor from top (0 = at top, 30 = 30% down)
-  }
-  /** Phase label — for debugging and the "From your buddy" line. */
-  label: string
+const BRAND_HORIZON = "rgba(196, 130, 75, 0.55)"   // warm amber clay — the firelight
+const BRAND_COUNTER = "rgba(48, 164, 108, 0.35)"   // forest green — the cool counterlight
+
+/** Time-of-day intensity multiplier. Quiet at night, full midday. */
+function intensityForHour(h: number): number {
+  if (h >= 22 || h < 5)  return 0.60   // night — backdrop recedes
+  if (h >= 5 && h < 8)   return 0.75   // dawn
+  if (h >= 8 && h < 11)  return 0.90   // morning
+  if (h >= 11 && h < 16) return 1.00   // midday — peak presence
+  if (h >= 16 && h < 19) return 0.95   // afternoon / golden
+  return 0.80                          // dusk
 }
 
-function paletteForHour(h: number): ScenePalette {
-  if (h >= 5 && h < 8) {
-    // Dawn — cool blue rising from bottom, hint of pink. Light anchored
-    // bottom-center, counter glow upper-left.
-    return {
-      horizon: { color: "rgba(180, 140, 175, 0.55)", opacity: 1, anchor: 50 },
-      counter: { color: "rgba(140, 170, 200, 0.30)", opacity: 1, anchor: 18, fromTop: 8 },
-      label:   "dawn",
-    }
-  }
-  if (h >= 8 && h < 12) {
-    // Morning — warm gold rising from bottom-left. Counter glow top-right.
-    return {
-      horizon: { color: "rgba(220, 180, 110, 0.55)", opacity: 1, anchor: 30 },
-      counter: { color: "rgba(150, 180, 200, 0.25)", opacity: 1, anchor: 82, fromTop: 6 },
-      label:   "morning",
-    }
-  }
-  if (h >= 12 && h < 16) {
-    // Midday — calm cool light from above-center, modest bottom warmth.
-    return {
-      horizon: { color: "rgba(160, 180, 170, 0.40)", opacity: 1, anchor: 50 },
-      counter: { color: "rgba(180, 200, 215, 0.30)", opacity: 1, anchor: 50, fromTop: 5 },
-      label:   "midday",
-    }
-  }
-  if (h >= 16 && h < 19) {
-    // Golden hour — deep amber from bottom-right (low slanting sun).
-    return {
-      horizon: { color: "rgba(235, 165, 95, 0.65)", opacity: 1, anchor: 70 },
-      counter: { color: "rgba(140, 90, 80, 0.35)", opacity: 1, anchor: 25, fromTop: 12 },
-      label:   "golden hour",
-    }
-  }
-  if (h >= 19 && h < 21) {
-    // Dusk — warm pink horizon transitioning cool above.
-    return {
-      horizon: { color: "rgba(220, 130, 110, 0.60)", opacity: 1, anchor: 60 },
-      counter: { color: "rgba(120, 140, 175, 0.35)", opacity: 1, anchor: 28, fromTop: 8 },
-      label:   "dusk",
-    }
-  }
-  if (h >= 21 || h < 2) {
-    // Night — quiet warm ember at bottom-center. Like firelight in a dark room.
-    return {
-      horizon: { color: "rgba(180, 110, 70, 0.50)", opacity: 1, anchor: 50 },
-      counter: { color: "rgba(70, 90, 120, 0.30)", opacity: 1, anchor: 80, fromTop: 4 },
-      label:   "night",
-    }
-  }
-  // Late night / pre-dawn (2–5am) — deep cool blue, very quiet.
-  return {
-    horizon: { color: "rgba(90, 110, 150, 0.40)", opacity: 1, anchor: 50 },
-    counter: { color: "rgba(140, 100, 120, 0.20)", opacity: 1, anchor: 70, fromTop: 6 },
-    label:   "late night",
-  }
+/** Sun-arc anchor — left in morning, center at midday, right in evening.
+ *  Returns 0–100 (horizontal % across viewport). */
+function horizonAnchorForHour(h: number): number {
+  // Map 6am → 30%, 12pm → 50%, 6pm → 70%. Clamped outside.
+  if (h < 6)  return 30
+  if (h > 18) return 70
+  return 30 + ((h - 6) / 12) * 40
 }
 
-// Mood-based opacity nudges. The dominant signal is time of day; mood
-// just brightens or quiets the same composition.
+function counterAnchorForHour(h: number): number {
+  // Counter glow sits OPPOSITE the horizon anchor.
+  return 100 - horizonAnchorForHour(h)
+}
+
 const MOOD_INTENSITY: Record<BackdropMood, number> = {
   idle:      1.00,
   browsing:  1.05,
-  deciding:  0.95,   // calmer when focused on a deal
-  comparing: 0.85,   // step back when comparing
-  alerting:  1.15,   // slightly louder when something needs attention
+  deciding:  0.95,
+  comparing: 0.85,
+  alerting:  1.15,
 }
 
 // ── Rendered backdrop ───────────────────────────────────────────────────
@@ -151,16 +108,21 @@ const MOOD_INTENSITY: Record<BackdropMood, number> = {
 export function AmbientBackdrop() {
   const { mood } = useBackdropMood()
 
-  // Compute palette based on current hour. We re-derive every 10 minutes
-  // so the backdrop drifts through the day if the app is left open.
+  // Re-derive intensity + sun-arc anchor every 10 minutes if the app is
+  // left open, so the backdrop quiets at night and the light source
+  // gradually rotates through the day. COLORS never change.
   const [hour, setHour] = useState(() => new Date().getHours())
   useEffect(() => {
     const id = setInterval(() => setHour(new Date().getHours()), 10 * 60_000)
     return () => clearInterval(id)
   }, [])
 
-  const palette  = useMemo(() => paletteForHour(hour), [hour])
-  const intensity = MOOD_INTENSITY[mood]
+  const intensity = useMemo(
+    () => intensityForHour(hour) * MOOD_INTENSITY[mood],
+    [hour, mood]
+  )
+  const horizonX = useMemo(() => horizonAnchorForHour(hour), [hour])
+  const counterX = useMemo(() => counterAnchorForHour(hour), [hour])
 
   return (
     <div
@@ -175,43 +137,41 @@ export function AmbientBackdrop() {
         background:    "var(--rv-bg)",
       }}
     >
-      {/* Horizon glow — the dominant bottom-anchored light source. Width
-          covers the lower half of the viewport, anchored horizontally per
-          time of day. Slow horizontal drift gives it the "breathing"
-          quality of real light without ever feeling random. */}
+      {/* Horizon glow — the dominant bottom-anchored light. Warm clay,
+          always. Anchor X moves left→right through the day (sun arc).
+          Color is brand-locked. */}
       <div
         className="rv-horizon-glow"
         style={{
           position: "absolute",
-          left:     `${palette.horizon.anchor - 60}%`,
-          right:    `${100 - (palette.horizon.anchor + 60)}%`,
+          left:     `${horizonX - 60}%`,
+          right:    `${100 - (horizonX + 60)}%`,
           bottom:   "-30vh",
           height:   "75vh",
-          background: `radial-gradient(ellipse at 50% 100%, ${withOpacity(palette.horizon.color, intensity)} 0%, transparent 70%)`,
+          background: `radial-gradient(ellipse at 50% 100%, ${withOpacity(BRAND_HORIZON, intensity)} 0%, transparent 70%)`,
           filter:   "blur(24px)",
           transition: "background 2400ms cubic-bezier(0.32, 0.72, 0, 1), left 2400ms ease, right 2400ms ease",
         }}
       />
 
-      {/* Counter-light — small soft glow in the opposite corner.
-          Compositional balance, like a window letting in indirect sky
-          light to balance the firelight from the floor. */}
+      {/* Counter-light — forest green from the opposite top corner.
+          Compositional balance, brand-locked. */}
       <div
         className="rv-counter-glow"
         style={{
           position: "absolute",
-          left:     `${palette.counter.anchor - 25}%`,
+          left:     `${counterX - 25}%`,
           width:    "50vw",
-          top:      `${palette.counter.fromTop - 25}vh`,
+          top:      "-15vh",
           height:   "55vh",
-          background: `radial-gradient(ellipse at 50% 50%, ${withOpacity(palette.counter.color, intensity * 0.85)} 0%, transparent 65%)`,
+          background: `radial-gradient(ellipse at 50% 50%, ${withOpacity(BRAND_COUNTER, intensity * 0.85)} 0%, transparent 65%)`,
           filter:   "blur(40px)",
           transition: "background 2400ms cubic-bezier(0.32, 0.72, 0, 1), left 2400ms ease",
         }}
       />
 
       {/* Debug label — invisible but inspectable */}
-      <span data-rv-backdrop-phase={palette.label} data-rv-backdrop-mood={mood} style={{ display: "none" }} />
+      <span data-rv-backdrop-hour={hour} data-rv-backdrop-mood={mood} style={{ display: "none" }} />
     </div>
   )
 }
