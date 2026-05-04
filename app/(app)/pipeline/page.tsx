@@ -426,10 +426,10 @@ function DealDetail({
         <div className="flex-1 min-w-0">
           {deal.list_price != null && (
             <p
-              className="tracking-[-0.022em] leading-none tabular-nums"
+              className="tracking-[-0.030em] leading-none tabular-nums"
               style={{
                 color:      "var(--rv-t1)",
-                fontSize:   32,
+                fontSize:   36,
                 fontFamily: "var(--rv-font-display)",
                 fontWeight: 500,
               }}
@@ -437,12 +437,34 @@ function DealDetail({
               <Currency value={deal.list_price} whole />
             </p>
           )}
+          {/* Cash flow as co-hero — same pattern as the Browse panel.
+              Reads as the answer to 'is this a deal?' right next to the
+              price so the visual hierarchy is consistent across surfaces. */}
+          {Number.isFinite(metrics.monthlyCashFlow) && (
+            <div className="flex items-baseline gap-2 mt-2">
+              <span
+                className="tabular-nums leading-none"
+                style={{
+                  color:      metrics.monthlyCashFlow < 0 ? "var(--rv-neg)" : "var(--rv-pos)",
+                  fontSize:   22,
+                  fontFamily: "var(--rv-font-display)",
+                  fontWeight: 500,
+                  letterSpacing: "-0.020em",
+                }}
+              >
+                <Currency value={metrics.monthlyCashFlow} signed />
+              </span>
+              <span className="text-[11.5px] tracking-tight" style={{ color: "var(--rv-t3)" }}>
+                cash flow / mo
+              </span>
+            </div>
+          )}
           {address && (
-            <p className="text-[12.5px] mt-1.5 leading-snug" style={{ color: "var(--rv-t3)" }}>
+            <p className="text-[12.5px] mt-3 leading-snug" style={{ color: "var(--rv-t2)" }}>
               {address}
             </p>
           )}
-          <div className="flex items-center gap-3 mt-2 text-[11px]" style={{ color: "var(--rv-t4)" }}>
+          <div className="flex items-center gap-3 mt-1.5 text-[11px]" style={{ color: "var(--rv-t4)" }}>
             {deal.beds      != null && <span>{deal.beds} bd</span>}
             {deal.baths     != null && <span>{deal.baths} ba</span>}
             {deal.sqft      != null && <span>{deal.sqft.toLocaleString()} sqft</span>}
