@@ -6,6 +6,8 @@ import type { ChatContext, ChatMessage, PanelResult, SourceField, SourceKind } f
 import type { PipelineAverages } from "@/lib/pipeline"
 import { SourceMark, sourceMeta, freshnessLabel } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
+import NumberFlow from "@number-flow/react"
+import { BuddyMark } from "@/components/BuddyMark"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +26,7 @@ import StageMenu from "@/components/StageMenu"
 import type { DealStage } from "@/lib/pipeline"
 import { useMapShell } from "@/lib/mapShell"
 import { useEscape } from "@/lib/escapeStack"
+import { cn } from "@/lib/utils"
 
 // ── Metric card ───────────────────────────────────────────────────────────────
 //
@@ -62,11 +65,13 @@ function MetricCard({
    *  user's own threshold; never a verdict from us. */
   bar?: { passed: boolean } | null
 }) {
-  const valueColor = tone === "neg" ? "var(--rv-neg)" : "var(--rv-t1)"
+  // tone === "neg" — data-semantic red, kept as inline --rv-neg.
+  // Otherwise the foreground color comes from the Tailwind class
+  // text-foreground on the value div below.
   const deltaColor =
     delta?.tone === "pos" ? "var(--rv-pos)" :
     delta?.tone === "neg" ? "var(--rv-neg)" :
-                            "var(--rv-t4)"
+                            undefined
 
   // Flash trigger — when flashKey changes (skip first paint), increment a
   // tick used to re-mount an absolutely-positioned overlay that runs the
@@ -90,26 +95,38 @@ function MetricCard({
           className="rv-metric-flash absolute inset-0 rounded-[var(--radius)] pointer-events-none"
         />
       )}
-      <div
-        className="text-[10.5px] uppercase tracking-wider font-medium truncate"
-        style={{ color: "var(--rv-t3)" }}
-      >
+      {/* New type system applied — sentence-case label at body-meta
+          weight, metric value as Source Serif at display-22px. The
+          old all-caps tracking-wider label gets replaced with a
+          calmer "Cap rate" treatment; the old 32px sans value
+          becomes a 22px serif. Reads as Mercury/Bloomberg "primary
+          number is a typographic event," not "big sans number on a
+          rectangle." */}
+      <div className="text-[11px] font-medium truncate text-muted-foreground">
         {label}
       </div>
       <div
-        className="font-semibold tabular-nums leading-none truncate mt-2.5"
+        className={cn(
+          "tabular-nums leading-none truncate mt-2.5",
+          tone !== "neg" && "text-foreground"
+        )}
         style={{
-          color:              valueColor,
+          color:              tone === "neg" ? "var(--rv-neg)" : undefined,
           fontVariantNumeric: "tabular-nums",
-          fontSize:           26,
-          letterSpacing:      "-0.02em",
+          fontFamily:         "var(--rv-font-display)",
+          fontSize:           22,
+          fontWeight:         500,
+          letterSpacing:      "-0.018em",
         }}
       >
         {value}
       </div>
       {delta && (
         <div
-          className="text-[10.5px] leading-none tabular-nums truncate mt-1.5 inline-flex items-center gap-0.5"
+          className={cn(
+            "text-[11px] leading-none tabular-nums truncate mt-1.5 inline-flex items-center gap-0.5",
+            delta.tone === "neutral" && "text-muted-foreground/60"
+          )}
           style={{ color: deltaColor }}
           title="vs default analysis"
         >
@@ -119,7 +136,7 @@ function MetricCard({
         </div>
       )}
       {sub && (
-        <div className="text-[11.5px] leading-none truncate mt-2" style={{ color: "var(--rv-t2)" }}>
+        <div className="text-[11px] leading-none truncate mt-2 text-muted-foreground">
           {sub}
         </div>
       )}
@@ -184,35 +201,49 @@ function BenchmarkLine({
   // mean (your average is the reference), red when below. None of these
   // are scoring the deal — they're just "this is above/below your
   // typical save," and the user decides what that means.
-  const tone = (delta: number, higherIsBetter = true) =>
-    delta === 0 ? "var(--rv-t3)" :
+  // Returns inline color for data-semantic deltas only. Zero-delta
+  // (no signal) renders via text-muted-foreground/60 className instead.
+  const tone = (delta: number, higherIsBetter = true): string | undefined =>
+    delta === 0 ? undefined :
     (higherIsBetter ? delta > 0 : delta < 0) ? "var(--rv-pos)" : "var(--rv-neg)"
 
   return (
     <div className="flex items-center justify-between gap-3 mt-3">
-      <span
-        className="text-[10px] uppercase tracking-widest font-medium shrink-0"
-        style={{ color: "var(--rv-t4)" }}
-      >
+      <span className="text-[11px] shrink-0 text-muted-foreground/60">
         vs your {averages.count} saves
       </span>
       <div className="flex items-center gap-3 text-[11px] tabular-nums">
         {cashDelta != null && (
           <span className="inline-flex items-baseline gap-1">
-            <span style={{ color: "var(--rv-t4)" }}>CASH</span>
-            <span style={{ color: tone(cashDelta) }}>{fmtCash(cashDelta)}</span>
+            <span className="text-muted-foreground/60">Cash</span>
+            <span
+              className={cn(cashDelta === 0 && "text-muted-foreground/60")}
+              style={{ color: tone(cashDelta) }}
+            >
+              {fmtCash(cashDelta)}
+            </span>
           </span>
         )}
         {capDelta != null && (
           <span className="inline-flex items-baseline gap-1">
-            <span style={{ color: "var(--rv-t4)" }}>CAP</span>
-            <span style={{ color: tone(capDelta) }}>{fmtPpts(capDelta)}</span>
+            <span className="text-muted-foreground/60">Cap</span>
+            <span
+              className={cn(capDelta === 0 && "text-muted-foreground/60")}
+              style={{ color: tone(capDelta) }}
+            >
+              {fmtPpts(capDelta)}
+            </span>
           </span>
         )}
         {dscrDelta != null && (
           <span className="inline-flex items-baseline gap-1">
-            <span style={{ color: "var(--rv-t4)" }}>DSCR</span>
-            <span style={{ color: tone(dscrDelta) }}>{fmtDsc(dscrDelta)}</span>
+            <span className="text-muted-foreground/60">DSCR</span>
+            <span
+              className={cn(dscrDelta === 0 && "text-muted-foreground/60")}
+              style={{ color: tone(dscrDelta) }}
+            >
+              {fmtDsc(dscrDelta)}
+            </span>
           </span>
         )}
       </div>
@@ -228,7 +259,7 @@ function BenchmarkLine({
 
 function RiskFlag({ text }: { text: string }) {
   return (
-    <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed" style={{ color: "var(--rv-t2)" }}>
+    <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
       <span
         className="mt-[6px] shrink-0 rounded-full"
         style={{ width: 5, height: 5, background: "var(--rv-warn)" }}
@@ -310,22 +341,21 @@ function ProvenanceRow({
 
   return (
     <div
-      className={`group flex items-center justify-between gap-3 py-2.5 last:border-0 ${canEdit ? "cursor-pointer" : ""}`}
-      style={{ borderBottom: "1px solid var(--rv-border)" }}
+      className={cn(
+        "group flex items-center justify-between gap-3 py-2.5 border-b border-border last:border-0",
+        canEdit && "cursor-pointer"
+      )}
       onClick={canEdit ? onEdit : undefined}
       title={canEdit ? `${tooltip} · click to enter your own value` : tooltip}
     >
-      <span className="text-[12.5px] shrink-0" style={{ color: "var(--rv-t2)" }}>{label}</span>
+      <span className="text-[12.5px] shrink-0 text-muted-foreground">{label}</span>
       <div className="flex items-center gap-2.5 min-w-0">
         {canEdit && (
-          <span
-            className="text-[10px] uppercase tracking-widest font-semibold opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ color: "var(--rv-accent)" }}
-          >
+          <span className="text-[10px] uppercase tracking-widest font-semibold opacity-0 group-hover:opacity-100 transition-opacity text-primary">
             ✎ replace
           </span>
         )}
-        <span className="text-[13px] tabular-nums truncate font-medium" style={{ color: "var(--rv-t1)" }}>{value}</span>
+        <span className="text-[13px] tabular-nums truncate font-medium text-foreground">{value}</span>
         <SourceMark source={field.source} siteName={siteName} title={tooltip} />
       </div>
     </div>
@@ -417,8 +447,11 @@ function SourcesDrawer({
         style={{
           width:          "min(420px, 95%)",
           background:     "var(--rv-drawer-bg)",
-          backdropFilter: "blur(36px) saturate(180%)",
-          WebkitBackdropFilter: "blur(36px) saturate(180%)",
+          // 16px reads visually identical to 36px on a typical panel
+          // background but composites ~5× faster at retina. Wide-radius
+          // gaussian blur was costing real frame time on every paint.
+          backdropFilter:       "blur(16px) saturate(180%)",
+          WebkitBackdropFilter: "blur(16px) saturate(180%)",
           borderLeft:     "0.5px solid var(--rv-border-mid)",
           boxShadow:      "inset 1px 0 0 rgba(255,255,255,0.06), -16px 0 40px rgba(0, 0, 0, 0.45)",
         }}
@@ -440,9 +473,8 @@ function SourcesDrawer({
               number on the panel ties back to a source you can name. */}
           <div className="px-6 pt-2 pb-6">
             <h2
-              className="leading-tight"
+              className="leading-tight text-foreground"
               style={{
-                color:         "var(--rv-t1)",
                 fontSize:      28,
                 fontFamily:    "var(--rv-font-display)",
                 fontWeight:    500,
@@ -452,9 +484,8 @@ function SourcesDrawer({
               Sources
             </h2>
             <p
-              className="mt-2 leading-snug"
+              className="mt-2 leading-snug text-muted-foreground"
               style={{
-                color:      "var(--rv-t2)",
                 fontSize:   13.5,
                 fontFamily: "var(--rv-font-display)",
                 fontWeight: 400,
@@ -465,13 +496,8 @@ function SourcesDrawer({
               Hover any figure to see its source without opening this view.
             </p>
             <div
-              className="mt-4 inline-flex items-center gap-1.5 rounded-full text-[10.5px] tracking-widest uppercase font-medium"
-              style={{
-                color:      "var(--rv-accent)",
-                background: "var(--rv-accent-dim)",
-                border:     "0.5px solid var(--rv-accent-border)",
-                padding:    "3px 8px",
-              }}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-full text-[10.5px] tracking-widest uppercase font-medium text-primary border border-primary/20 bg-primary/10"
+              style={{ padding: "3px 8px" }}
             >
               ✦ Verifiable
             </div>
@@ -486,22 +512,14 @@ function SourcesDrawer({
               return (
                 <div
                   key={group.key}
-                  className="rounded-[12px] overflow-hidden"
-                  style={{
-                    background: "var(--rv-elev-1)",
-                    border:     "0.5px solid var(--rv-border)",
-                  }}
+                  className="rounded-[12px] overflow-hidden bg-muted/40 border border-border"
                 >
-                  <div
-                    className="flex items-center gap-3 px-4 pt-3.5 pb-3"
-                    style={{ borderBottom: "0.5px solid var(--rv-border)" }}
-                  >
+                  <div className="flex items-center gap-3 px-4 pt-3.5 pb-3 border-b border-border">
                     <SourceMark source={group.source} siteName={result.siteName} size="md" />
                     <div className="flex-1 min-w-0">
                       <p
-                        className="leading-tight truncate"
+                        className="leading-tight truncate text-foreground"
                         style={{
-                          color:      "var(--rv-t1)",
                           fontSize:   14,
                           fontFamily: "var(--rv-font-display)",
                           fontWeight: 500,
@@ -511,10 +529,7 @@ function SourcesDrawer({
                         {meta.label}
                       </p>
                     </div>
-                    <span
-                      className="shrink-0 text-[10px] uppercase tracking-widest font-medium tabular-nums"
-                      style={{ color: "var(--rv-t4)" }}
-                    >
+                    <span className="shrink-0 text-[10px] uppercase tracking-widest font-medium tabular-nums text-muted-foreground/60">
                       {String(groupIdx + 1).padStart(2, "0")}
                     </span>
                   </div>
@@ -522,15 +537,16 @@ function SourcesDrawer({
                     {group.facts.map((f, i) => (
                       <div
                         key={i}
-                        className="flex items-baseline justify-between gap-3 py-2.5"
-                        style={{ borderBottom: i < group.facts.length - 1 ? "0.5px solid var(--rv-border)" : "none" }}
+                        className={cn(
+                          "flex items-baseline justify-between gap-3 py-2.5",
+                          i < group.facts.length - 1 && "border-b border-border"
+                        )}
                       >
-                        <span className="text-[12.5px]" style={{ color: "var(--rv-t3)" }}>{f.label}</span>
+                        <span className="text-[12.5px] text-muted-foreground">{f.label}</span>
                         <div className="flex items-baseline gap-2 text-right">
                           <span
-                            className="tabular-nums leading-none"
+                            className="tabular-nums leading-none text-foreground"
                             style={{
-                              color:      "var(--rv-t1)",
                               fontSize:   13,
                               fontFamily: "var(--rv-font-display)",
                               fontWeight: 500,
@@ -539,7 +555,7 @@ function SourcesDrawer({
                             {f.value}
                           </span>
                           {f.fetchedAt && (
-                            <span className="text-[10.5px] tabular-nums shrink-0" style={{ color: "var(--rv-t4)" }}>
+                            <span className="text-[10.5px] tabular-nums shrink-0 text-muted-foreground/60">
                               {freshnessLabel(f.fetchedAt)?.replace("fetched ", "") ?? ""}
                             </span>
                           )}
@@ -595,7 +611,7 @@ function HeaderSourceStack({
         <SourceMark key={key} source={source} siteName={result.siteName} />
       ))}
       {sources.length > 3 && (
-        <span className="text-[9px] tabular-nums" style={{ color: "var(--rv-t4)" }}>
+        <span className="text-[9px] tabular-nums text-muted-foreground/60">
           +{sources.length - 3}
         </span>
       )}
@@ -625,20 +641,11 @@ function HeaderIconBtn({
       aria-label={title}
       variant="ghost"
       size="icon-xs"
-      style={
+      className={cn(
         active
-          ? { color: "var(--rv-accent)", background: "rgba(74, 125, 94, 0.16)" }
-          : undefined
-      }
-      onMouseEnter={(e) => {
-        if (disabled) return
-        e.currentTarget.style.color = active ? "var(--rv-accent)" : "var(--rv-t1)"
-        e.currentTarget.style.background = active ? "rgba(74, 125, 94, 0.22)" : "var(--rv-elev-3)"
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.color = active ? "var(--rv-accent)" : "var(--rv-t3)"
-        e.currentTarget.style.background = active ? "rgba(74, 125, 94, 0.16)" : "transparent"
-      }}
+          ? "text-primary bg-primary/15 hover:bg-primary/20 hover:text-primary"
+          : "text-muted-foreground hover:text-foreground"
+      )}
     >
       {children}
     </Button>
@@ -667,11 +674,10 @@ function ShimmerBlock({
         width,
         height,
         borderRadius: radius,
-        background:   "var(--rv-elev-2)",
         position:     "relative",
         overflow:     "hidden",
       }}
-      className="rv-shimmer"
+      className="rv-shimmer bg-muted"
     />
   )
 }
@@ -682,7 +688,7 @@ function AnalyzingPane() {
   return (
     <div className="flex flex-col flex-1 min-h-0 panel-enter">
       {/* Hero skeleton — map → price → cash flow → address */}
-      <div className="px-4 pt-4 pb-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+      <div className="px-4 pt-4 pb-5 border-b border-border">
         <ShimmerBlock width="100%" height={140} radius={10} />
         <div style={{ marginTop: 14 }}>
           <ShimmerBlock width={180} height={32} radius={6} />
@@ -698,17 +704,15 @@ function AnalyzingPane() {
       </div>
 
       {/* Metrics skeleton — three cards */}
-      <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+      <div className="px-4 py-4 border-b border-border">
         <div className="grid grid-cols-3 gap-2">
           {[0, 1, 2].map((i) => (
             <div
               key={i}
+              className="bg-muted border border-border rounded-[12px]"
               style={{
-                padding:    "10px 12px 11px",
-                background: "var(--rv-elev-2)",
-                border:     "0.5px solid var(--rv-border-mid)",
-                borderRadius: 12,
-                boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
+                padding:   "10px 12px 11px",
+                boxShadow: "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
               }}
             >
               <ShimmerBlock width={50} height={9} radius={3} />
@@ -723,20 +727,15 @@ function AnalyzingPane() {
         </div>
       </div>
 
-      {/* Status line — one quiet line that names what's happening, so the
-          user knows the AI is thinking, not the app frozen. Replaces the
-          old "Pulling rates, rent data..." centered text. */}
-      <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid var(--rv-border)" }}>
-        <span className="flex gap-[3px] items-center shrink-0">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="w-[4px] h-[4px] rounded-full dot-pulse"
-              style={{ background: "var(--rv-accent)", animationDelay: `${i * 0.18}s` }}
-            />
-          ))}
-        </span>
-        <span className="text-[11px]" style={{ color: "var(--rv-t3)" }}>
+      {/* Status line with the buddy presence — the BuddyMark in its
+          breathing "thinking" state acts as the visual signal that the
+          AI is at work. Replaces the previous three-dot pulse pattern.
+          The mark is the same one in the sidebar header so the brand
+          identity carries through, and the slow breath reads as
+          "concentrating," not "loading." */}
+      <div className="px-4 py-3 flex items-center gap-2.5 border-b border-border">
+        <BuddyMark size={16} state="thinking" />
+        <span className="text-[11.5px] text-muted-foreground">
           Reading listing, pulling rates and comps…
         </span>
       </div>
@@ -774,7 +773,7 @@ function ErrorPane({
       >
         !
       </div>
-      <p className="text-[12px] leading-relaxed" style={{ color: "var(--rv-t2)" }}>{message}</p>
+      <p className="text-[12px] leading-relaxed text-muted-foreground">{message}</p>
       <div className="flex items-center gap-2 mt-1">
         {onRetry && (
           <Button onClick={onRetry} variant="secondary" size="sm">
@@ -839,11 +838,8 @@ function ManualEntryPane({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div
-        className="flex items-center justify-between gap-2 px-4 py-3 shrink-0"
-        style={{ borderBottom: "0.5px solid var(--rv-border)" }}
-      >
-        <p className="text-[12px] font-medium" style={{ color: "var(--rv-t1)" }}>
+      <div className="flex items-center justify-between gap-2 px-4 py-3 shrink-0 border-b border-border">
+        <p className="text-[12px] font-medium text-foreground">
           Tell us about this listing
         </p>
         <Button onClick={onCancel} variant="ghost" size="xs">Cancel</Button>
@@ -883,7 +879,7 @@ function ManualEntryPane({
               <ManualText value={facts.zip} onChange={(v) => setFacts({ ...facts, zip: v.replace(/[^0-9-]/g, "").slice(0, 10) })} placeholder="78704" />
             </ManualField>
           </div>
-          <p className="text-[10px] uppercase tracking-widest font-medium mt-1" style={{ color: "var(--rv-t4)" }}>
+          <p className="text-[10px] uppercase tracking-widest font-medium mt-1 text-muted-foreground/60">
             Optional — fills in the gaps
           </p>
           <div className="grid grid-cols-2 gap-3">
@@ -904,10 +900,7 @@ function ManualEntryPane({
           </div>
         </div>
       </div>
-      <div
-        className="px-4 py-3 shrink-0 flex items-center justify-end gap-2"
-        style={{ borderTop: "0.5px solid var(--rv-border)" }}
-      >
+      <div className="px-4 py-3 shrink-0 flex items-center justify-end gap-2 border-t border-border">
         <Button onClick={() => onSubmit(facts)} disabled={!canSubmit} variant="default" size="sm">
           Analyze
         </Button>
@@ -919,11 +912,11 @@ function ManualEntryPane({
 function ManualField({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] uppercase tracking-widest font-medium" style={{ color: "var(--rv-t3)" }}>
-        {label}{required && <span style={{ color: "var(--rv-accent)", marginLeft: 4 }}>*</span>}
+      <label className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground">
+        {label}{required && <span className="text-primary ml-1">*</span>}
       </label>
       {children}
-      {hint && <p className="text-[10.5px] leading-tight" style={{ color: "var(--rv-t4)" }}>{hint}</p>}
+      {hint && <p className="text-[10.5px] leading-tight text-muted-foreground/60">{hint}</p>}
     </div>
   )
 }
@@ -948,10 +941,10 @@ function ManualNumber({
   }
   return (
     <div
-      className="flex items-center gap-1.5 rounded-[7px]"
-      style={{ background: "var(--rv-elev-2)", border: "0.5px solid var(--rv-border)", padding: "5px 9px" }}
+      className="flex items-center gap-1.5 rounded-[7px] bg-muted border border-border"
+      style={{ padding: "5px 9px" }}
     >
-      {prefix && <span className="text-[12px]" style={{ color: "var(--rv-t4)" }}>{prefix}</span>}
+      {prefix && <span className="text-[12px] text-muted-foreground/60">{prefix}</span>}
       <input
         type="text"
         inputMode={allowDecimal ? "decimal" : "numeric"}
@@ -966,8 +959,7 @@ function ManualNumber({
           const n = Number(cleaned)
           onChange(Number.isFinite(n) ? n : null)
         }}
-        className="flex-1 bg-transparent border-none outline-none text-[12.5px] tabular-nums leading-none"
-        style={{ color: "var(--rv-t1)" }}
+        className="flex-1 bg-transparent border-none outline-none text-[12.5px] tabular-nums leading-none text-foreground"
       />
     </div>
   )
@@ -980,14 +972,8 @@ function ManualText({ value, onChange, placeholder }: { value: string; onChange:
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-[7px] text-[12.5px] leading-none"
-      style={{
-        background: "var(--rv-elev-2)",
-        border:     "0.5px solid var(--rv-border)",
-        padding:    "9px 9px",
-        color:      "var(--rv-t1)",
-        outline:    "none",
-      }}
+      className="rounded-[7px] text-[12.5px] leading-none bg-muted border border-border text-foreground outline-none"
+      style={{ padding: "9px 9px" }}
     />
   )
 }
@@ -997,17 +983,14 @@ function ManualText({ value, onChange, placeholder }: { value: string; onChange:
 function EmptyPane({ onAnalyze, hasListing }: { onAnalyze: () => void; hasListing: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 flex-1 px-6 text-center">
-      <div
-        className="w-9 h-9 rounded-full flex items-center justify-center"
-        style={{ background: "var(--rv-elev-2)", color: "var(--rv-t3)" }}
-      >
+      <div className="w-9 h-9 rounded-full flex items-center justify-center bg-muted text-muted-foreground">
         <RefreshCw size={14} strokeWidth={1.7} />
       </div>
       <div>
-        <p className="text-[13px] font-medium" style={{ color: "var(--rv-t1)" }}>
+        <p className="text-[13px] font-medium text-foreground">
           {hasListing ? "Ready when you are" : "Open a listing to analyze"}
         </p>
-        <p className="text-[12px] mt-1 leading-relaxed" style={{ color: "var(--rv-t3)" }}>
+        <p className="text-[12px] mt-1 leading-relaxed text-muted-foreground">
           {hasListing
             ? "Run analysis on this page."
             : "Navigate to a listing on Zillow, Redfin,\nor any real-estate site."}
@@ -1099,13 +1082,20 @@ function ResultPane({
   // open it. The verb sits next to the number it changes.
   const adjustRef = useRef<HTMLDivElement>(null)
 
-  // Shared "open editor + scroll" used by both the Adjust pill and
+  // Shared "toggle editor + scroll" used by both the Adjust pill and
   // the per-row "got better numbers?" affordance on soft-source
   // provenance rows. Centralized so they stay in sync.
+  // - Editor closed: open it + scroll to the editor
+  // - Editor open:   close it (clicking Adjust again should dismiss)
   const openEditorAndScroll = () => {
-    setEditorOpen(true)
-    requestAnimationFrame(() => {
-      adjustRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    setEditorOpen((wasOpen) => {
+      const nextOpen = !wasOpen
+      if (nextOpen) {
+        requestAnimationFrame(() => {
+          adjustRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+        })
+      }
+      return nextOpen
     })
   }
   // Scenario overrides. When the listing is a saved pipeline deal, this
@@ -1117,18 +1107,30 @@ function ResultPane({
   // hidden under a closed disclosure.
   const [editorOpen, setEditorOpen] = useState<boolean>(hasActiveScenario(initialScenario))
 
-  // Debounced persist — fire once user stops typing for ~350ms. Avoids
-  // writing on every keystroke. Skip the very first effect run (post-
-  // hydrate) so we don't immediately re-persist what we just loaded.
+  // "Show details" disclosure — collapses Secondary metrics + Numbers
+  // we used + the benchmark line into a single toggle below the metric
+  // cards. The "first 4 seconds" view (hero + AI noticed + 2 metric
+  // cards + actions) stays clean; depth is on demand. Closed by
+  // default — the user opens it when they want to verify, which is a
+  // distinct task from the scan-loop "is this a deal?" first read.
+  const [detailsOpen, setDetailsOpen] = useState(false)
+
+  // Persist — only when overrides actually change. Skip onScenarioChange
+  // identity from the dep array so an unstable parent callback doesn't
+  // re-fire this effect on every parent render. (That was causing a
+  // tight render loop: parent re-renders → callback identity changes →
+  // effect runs → calls callback → parent state updates → parent
+  // re-renders, forever.) The callback is read from the latest render
+  // via a ref so we still call the most recent version. Skip the very
+  // first effect run (post-hydrate) so we don't immediately re-persist
+  // what we just loaded.
   const firstPersistTick = useRef(true)
+  const onScenarioChangeRef = useRef(onScenarioChange)
+  useEffect(() => { onScenarioChangeRef.current = onScenarioChange }, [onScenarioChange])
   useEffect(() => {
-    if (!onScenarioChange) return
     if (firstPersistTick.current) { firstPersistTick.current = false; return }
-    const id = setTimeout(() => {
-      onScenarioChange(hasActiveScenario(overrides) ? overrides : null)
-    }, 350)
-    return () => clearTimeout(id)
-  }, [overrides, onScenarioChange])
+    onScenarioChangeRef.current?.(hasActiveScenario(overrides) ? overrides : null)
+  }, [overrides])
 
   // Subscribe to the scenario bus so chat-driven scenario changes merge
   // into our overrides and recompute metrics live.
@@ -1200,7 +1202,7 @@ function ResultPane({
           as supporting context. The visual ratio is intentional: this
           section takes a third of the panel height so the "what's the
           deal" answer lands hard before the user scrolls. */}
-      <div className="px-4 pt-2 pb-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+      <div className="px-4 pt-2 pb-5 border-b border-border">
         {(result.address || result.city) && (
           <div className="mb-4 -mx-1">
             {/* Inline = Mapbox satellite static (no third-party badge,
@@ -1220,11 +1222,10 @@ function ResultPane({
         {result.listPrice != null && (
           <div className="flex items-baseline gap-2.5">
             <p
-              className="leading-[1.0] tabular-nums"
+              className="leading-[0.95] tabular-nums text-foreground"
               style={{
-                color:         "var(--rv-t1)",
-                fontSize:      36,
-                letterSpacing: "-0.030em",
+                fontSize:      42,
+                letterSpacing: "-0.032em",
                 fontFamily:    "var(--rv-font-display)",
                 fontWeight:    500,
               }}
@@ -1246,6 +1247,11 @@ function ResultPane({
             positive); never green-as-judgment, just data hygiene. */}
         {Number.isFinite(metrics.monthlyCashFlow) && (
           <div className="flex items-baseline gap-2 mt-2">
+            {/* NumberFlow ticks the cash flow value when scenarios
+                recompute (Adjust → metric changes). The number actually
+                animates from the old value to the new one instead of
+                hard-swapping — Mercury-style "this app is alive" detail.
+                Format honors the locale + currency sign convention. */}
             <span
               className="tabular-nums leading-none"
               style={{
@@ -1256,12 +1262,12 @@ function ResultPane({
                 fontWeight:    500,
               }}
             >
-              <Currency value={metrics.monthlyCashFlow} signed />
+              <NumberFlow
+                value={metrics.monthlyCashFlow}
+                format={{ style: "currency", currency: "USD", maximumFractionDigits: 0, signDisplay: "exceptZero" }}
+              />
             </span>
-            <span
-              className="text-[12px] tracking-tight"
-              style={{ color: "var(--rv-t2)" }}
-            >
+            <span className="text-[12px] tracking-tight text-muted-foreground">
               cash flow / mo
             </span>
             {buyBar?.minCashFlow != null && (
@@ -1287,66 +1293,37 @@ function ResultPane({
             )}
             {/* Inline Adjust pill — the verb sits next to the number it
                 changes. Clicking opens the editor + scrolls it into view.
-                When a scenario is active it shifts to "Adjusting · N
-                changed" so the hero itself communicates whether the user
-                is on default or custom numbers. */}
+                When a scenario is active, the "Your scenario" banner
+                above the metric cards is the load-bearing indicator;
+                this pill stays clean ("Adjust") because doubling up the
+                state callout reads as noise. */}
             <Button
               onClick={openEditorAndScroll}
               variant="secondary"
               size="sm"
-              className="ml-auto rounded-full"
-              style={{
-                color:      "var(--rv-accent)",
-                background: "var(--rv-accent-dim)",
-                border:     "0.5px solid var(--rv-accent-border)",
-              }}
-              title={scenarioActive ? "You've adjusted assumptions — click to edit" : "Adjust price, rate, rent, etc."}
+              className="ml-auto rounded-full text-muted-foreground bg-muted border border-border hover:bg-muted-foreground/10"
+              title="Adjust price, rate, rent, etc."
             >
               <SlidersHorizontal size={12} strokeWidth={2.2} />
-              {scenarioActive
-                ? `Adjusting · ${Object.keys(overrides).filter((k) => (overrides as Record<string, unknown>)[k] !== undefined).length} changed`
-                : "Adjust"}
+              Adjust
               <ChevronDown size={11} strokeWidth={2.2} />
             </Button>
           </div>
         )}
 
         {address && (
-          <p className="text-[13px] mt-3 leading-snug" style={{ color: "var(--rv-t1)" }}>
+          <p className="text-[13px] mt-3 leading-snug text-foreground">
             {address}
           </p>
         )}
-        <div className="flex items-center gap-3 mt-1.5 text-[11.5px]" style={{ color: "var(--rv-t3)" }}>
+        <div className="flex items-center gap-3 mt-1.5 text-[11.5px] text-muted-foreground">
           {result.beds      && <span>{result.beds} bd</span>}
           {result.baths     && <span>{result.baths} ba</span>}
           {result.sqft      && <span>{result.sqft.toLocaleString()} sqft</span>}
           {result.yearBuilt && <span>Built {result.yearBuilt}</span>}
-          {result.siteName  && <span className="ml-auto" style={{ color: "var(--rv-t2)" }}>{result.siteName}</span>}
+          {result.siteName  && <span className="ml-auto text-muted-foreground/80">{result.siteName}</span>}
         </div>
 
-        {/* Neighborhood density pill — quietly tells the user "you
-            already track this market." Renders only when there are
-            saved deals in this city (excluding the current listing
-            itself if it's already saved). Tiny but high-signal for
-            investors who cluster their analysis geographically. */}
-        {sameCityCount > 0 && result.city && (
-          <div
-            className="inline-flex items-center gap-1.5 mt-3 rounded-full text-[11px] tracking-tight"
-            style={{
-              color:      "var(--rv-accent)",
-              background: "var(--rv-accent-dim)",
-              border:     "0.5px solid var(--rv-accent-border)",
-              padding:    "3px 9px",
-            }}
-            title={`You have ${sameCityCount} saved deal${sameCityCount === 1 ? "" : "s"} in ${result.city}.`}
-          >
-            <span
-              className="rounded-full"
-              style={{ width: 5, height: 5, background: "var(--rv-accent)" }}
-            />
-            {sameCityCount} saved in {result.city}
-          </div>
-        )}
       </div>
 
       {/* Action row — the conversion moment. Save deal is the entire
@@ -1355,10 +1332,7 @@ function ResultPane({
           investor to the source page. Re-analyze / settings still live
           in the slim header. */}
       {(onSave || onOpenSource || (isSaved && onMoveStage && currentStage)) && (
-        <div
-          className="px-4 py-3 flex items-center gap-2 shrink-0"
-          style={{ borderBottom: "1px solid var(--rv-border)" }}
-        >
+        <div className="px-4 py-3 flex items-center gap-2 shrink-0 border-b border-border">
           {/* Saved + can move stage → StageMenu (a real dropdown that
               actually changes the deal's stage). Replaces the previous
               disabled "Watching" button which was a UI lie — it looked
@@ -1369,24 +1343,18 @@ function ResultPane({
 
               Not saved → primary "Save deal" CTA. */}
           {isSaved && onMoveStage && currentStage ? (
+            // Saved + can move stage: just the StageMenu (functional —
+            // changes the stage). The "Saved" status indicator that
+            // used to sit beside it was redundant with the topbar
+            // chrome that already shows save state.
             <div className="flex-1 flex items-center">
               <StageMenu stage={currentStage} onChange={onMoveStage} />
-              <span
-                className="ml-2 inline-flex items-center gap-1.5 text-[11.5px] tracking-tight"
-                style={{ color: "var(--rv-t3)" }}
-              >
-                <BookmarkCheck size={11} strokeWidth={2.2} style={{ color: "var(--rv-accent)" }} />
-                Saved
-              </span>
             </div>
           ) : isSaved ? (
-            <div
-              className="flex-1 inline-flex items-center gap-1.5 text-[12px] tracking-tight"
-              style={{ color: "var(--rv-t2)" }}
-            >
-              <BookmarkCheck size={12} strokeWidth={2.2} style={{ color: "var(--rv-accent)" }} />
-              {savedStage ?? "Saved"}
-            </div>
+            // Saved but no stage handler — drop the inline chip
+            // entirely. Topbar already shows save state. Render
+            // nothing here so Open / scenario buttons get the row.
+            <div className="flex-1" />
           ) : onSave ? (
             <Button
               variant="primary"
@@ -1416,20 +1384,16 @@ function ResultPane({
           + portfolio benchmark line. Was three separate sections that all
           said "the AI is observing things"; now one unified surface in
           the buddy's voice (display serif). */}
-      {(result.take || result.riskFlags.length > 0) && (
-        <div className="px-4 py-5" style={{ borderBottom: "1px solid var(--rv-border)" }}>
-          <p
-            className="text-[10px] uppercase tracking-widest font-semibold mb-3 flex items-center gap-1.5"
-            style={{ color: "var(--rv-accent)" }}
-          >
-            <Sparkles size={10} strokeWidth={2} />
-            AI Noticed
+      {(result.take || result.riskFlags.length > 0 || (sameCityCount > 0 && result.city)) && (
+        <div className="px-4 py-5 border-b border-border">
+          <p className="text-[11px] font-medium mb-3 flex items-center gap-1.5 text-primary">
+            <Sparkles size={11} strokeWidth={2} />
+            AI noticed
           </p>
           {result.take && (
             <p
-              className="leading-snug"
+              className="leading-snug text-foreground"
               style={{
-                color:         "var(--rv-t1)",
                 fontSize:      14.5,
                 fontFamily:    "var(--rv-font-display)",
                 fontWeight:    400,
@@ -1444,6 +1408,17 @@ function ResultPane({
               {result.riskFlags.map((flag, i) => <RiskFlag key={i} text={flag} />)}
             </div>
           )}
+          {/* Neighborhood density — "you already track this market." Quiet
+              contextual line at the bottom of AI Noticed; previously was
+              a pill in the hero where it competed with the price for
+              attention. Lives here because it's an observation about
+              your portfolio relative to this listing — same surface
+              the rest of AI Noticed occupies. */}
+          {sameCityCount > 0 && result.city && (
+            <p className={`text-[12px] text-muted-foreground ${result.take || result.riskFlags.length > 0 ? "mt-3" : ""}`}>
+              You already have {sameCityCount} saved deal{sameCityCount === 1 ? "" : "s"} in {result.city}.
+            </p>
+          )}
         </div>
       )}
 
@@ -1452,24 +1427,46 @@ function ResultPane({
           drawer. When the user has tweaked any scenario input, a quiet
           "Your scenario" chip appears above the cards so the user knows
           they're looking at modeled-not-default numbers. */}
-      <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--rv-border)" }}>
+      <div className="px-4 py-4 border-b border-border">
+        {/* "Your scenario" banner — the unmissable cue that the metric
+            cards below show modeled-not-default numbers. Sits between
+            the hero and the cards so the user's eye lands here on the
+            way down. Forest-green accent matches the rest of the
+            scenario surfaces (the Adjusting pill, the editor
+            disclosure). Click anywhere except Reset → opens the
+            editor; Reset → clears overrides and returns to default. */}
         {scenarioActive && (
-          <div className="flex items-center justify-end mb-2">
+          <button
+            type="button"
+            onClick={openEditorAndScroll}
+            title="Click to edit your scenario"
+            className="w-full mb-3 flex items-center gap-2.5 rounded-[8px] text-left text-primary bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-colors"
+            style={{ padding: "8px 10px 8px 12px" }}
+          >
+            <span className="rounded-full bg-primary shrink-0" style={{ width: 6, height: 6 }} />
+            <span className="text-[11.5px] font-medium tracking-tight">
+              Your scenario
+            </span>
+            <span className="text-[11px] tabular-nums text-primary/75">
+              · {Object.keys(overrides).filter((k) => (overrides as Record<string, unknown>)[k] !== undefined).length} change{Object.keys(overrides).filter((k) => (overrides as Record<string, unknown>)[k] !== undefined).length === 1 ? "" : "s"}
+            </span>
+            <span className="flex-1" />
             <Button
-              onClick={() => setOverrides({})}
+              onClick={(e) => { e.stopPropagation(); setOverrides({}) }}
               variant="ghost"
               size="xs"
               title="Clear all overrides and return to the default analysis"
+              className="h-6 px-2 text-[10.5px]"
             >
-              Reset scenario
+              Reset
             </Button>
-          </div>
+          </button>
         )}
         {/* Cash Flow lives in the hero — no need to repeat it as a card.
             The two cards that remain are the underwriting numbers a real
             investor reads next: cap rate (yield on cost) and DSCR (debt
             coverage). Bigger cards now that there are only two. */}
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className="rv-stagger grid grid-cols-2 gap-2.5">
           <MetricCard
             label="Cap Rate"
             value={fmtPct(metrics.capRate)}
@@ -1487,95 +1484,117 @@ function ResultPane({
             bar={buyBar?.minDscr != null ? { passed: metrics.dscr >= buyBar.minDscr } : null}
           />
         </div>
-        <BenchmarkLine
-          metrics={metrics}
-          averages={pipelineAverages}
+      </div>
+
+      {/* "Show details" disclosure — collapses Benchmark line +
+          Secondary metrics + Numbers we used into ONE toggle. The
+          first-4-seconds view ends here; everything below this trigger
+          is verification depth, available on demand.
+
+          The trigger row itself is small + neutral; the open state
+          rotates a chevron and reveals the three sub-blocks. */}
+      <button
+        type="button"
+        onClick={() => setDetailsOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 border-b border-border hover:bg-muted/50 transition-colors text-left"
+        aria-expanded={detailsOpen}
+      >
+        <span className="text-[12px] font-medium text-muted-foreground">
+          {detailsOpen ? "Hide details" : "Show details"}
+        </span>
+        <ChevronDown
+          size={13}
+          strokeWidth={2}
+          className="text-muted-foreground/60"
+          style={{
+            transform: detailsOpen ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 200ms cubic-bezier(0.32, 0.72, 0, 1)",
+          }}
         />
-      </div>
+      </button>
 
-      {/* Secondary metrics */}
-      <div
-        className="px-4 py-3 grid grid-cols-2 gap-y-3"
-        style={{ borderBottom: "1px solid var(--rv-border)" }}
-      >
-        {[
-          { label: "GRM",             value: `${fmtNum(metrics.grm, 1)}×` },
-          { label: "Break-even occ.", value: fmtPct(metrics.breakEvenOccupancy) },
-          { label: "Monthly rent",    value: `${fmtCurrency(inputs.monthlyRent)}/mo` },
-          { label: "Cash invested",   value: fmtCurrency(metrics.totalCashInvested) },
-        ].map(({ label, value }) => (
-          <div key={label}>
-            <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--rv-t3)" }}>
-              {label}
-            </p>
-            <p className="text-[13.5px] tabular-nums font-medium" style={{ color: "var(--rv-t1)" }}>{value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Numbers we used — the autofilled inputs that drive the metrics
-          above, each paired with the source chip that fetched it. The
-          user pushed back on these being hidden in a drawer; they need
-          to live INLINE so it's obvious at a glance "this rate came
-          from FRED, this rent came from HUD, this tax came from the
-          listing." Tap any row to open the editor pre-targeted on it
-          via the Adjust disclosure below. */}
-      <div
-        className="px-4 py-4"
-        style={{ borderBottom: "1px solid var(--rv-border)" }}
-      >
-        <p
-          className="text-[10px] uppercase tracking-widest font-medium mb-2.5"
-          style={{ color: "var(--rv-t4)" }}
-        >
-          Numbers we used
-        </p>
-        <div className="flex flex-col">
-          {/* "Got better numbers?" — clicking a row whose source is
-              soft (AI estimate or industry default) opens the scenario
-              editor below so the user can replace the value with one
-              they trust. Hard sources (listing, FRED, HUD) don't
-              surface the affordance — those are already authoritative. */}
-          <ProvenanceRow
-            label="Rent"
-            value={`${fmtCurrency(provenance.rent.value)}/mo`}
-            field={provenance.rent}
-            siteName={result.siteName}
-            onEdit={openEditorAndScroll}
-          />
-          <ProvenanceRow
-            label="Interest rate"
-            value={fmtPct(provenance.interestRate.value / 100)}
-            field={provenance.interestRate}
-            siteName={result.siteName}
-            fetchedAt={provenance.interestRate.fetchedAt}
-            onEdit={openEditorAndScroll}
-          />
-          <ProvenanceRow
-            label="Property tax"
-            value={`${fmtCurrency(provenance.propertyTax.value)}/yr`}
-            field={provenance.propertyTax}
-            siteName={result.siteName}
-            onEdit={openEditorAndScroll}
-          />
-          <ProvenanceRow
-            label="Insurance"
-            value={`${fmtCurrency(provenance.insurance.value)}/yr`}
-            field={provenance.insurance}
-            siteName={result.siteName}
-            onEdit={openEditorAndScroll}
-          />
-          {provenance.hoa && (
-            <ProvenanceRow
-              label="HOA"
-              value={`${fmtCurrency(provenance.hoa.value)}/mo`}
-              field={provenance.hoa}
-              siteName={result.siteName}
-              onEdit={openEditorAndScroll}
+      {detailsOpen && (
+        <>
+          {/* Portfolio benchmark line — was inline under the metric
+              cards; now lives inside the details disclosure as the
+              first verification surface. */}
+          <div className="px-4 py-3 border-b border-border">
+            <BenchmarkLine
+              metrics={metrics}
+              averages={pipelineAverages}
             />
-          )}
-        </div>
-      </div>
+          </div>
+
+          {/* Secondary metrics — GRM / break-even / rent / cash invested.
+              Useful on demand, not in the first read. */}
+          <div className="px-4 py-3 grid grid-cols-2 gap-y-3 border-b border-border">
+            {[
+              { label: "GRM",             value: `${fmtNum(metrics.grm, 1)}×` },
+              { label: "Break-even occ.", value: fmtPct(metrics.breakEvenOccupancy) },
+              { label: "Monthly rent",    value: `${fmtCurrency(inputs.monthlyRent)}/mo` },
+              { label: "Cash invested",   value: fmtCurrency(metrics.totalCashInvested) },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <p className="text-[11px] mb-1 text-muted-foreground">
+                  {label}
+                </p>
+                <p className="text-[13px] tabular-nums font-medium text-foreground">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Numbers we used — provenance rows. The brand promise made
+              tangible: every input that drove the metrics above, with
+              its source attribution. Lives inside the details
+              disclosure now so it's still inline (not hidden in a
+              drawer) but doesn't compete with the first read. */}
+          <div className="px-4 py-4 border-b border-border">
+            <p className="text-[10px] uppercase tracking-widest font-medium mb-2.5 text-muted-foreground/60">
+              Numbers we used
+            </p>
+            <div className="flex flex-col">
+              <ProvenanceRow
+                label="Rent"
+                value={`${fmtCurrency(provenance.rent.value)}/mo`}
+                field={provenance.rent}
+                siteName={result.siteName}
+                onEdit={openEditorAndScroll}
+              />
+              <ProvenanceRow
+                label="Interest rate"
+                value={fmtPct(provenance.interestRate.value / 100)}
+                field={provenance.interestRate}
+                siteName={result.siteName}
+                fetchedAt={provenance.interestRate.fetchedAt}
+                onEdit={openEditorAndScroll}
+              />
+              <ProvenanceRow
+                label="Property tax"
+                value={`${fmtCurrency(provenance.propertyTax.value)}/yr`}
+                field={provenance.propertyTax}
+                siteName={result.siteName}
+                onEdit={openEditorAndScroll}
+              />
+              <ProvenanceRow
+                label="Insurance"
+                value={`${fmtCurrency(provenance.insurance.value)}/yr`}
+                field={provenance.insurance}
+                siteName={result.siteName}
+                onEdit={openEditorAndScroll}
+              />
+              {provenance.hoa && (
+                <ProvenanceRow
+                  label="HOA"
+                  value={`${fmtCurrency(provenance.hoa.value)}/mo`}
+                  field={provenance.hoa}
+                  siteName={result.siteName}
+                  onEdit={openEditorAndScroll}
+                />
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Adjust assumptions — scenario editor disclosure. Closed by
           default; opens to reveal 5 inline overrides + Advanced. Edits
@@ -1607,10 +1626,9 @@ function ResultPane({
             onClick={onOpenSources}
             variant="link"
             size="xs"
-            className="px-0 h-auto text-[12px]"
-            style={{ color: "var(--rv-t3)" }}
+            className="px-0 h-auto text-[12px] text-muted-foreground"
           >
-            <Sparkles size={11} strokeWidth={2} style={{ color: "var(--rv-accent)" }} />
+            <Sparkles size={11} strokeWidth={2} className="text-primary" />
             Where every number comes from →
           </Button>
         </div>
@@ -1749,13 +1767,12 @@ export default function Panel({
 
   return (
     <div
-      className="flex flex-col h-full overflow-hidden panel-enter"
+      className="flex flex-col h-full overflow-hidden panel-enter bg-background"
       style={{
         // Opaque — sits over the persistent map layer, so the panel
         // needs to fully cover the map underneath, not blend with it.
         // Soft drop-shadow on the map-facing edge gives the panel
         // physical presence without a stitched border.
-        background:  "var(--rv-bg)",
         boxShadow:   "-1px 0 0 rgba(255,255,255,0.06)",
         minWidth:    0,
       }}

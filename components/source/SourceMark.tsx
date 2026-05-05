@@ -2,6 +2,17 @@
 
 import { useState } from "react"
 import type { SourceKind } from "@/lib/electron"
+import { siZillow, type SimpleIcon } from "simple-icons"
+
+// ── Brand SVGs from simple-icons (with PNG fallback) ──────────────────────
+//
+// simple-icons has the official Zillow brand SVG + brand color. Other
+// real-estate sites (Redfin / Realtor / LoopNet / Crexi) aren't in their
+// 3000+ catalog, so for those we fall back to the existing PNG logos in
+// /public/source-logos. Vector where available, raster where it isn't.
+const SI_LOGOS: Record<string, SimpleIcon | undefined> = {
+  zillow: siZillow,
+}
 
 // ── Source brand-marks ────────────────────────────────────────────────────────
 //
@@ -122,26 +133,64 @@ export function SourceMark({
 }) {
   const meta  = sourceMeta(source, siteName)
   const logo  = logoFor(source, siteName)
-  // Bumped sizes once more — the user said the source proof "isn't
-  // showing." Even when the logo loads fine it was easy to miss at
-  // 22px against a busy panel. 24/28 reads as a real brand chip.
   const dim   = size === "md" ? 28 : 24
+
+  // Try simple-icons SVG first (sharp at any resolution + official brand
+  // color). Currently only Zillow has a simple-icons match; if the site
+  // matches one, render its SVG. Otherwise fall through to PNG → glyph.
+  const siKey = source === "listing"
+    ? (siteName ?? "").toLowerCase().replace(/[^a-z]/g, "")
+    : ""
+  const siIcon = SI_LOGOS[siKey] ??
+    (Object.keys(SI_LOGOS).find((k) => siKey.includes(k)) ? SI_LOGOS[Object.keys(SI_LOGOS).find((k) => siKey.includes(k))!] : undefined)
 
   // Track image load failure so we can swap to the letter-glyph fallback.
   // Without this, a 404 leaves an empty circle that looks like nothing
   // is there (which matches the user's complaint of logos "not showing").
   const [imgFailed, setImgFailed] = useState(false)
 
+  if (siIcon) {
+    // Real brand SVG — render the path inline at the exact display size,
+    // filled with the official brand hex. Sharper than any PNG and
+    // automatically high-DPI. Background stays the cream card surface
+    // so the chip reads as a coin, not a sticker.
+    return (
+      <span
+        title={title ?? meta.label}
+        className="inline-flex items-center justify-center shrink-0 rounded-full bg-card border border-border"
+        style={{
+          width:      dim,
+          height:     dim,
+          boxShadow:  "0 1px 2px rgba(20, 18, 15, 0.06)",
+        }}
+      >
+        <svg
+          width={dim - 8}
+          height={dim - 8}
+          viewBox="0 0 24 24"
+          fill={`#${siIcon.hex}`}
+          aria-hidden
+        >
+          <path d={siIcon.path} />
+        </svg>
+      </span>
+    )
+  }
+
   if (logo && !imgFailed) {
     return (
       <span
         title={title ?? meta.label}
-        className="inline-flex items-center justify-center shrink-0 rounded-full overflow-hidden"
+        className="inline-flex items-center justify-center shrink-0 rounded-full overflow-hidden bg-card border border-border"
         style={{
           width:      dim,
           height:     dim,
-          background: "var(--rv-elev-3)",
-          boxShadow:  "0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.15)",
+          // Subtle warm shadow that works on both cream and charcoal
+          // surfaces. The previous "0.35 black drop + 0.15 black ring"
+          // was tuned for dark-mode contrast and read as a heavy halo
+          // on cream. Reduced to a near-imperceptible drop + the
+          // border above for definition.
+          boxShadow:  "0 1px 2px rgba(20, 18, 15, 0.06)",
         }}
       >
         <img
@@ -192,7 +241,10 @@ export function SourceMark({
       style={{
         color:        fg,
         background:   bg,
-        boxShadow:    `0 1px 2px rgba(0, 0, 0, 0.30), 0 0 0 0.5px ${border}`,
+        // Same softened-shadow approach as the brand-logo chips above —
+        // a hairline border + barely-there warm drop, instead of a
+        // dark-mode halo that misreads on cream.
+        boxShadow:    `0 1px 2px rgba(20, 18, 15, 0.05), 0 0 0 0.5px ${border}`,
         padding:      isSingleChar ? 0 : `${padY}px ${padX}px`,
         fontSize:     `${fontSize}px`,
         lineHeight:   1,

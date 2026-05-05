@@ -3,8 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react"
 import { createPortal } from "react-dom"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
-import { Card } from "@/components/ui/card"
+import {
+  Card,
+  CardAction,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { TrendingUpIcon, TrendingDownIcon } from "lucide-react"
 import { useTopBarSlots } from "@/lib/topBarSlots"
+import { useIsActiveRoute } from "@/lib/useIsActiveRoute"
 import {
   ChevronRight,
   ExternalLink,
@@ -17,7 +27,6 @@ import {
   BellOff,
   Sparkles,
 } from "lucide-react"
-import { useSidebar, SNAP_ICONS } from "@/components/sidebar/context"
 import { SourceMark } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
 import {
@@ -43,6 +52,14 @@ import { geocode } from "@/lib/mapbox"
 import Panel from "@/components/panel"
 import { useEscape } from "@/lib/escapeStack"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
+import ActivityFeed from "@/components/ActivityFeed"
+import { BuddyMark } from "@/components/BuddyMark"
+import { PipelineVelocityChart } from "@/components/pipeline-velocity-chart"
+import { PipelineDealTable } from "@/components/pipeline-deal-table"
+import { PipelineKanban } from "@/components/pipeline-kanban"
+import { PipelineBulkBar } from "@/components/pipeline-bulk-bar"
+import { PipelineViewsMenu } from "@/components/pipeline-views-menu"
 
 // ── Format helpers ────────────────────────────────────────────────────────
 
@@ -147,7 +164,7 @@ function DealListRow({
           that matches Apple Mail / Notion bulk-select conventions. */}
       <span
         aria-hidden
-        className="shrink-0 self-center flex items-center justify-center rounded-full transition-all duration-150"
+        className="shrink-0 self-center flex items-center justify-center rounded-full transition-transform duration-150"
         style={{
           width:      compareMode ? 18 : 0,
           height:     18,
@@ -177,64 +194,75 @@ function DealListRow({
         <SourceMark source="listing" siteName={deal.site_name} />
       </span>
 
-      <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2 min-w-0">
-          <div className="min-w-0">
-            <p
-              className="text-[13px] font-semibold leading-tight tabular-nums truncate"
-              style={{ color: "var(--rv-t1)" }}
-            >
-              {headline}
-            </p>
-            {sub && (
-              <p className="text-[11px] mt-0.5 leading-tight truncate" style={{ color: "var(--rv-t3)" }}>
-                {sub}
-              </p>
+      {/* Mercury-row layout: identity column (address + price + meta) on
+          the left, cash-flow chip on the right. The address is the
+          row's identity (what an investor remembers); price is the
+          supporting figure; stage + property type are quiet meta. The
+          cash-flow chip is the at-a-glance signal — sage tint if
+          positive, brick tint if negative. Reads at scan-speed
+          without becoming a CSV dump. */}
+      <div className="flex items-start justify-between gap-3 min-w-0 flex-1">
+        <div className="flex flex-col gap-1 min-w-0 flex-1">
+          {/* Address — primary identity. Falls back to the price when
+              we don't have an address (rare, but property listings
+              with sparse extraction can lack one). */}
+          <p className="text-[13px] font-medium leading-tight truncate text-foreground">
+            {address || (deal.list_price != null ? <Currency value={deal.list_price} whole /> : "Saved deal")}
+          </p>
+          {/* Supporting line: price + property type. The price is muted
+              because the address has already been read; the supporting
+              line is for "what is this listing." */}
+          <p className="text-[11.5px] leading-tight truncate text-muted-foreground tabular-nums">
+            {deal.list_price != null && address && (
+              <>
+                <Currency value={deal.list_price} whole />
+                {(deal.tags?.[0] || deal.snapshot?.propertyType) && <span className="text-muted-foreground/60"> · </span>}
+              </>
             )}
-          </div>
-          <span
-            className="text-[10px] tabular-nums shrink-0"
-            style={{ color: "var(--rv-t4)" }}
-            title={`In ${STAGE_LABEL[deal.stage]} since ${new Date(deal.updated_at).toLocaleDateString()}`}
-          >
-            {timeInStage(deal.updated_at)}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 text-[10.5px]" style={{ color: "var(--rv-t4)" }}>
-          {/* Stage chip — colored dot matches the map pin for this stage,
-              so toggling List ↔ Map maintains visual identity. The dot
-              is the same hue as the corresponding pin on the map; the
-              label is what makes it readable in a row. */}
-          <span
-            className="inline-flex items-center gap-1.5 text-[10px] rounded px-[6px] py-[1.5px]"
-            style={{
-              color: "var(--rv-t2)",
-              background: "var(--rv-elev-2)",
-            }}
-          >
+            {deal.tags?.[0] ?? deal.snapshot?.propertyType ?? deal.site_name ?? null}
+          </p>
+          {/* Stage chip — colored dot matches the map pin so List ↔ Map
+              maintains visual identity. Smaller and quieter than the
+              cash flow chip on the right. */}
+          <span className="inline-flex items-center gap-1.5 text-[10.5px] rounded-full px-2 py-[1px] text-muted-foreground bg-muted self-start mt-0.5">
             <span
               aria-hidden
               className="rounded-full shrink-0"
               style={{
-                width:  6,
-                height: 6,
+                width:  5,
+                height: 5,
                 background: STAGE_COLOR[deal.stage],
-                boxShadow: `0 0 0 1.5px ${STAGE_COLOR[deal.stage]}25`,
               }}
             />
             {STAGE_LABEL[deal.stage]}
           </span>
-          <span
-            className="tabular-nums font-semibold"
-            style={{ color: cashFlowTone(cashFlow), fontSize: "11.5px" }}
-          >
-            {cashFlow == null
-              ? "—"
-              : <><Currency value={cashFlow} signed /><span style={{ color: "var(--rv-t4)", fontWeight: 400 }}>/mo</span></>}
-          </span>
-          {deal.tags?.[0] && (
-            <span className="truncate">{deal.tags[0]}</span>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {/* Cash-flow chip — sage tint when positive, brick tint when
+              negative. The at-a-glance answer: "is this deal making or
+              losing me money?" Larger than other meta because it's the
+              load-bearing signal in the row. */}
+          {cashFlow != null && (
+            <span
+              className={cn(
+                "inline-flex items-baseline gap-0.5 rounded-full px-2.5 py-[3px] text-[12px] font-medium tabular-nums",
+                cashFlow >= 0
+                  ? "bg-emerald-500/10 text-emerald-700"
+                  : "bg-rose-500/10 text-rose-700"
+              )}
+            >
+              <Currency value={cashFlow} signed />
+              <span className="text-[10px] opacity-70 font-normal">/mo</span>
+            </span>
           )}
+          {/* Time-in-stage — small + muted. Useful for "is this getting
+              stale" reads without being prominent. */}
+          <span
+            className="text-[10px] tabular-nums text-muted-foreground/60"
+            title={`In ${STAGE_LABEL[deal.stage]} since ${new Date(deal.updated_at).toLocaleDateString()}`}
+          >
+            {timeInStage(deal.updated_at)}
+          </span>
         </div>
       </div>
     </button>
@@ -264,27 +292,19 @@ function StageMenu({
     <div ref={ref} className="relative inline-flex">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-[7px] text-[12px] font-medium tracking-tight transition-colors"
-        style={{
-          padding:    "5px 9px 5px 11px",
-          color:      "var(--rv-accent)",
-          background: "rgba(48,164,108,0.10)",
-          border:     "0.5px solid rgba(48,164,108,0.22)",
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.16)" }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.10)" }}
+        className="inline-flex items-center gap-1.5 rounded-[7px] text-[12px] font-medium tracking-tight transition-colors text-primary bg-primary/10 border border-primary/20 hover:bg-primary/15"
+        style={{ padding: "5px 9px 5px 11px" }}
       >
         {STAGE_LABEL[stage]}
         <ChevronDown size={11} strokeWidth={2} />
       </button>
       {open && (
         <div
-          className="absolute z-30 left-0 top-full mt-1 flex flex-col rv-menu-pop"
+          className="absolute z-30 left-0 top-full mt-1 flex flex-col rv-menu-pop border border-border"
           style={{
             background: "var(--rv-popover-bg)",
-            backdropFilter: "blur(30px) saturate(160%)",
-            WebkitBackdropFilter: "blur(30px) saturate(160%)",
-            border: "0.5px solid var(--rv-border-mid)",
+            backdropFilter: "blur(14px) saturate(160%)",
+            WebkitBackdropFilter: "blur(14px) saturate(160%)",
             borderRadius: 8,
             boxShadow: "var(--rv-shadow-outer-md)",
             minWidth: 140,
@@ -391,6 +411,24 @@ function DealDetail({
     onChange({ ...deal, notes })
   }, [deal, notes, onChange])
 
+  // ── Scenario persist (debounced inside the parent so Panel can fire
+  //    onScenarioChange synchronously). Updates local state immediately
+  //    so the metric cards re-render live; defers the Supabase write
+  //    until the user has stopped typing. The previous architecture
+  //    debounced inside the panel itself, which created a save-race
+  //    (⌘S firing within the debounce window dropped the scenario). */
+  const scenarioWriteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (scenarioWriteTimer.current) clearTimeout(scenarioWriteTimer.current)
+  }, [])
+  const onPanelScenarioChange = useCallback((s: ScenarioOverrides | null) => {
+    onChange({ ...deal, scenario: s })
+    if (scenarioWriteTimer.current) clearTimeout(scenarioWriteTimer.current)
+    scenarioWriteTimer.current = setTimeout(() => {
+      void updateDealScenario(deal.id, s)
+    }, 350)
+  }, [deal, onChange])
+
   // ── Actions ──────────────────────────────────────────────────────────────
   const onMoveStage = useCallback(async (s: DealStage) => {
     if (s === deal.stage) return
@@ -418,7 +456,7 @@ function DealDetail({
   //    Only Pipeline-specific affordances (stage move, watch, delete)
   //    sit outside Panel.
   return (
-    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
+    <div className="flex flex-col h-full overflow-hidden relative bg-background">
       {/* Pipeline-actions strip — moved out of the panel and portaled
           into the AppTopBar's aux slot. Watch / Stage / Open / Delete
           live pinned right of the "All Active · Compare" header
@@ -452,7 +490,7 @@ function DealDetail({
           </Button>
           {confirmDelete ? (
             <>
-              <span className="text-[11.5px]" style={{ color: "var(--rv-t3)" }}>Delete?</span>
+              <span className="text-[11.5px] text-muted-foreground">Delete?</span>
               <Button
                 variant="secondary"
                 size="sm"
@@ -486,19 +524,18 @@ function DealDetail({
             - onScenarioChange persists to the saved_deals row
             - onOpenSource opens the listing's source URL in Browse */}
       <div className="flex-1 min-h-0 relative" style={{ zIndex: 1 }}>
+        {/* In Pipeline detail, the topbar's auxSlot already renders
+            Watching / StageMenu / Open / Delete. Don't pass
+            onMoveStage / onOpenSource down so the panel doesn't
+            render a duplicate stage menu inside its action row.
+            actionRowCollapsed hides the row entirely in this mode. */}
         <Panel
           state={{ phase: "ready", result: deal.snapshot }}
           isSaved
           savedStage={STAGE_LABEL[deal.stage]}
-          currentStage={deal.stage}
-          onMoveStage={onMoveStage}
           buyBar={buyBar}
           initialScenario={deal.scenario ?? null}
-          onScenarioChange={(s) => {
-            void updateDealScenario(deal.id, s)
-            onChange({ ...deal, scenario: s })
-          }}
-          onOpenSource={onOpenInBrowse}
+          onScenarioChange={onPanelScenarioChange}
           actionRowCollapsed
         />
       </div>
@@ -511,7 +548,7 @@ function DealDetail({
   //    settled in production.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function _legacyDealDetailBody() { return (
-    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "var(--rv-bg)" }}>
+    <div className="flex flex-col h-full overflow-hidden relative bg-background">
       {/* Property location banner — slim Mapbox static-image preview that
           grounds the deal in physical space. Sits above the financial
           header so price/cash-flow stays the visual hero, but every deal
@@ -540,9 +577,8 @@ function DealDetail({
         <div className="flex-1 min-w-0">
           {deal.list_price != null && (
             <p
-              className="tracking-[-0.030em] leading-none tabular-nums"
+              className="tracking-[-0.030em] leading-none tabular-nums text-foreground"
               style={{
-                color:      "var(--rv-t1)",
                 fontSize:   36,
                 fontFamily: "var(--rv-font-display)",
                 fontWeight: 500,
@@ -568,17 +604,17 @@ function DealDetail({
               >
                 <Currency value={metrics.monthlyCashFlow} signed />
               </span>
-              <span className="text-[11.5px] tracking-tight" style={{ color: "var(--rv-t3)" }}>
+              <span className="text-[11.5px] tracking-tight text-muted-foreground">
                 cash flow / mo
               </span>
             </div>
           )}
           {address && (
-            <p className="text-[12.5px] mt-3 leading-snug" style={{ color: "var(--rv-t2)" }}>
+            <p className="text-[12.5px] mt-3 leading-snug text-muted-foreground">
               {address}
             </p>
           )}
-          <div className="flex items-center gap-3 mt-1.5 text-[11px]" style={{ color: "var(--rv-t4)" }}>
+          <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground/60">
             {deal.beds      != null && <span>{deal.beds} bd</span>}
             {deal.baths     != null && <span>{deal.baths} ba</span>}
             {deal.sqft      != null && <span>{deal.sqft.toLocaleString()} sqft</span>}
@@ -614,11 +650,9 @@ function DealDetail({
             {deal.tags.map((tag) => (
               <span
                 key={tag}
-                className="inline-flex items-center text-[11px] tracking-tight rounded-full px-2 py-[2px]"
+                className="inline-flex items-center text-[11px] tracking-tight rounded-full px-2 py-[2px] text-muted-foreground bg-muted"
                 style={{
-                  color:      "var(--rv-t2)",
-                  background: "var(--rv-elev-2)",
-                  border:     "0.5px solid var(--rv-border)",
+                  border: "0.5px solid var(--rv-border)",
                 }}
               >
                 {tag}
@@ -633,10 +667,10 @@ function DealDetail({
             className="px-6 py-4"
             style={{ borderBottom: "0.5px solid var(--rv-border)" }}
           >
-            <p className="text-[10px] uppercase tracking-widest font-medium mb-2" style={{ color: "var(--rv-t4)" }}>
+            <p className="text-[10px] uppercase tracking-widest font-medium mb-2 text-muted-foreground/60">
               Notes
             </p>
-            <p className="text-[13px] leading-[1.55]" style={{ color: "var(--rv-t1)" }}>
+            <p className="text-[13px] leading-[1.55] text-foreground">
               {deal.snapshot.take}
             </p>
           </div>
@@ -680,10 +714,10 @@ function DealDetail({
               </div>
             </div>
           )}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="rv-stagger grid grid-cols-3 gap-3">
             <DetailMetric
               label="Cash Flow"
-              value={<><Currency value={metrics.monthlyCashFlow} signed /><span style={{ color: "var(--rv-t4)", fontSize: "0.7em", marginLeft: 2 }}>/mo</span></>}
+              value={<><Currency value={metrics.monthlyCashFlow} signed /><span className="text-muted-foreground/60" style={{ fontSize: "0.7em", marginLeft: 2 }}>/mo</span></>}
               sub="per month"
               color={cfTone}
               delta={usingScenario ? formatDeltaPipe(metrics.monthlyCashFlow, snapshot.metrics.monthlyCashFlow, "currency") : null}
@@ -717,10 +751,10 @@ function DealDetail({
             { label: "Cash invested",   value: fmtCurrency(metrics.totalCashInvested) },
           ].map(({ label, value }) => (
             <div key={label}>
-              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--rv-t4)" }}>
+              <p className="text-[10px] uppercase tracking-widest mb-1 text-muted-foreground/60">
                 {label}
               </p>
-              <p className="text-[13px] tabular-nums" style={{ color: "var(--rv-t2)" }}>{value}</p>
+              <p className="text-[13px] tabular-nums text-muted-foreground">{value}</p>
             </div>
           ))}
         </div>
@@ -743,12 +777,12 @@ function DealDetail({
         {/* Worth knowing — neutral framing, no alarms. */}
         {riskFlags.length > 0 && (
           <div className="px-6 py-4" style={{ borderBottom: "0.5px solid var(--rv-border)" }}>
-            <p className="text-[10px] uppercase tracking-widest font-medium mb-2.5" style={{ color: "var(--rv-t4)" }}>
+            <p className="text-[10px] uppercase tracking-widest font-medium mb-2.5 text-muted-foreground/60">
               Worth knowing
             </p>
             <div className="flex flex-col gap-2.5">
               {riskFlags.map((flag, i) => (
-                <div key={i} className="flex items-start gap-2.5 text-[12.5px] leading-relaxed" style={{ color: "var(--rv-t2)" }}>
+                <div key={i} className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
                   <span
                     className="mt-[6px] shrink-0 rounded-full"
                     style={{ width: 5, height: 5, background: "var(--rv-warn)" }}
@@ -762,7 +796,7 @@ function DealDetail({
 
         {/* Provenance */}
         <div className="px-6 py-4" style={{ borderBottom: "0.5px solid var(--rv-border)" }}>
-          <p className="text-[10px] uppercase tracking-widest font-medium mb-2" style={{ color: "var(--rv-t4)" }}>
+          <p className="text-[10px] uppercase tracking-widest font-medium mb-2 text-muted-foreground/60">
             Where numbers come from
           </p>
           <div className="flex flex-col">
@@ -780,15 +814,14 @@ function DealDetail({
             padding, no border, looks like paper you write on. Saves
             on blur — same auto-save behavior. */}
         <div className="px-6 py-5" style={{ borderBottom: "0.5px solid var(--rv-border)" }}>
-          <p className="text-[10px] uppercase tracking-widest font-medium mb-3" style={{ color: "var(--rv-t4)" }}>
+          <p className="text-[10px] uppercase tracking-widest font-medium mb-3 text-muted-foreground/60">
             Your notes
           </p>
           <div
-            className="rounded-[12px] transition-colors"
+            className="rounded-[12px] transition-colors bg-muted"
             style={{
-              background: "var(--rv-elev-1)",
-              border:     "0.5px solid var(--rv-border)",
-              padding:    "14px 16px",
+              border:  "0.5px solid var(--rv-border)",
+              padding: "14px 16px",
             }}
           >
             <textarea
@@ -796,9 +829,8 @@ function DealDetail({
               onChange={(e) => setNotes(e.target.value)}
               onBlur={saveNotes}
               placeholder="What stood out? Numbers you want to remember? Things to ask the agent…"
-              className="w-full bg-transparent border-none outline-none resize-none"
+              className="w-full bg-transparent border-none outline-none resize-none text-foreground"
               style={{
-                color:         "var(--rv-t1)",
                 minHeight:     96,
                 fontSize:      14,
                 fontFamily:    "var(--rv-font-display)",
@@ -808,7 +840,7 @@ function DealDetail({
               }}
             />
           </div>
-          <p className="text-[10.5px] mt-2 leading-snug" style={{ color: "var(--rv-t4)" }}>
+          <p className="text-[10.5px] mt-2 leading-snug text-muted-foreground/60">
             Saved automatically when you click away.
           </p>
         </div>
@@ -834,7 +866,7 @@ function DealDetail({
           <span className="flex-1" />
           {confirmDelete ? (
             <>
-              <span className="text-[11.5px]" style={{ color: "var(--rv-t3)" }}>
+              <span className="text-[11.5px] text-muted-foreground">
                 Delete this deal?
               </span>
               <Button
@@ -880,10 +912,7 @@ function DetailMetric({
                             "var(--rv-t4)"
   return (
     <Card className="rounded-[10px] gap-0 p-3 min-w-0 overflow-hidden hover:shadow-md transition-shadow">
-      <div
-        className="text-[9.5px] uppercase tracking-widest font-medium truncate"
-        style={{ color: "var(--rv-t4)" }}
-      >
+      <div className="text-[9.5px] uppercase tracking-widest font-medium truncate text-muted-foreground/60">
         {label}
       </div>
       <div
@@ -904,7 +933,7 @@ function DetailMetric({
         </div>
       )}
       {sub && (
-        <div className="text-[10.5px] leading-none truncate mt-1" style={{ color: "var(--rv-t3)" }}>{sub}</div>
+        <div className="text-[10.5px] leading-none truncate mt-1 text-muted-foreground">{sub}</div>
       )}
     </Card>
   )
@@ -946,9 +975,9 @@ function ProvRow({
       className="flex items-center justify-between gap-3 py-2 last:border-0"
       style={{ borderBottom: "0.5px solid var(--rv-border)" }}
     >
-      <span className="text-[12px]" style={{ color: "var(--rv-t3)" }}>{label}</span>
+      <span className="text-[12px] text-muted-foreground">{label}</span>
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-[12.5px] tabular-nums truncate" style={{ color: "var(--rv-t2)" }}>{value}</span>
+        <span className="text-[12.5px] tabular-nums truncate text-muted-foreground">{value}</span>
         <SourceMark source={field.source} siteName={siteName} />
       </div>
     </div>
@@ -1049,9 +1078,8 @@ function ComparisonView({
     >
       {/* Header */}
       <div
-        className="flex items-center justify-between gap-3 px-6 py-4 shrink-0"
+        className="flex items-center justify-between gap-3 px-6 py-4 shrink-0 bg-background"
         style={{
-          background:    "var(--rv-bg)",
           borderBottom:  "0.5px solid var(--rv-border)",
           position:      "relative",
           zIndex:        3,
@@ -1059,11 +1087,11 @@ function ComparisonView({
         }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <GitCompareArrows size={14} strokeWidth={1.7} style={{ color: "var(--rv-accent)" }} />
-          <h2 className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--rv-t1)" }}>
+          <GitCompareArrows size={14} strokeWidth={1.7} className="text-primary" />
+          <h2 className="text-[14px] font-semibold tracking-tight text-foreground">
             Side-by-side
           </h2>
-          <span className="text-[12px]" style={{ color: "var(--rv-t4)" }}>
+          <span className="text-[12px] text-muted-foreground/60">
             {deals.length} deals
           </span>
         </div>
@@ -1099,10 +1127,7 @@ function ComparisonView({
                 <Sparkles size={12} strokeWidth={2} />
               </span>
               <div className="flex-1 min-w-0">
-                <p
-                  className="text-[10px] uppercase tracking-widest font-semibold"
-                  style={{ color: "var(--rv-accent)" }}
-                >
+                <p className="text-[10px] uppercase tracking-widest font-semibold text-primary">
                   AI Noticed
                 </p>
                 <p
@@ -1125,10 +1150,7 @@ function ComparisonView({
           <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr>
-                <th
-                  className="text-left text-[10px] uppercase tracking-widest font-medium pb-3"
-                  style={{ color: "var(--rv-t4)" }}
-                >
+                <th className="text-left text-[10px] uppercase tracking-widest font-medium pb-3 text-muted-foreground/60">
                   {/* Empty corner cell */}
                 </th>
                 {deals.map((d) => (
@@ -1138,7 +1160,7 @@ function ComparisonView({
                   >
                     <div className="flex flex-col gap-1.5">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-[12.5px] font-semibold leading-tight tabular-nums truncate" style={{ color: "var(--rv-t1)" }}>
+                        <p className="text-[12.5px] font-semibold leading-tight tabular-nums truncate text-foreground">
                           {d.list_price ? fmtCurrency(d.list_price) : "—"}
                         </p>
                         <Button
@@ -1153,8 +1175,7 @@ function ComparisonView({
                       </div>
                       {(d.address || d.city) && (
                         <p
-                          className="text-[10.5px] leading-tight truncate"
-                          style={{ color: "var(--rv-t3)" }}
+                          className="text-[10.5px] leading-tight truncate text-muted-foreground"
                           title={[d.address, d.city, d.state].filter(Boolean).join(", ")}
                         >
                           {[d.address, d.city, d.state].filter(Boolean).join(", ")}
@@ -1164,8 +1185,7 @@ function ComparisonView({
                         onClick={() => onOpenInBrowse(d.source_url)}
                         variant="link"
                         size="xs"
-                        className="self-start mt-0.5 p-0 h-auto text-[10.5px]"
-                        style={{ color: "var(--rv-accent)" }}
+                        className="self-start mt-0.5 p-0 h-auto text-[10.5px] text-primary"
                       >
                         <ExternalLink size={9} strokeWidth={2} />
                         Open
@@ -1217,8 +1237,8 @@ function ComparisonRow({ row, dealCount }: { row: ComparisonRowDef; dealCount: n
   return (
     <tr>
       <td
-        className="text-[11px] uppercase tracking-widest font-medium pr-4 py-2.5 align-top"
-        style={{ color: "var(--rv-t4)", whiteSpace: "nowrap", borderTop: "0.5px solid var(--rv-border)" }}
+        className="text-[11px] uppercase tracking-widest font-medium pr-4 py-2.5 align-top whitespace-nowrap text-muted-foreground/60"
+        style={{ borderTop: "0.5px solid var(--rv-border)" }}
       >
         {row.label}
       </td>
@@ -1244,7 +1264,7 @@ function ComparisonCell({ row, idx }: { row: ComparisonRowDef; idx: number }) {
   switch (row.kind) {
     case "currency": {
       const v = row.values[idx]
-      if (v == null) return <span style={{ color: "var(--rv-t4)" }}>—</span>
+      if (v == null) return <span className="text-muted-foreground/60">—</span>
       const tone = (row as { tone?: string }).tone
       if (tone === "good-positive") {
         return <span>{`${v >= 0 ? "+" : ""}${fmtCurrency(v)}${row.label.includes("/") ? "" : ""}`}</span>
@@ -1253,33 +1273,31 @@ function ComparisonCell({ row, idx }: { row: ComparisonRowDef; idx: number }) {
     }
     case "pct": {
       const v = row.values[idx]
-      return v == null ? <span style={{ color: "var(--rv-t4)" }}>—</span> : <span>{fmtPct(v)}</span>
+      return v == null ? <span className="text-muted-foreground/60">—</span> : <span>{fmtPct(v)}</span>
     }
     case "num": {
       const v = row.values[idx]
       return v == null
-        ? <span style={{ color: "var(--rv-t4)" }}>—</span>
+        ? <span className="text-muted-foreground/60">—</span>
         : <span>{v.toFixed(row.dec ?? 2)}</span>
     }
     case "text": {
       const v = row.values[idx]
       return v
         ? <span className="block truncate" title={v} style={{ fontVariantNumeric: "tabular-nums" }}>{v}</span>
-        : <span style={{ color: "var(--rv-t4)" }}>—</span>
+        : <span className="text-muted-foreground/60">—</span>
     }
     case "tags": {
       const tags = row.values[idx]
-      if (!tags || tags.length === 0) return <span style={{ color: "var(--rv-t4)" }}>—</span>
+      if (!tags || tags.length === 0) return <span className="text-muted-foreground/60">—</span>
       return (
         <div className="flex flex-wrap gap-1">
           {tags.slice(0, 4).map((t) => (
             <span
               key={t}
-              className="inline-flex items-center text-[10px] tracking-tight rounded-full px-1.5 py-[1px]"
+              className="inline-flex items-center text-[10px] tracking-tight rounded-full px-1.5 py-[1px] text-muted-foreground bg-muted"
               style={{
-                color:      "var(--rv-t2)",
-                background: "var(--rv-elev-2)",
-                border:     "0.5px solid var(--rv-border)",
+                border: "0.5px solid var(--rv-border)",
               }}
             >
               {t}
@@ -1315,28 +1333,28 @@ function DetailEmpty({ filtered, hasAny }: { filtered: number; hasAny: boolean }
       </div>
       {!hasAny ? (
         <>
-          <p className="text-[14px] font-medium" style={{ color: "var(--rv-t1)" }}>
+          <p className="text-[14px] font-medium text-foreground">
             Your pipeline is empty
           </p>
-          <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px]" style={{ color: "var(--rv-t3)" }}>
+          <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px] text-muted-foreground">
             Save a listing from Browse to start your pipeline. ⌘S on any listing while it's analyzed.
           </p>
         </>
       ) : filtered === 0 ? (
         <>
-          <p className="text-[14px] font-medium" style={{ color: "var(--rv-t1)" }}>
+          <p className="text-[14px] font-medium text-foreground">
             Nothing in this stage
           </p>
-          <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px]" style={{ color: "var(--rv-t3)" }}>
+          <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px] text-muted-foreground">
             Switch stages from the sidebar — or save more deals from Browse.
           </p>
         </>
       ) : (
         <>
-          <p className="text-[14px] font-medium" style={{ color: "var(--rv-t1)" }}>
+          <p className="text-[14px] font-medium text-foreground">
             Pick a deal
           </p>
-          <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px]" style={{ color: "var(--rv-t3)" }}>
+          <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px] text-muted-foreground">
             Click any row on the left to see the full snapshot.
           </p>
         </>
@@ -1364,6 +1382,11 @@ function PipelinePageInner() {
   const router        = useRouter()
   const searchParams  = useSearchParams()
   const { pipeline: pipelineTopBarSlot } = useTopBarSlots()
+  // Always-mounted-routes gate. See lib/useIsActiveRoute.ts. Pipeline
+  // is "active" only on /pipeline; while the user is on /browse or
+  // /settings, the initial-fetch effect and the window-focus refetch
+  // listener pause so we don't fire Supabase queries in the background.
+  const isActive      = useIsActiveRoute("pipeline")
   const stageParam    = searchParams.get("stage") as DealStage | null
   const stageFilter   = stageParam && STAGES_VALID.has(stageParam) ? stageParam : null
   /** Optional `?id=<dealId>` deep-link — when present and the deal exists in
@@ -1401,6 +1424,21 @@ function PipelinePageInner() {
    *  Power users can still ⌘-click outside compare mode for the same
    *  result. The mode auto-exits when the set drops to 0. */
   const [compareMode, setCompareMode] = useState<boolean>(false)
+  /** Pipeline canvas mode — "deals" (default, dashboard-style: list +
+   *  detail rail, NO map visible) or "map" (full-bleed map with a small
+   *  list overlay). Replaces the previous "map ambient behind a scrim"
+   *  layout that committed to neither — the user picks what they're
+   *  looking at. Persists across route changes via localStorage so it
+   *  feels like a stable preference rather than session-local state. */
+  const [viewMode, setViewMode] = useState<"deals" | "table" | "kanban" | "map">(() => {
+    if (typeof window === "undefined") return "deals"
+    const saved = localStorage.getItem("rv-pipeline-view")
+    if (saved === "map" || saved === "table" || saved === "kanban" || saved === "deals") return saved
+    return "deals"
+  })
+  useEffect(() => {
+    try { localStorage.setItem("rv-pipeline-view", viewMode) } catch { /* private mode */ }
+  }, [viewMode])
   /** Expanded summary in the page header — by default we show just the
    *  deal count; clicking the chevron reveals the avg cash flow and
    *  total exposure inline. Keeps the header clean for routine browsing
@@ -1419,12 +1457,23 @@ function PipelinePageInner() {
     fetchPipeline().then(setDeals).catch((e) => setError(e?.message ?? "Couldn't load pipeline"))
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  // Initial / on-activation refetch. Gated on isActive so the first
+  // Supabase fetch holds until the user actually navigates to /pipeline,
+  // and re-fires once on every return so saved-deal state is fresh.
   useEffect(() => {
+    if (!isActive) return
+    refresh()
+  }, [refresh, isActive])
+  // Window-focus refetch. Gated on isActive so we don't fetch every
+  // time the app regains focus while the user is on /browse — that's
+  // a real cost when the user alt-tabs to a Zillow tab and back. Now
+  // only re-fetches when /pipeline is the visible surface.
+  useEffect(() => {
+    if (!isActive) return
     const onFocus = () => refresh()
     window.addEventListener("focus", onFocus)
     return () => window.removeEventListener("focus", onFocus)
-  }, [refresh])
+  }, [refresh, isActive])
 
   // Filtered list — selected stage from URL, defaulting to "active" (no Won/Passed)
   const filtered = useMemo<SavedDeal[]>(() => {
@@ -1675,9 +1724,12 @@ function PipelinePageInner() {
     <div className="flex items-center w-full px-3 gap-3">
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-3 min-w-0">
           <div className="flex items-baseline gap-2.5 min-w-0">
-            <h1 className="text-[15px] font-semibold tracking-tight shrink-0" style={{ color: "var(--rv-t1)" }}>
-              {stageTitle}
-            </h1>
+            <PipelineViewsMenu
+              currentStage={stageFilter}
+              onApplyView={(stage) => {
+                router.push("/pipeline" + (stage ? `?stage=${stage}` : ""))
+              }}
+            />
             {/* Click-to-expand summary. Default state: just the deal
                 count + a small chevron. Expanded: also shows avg cash
                 flow and total exposure inline. Keeps the header clean
@@ -1694,7 +1746,7 @@ function PipelinePageInner() {
               <span>{total === 1 ? "1 deal" : `${total} deals`}</span>
               {summaryExpanded && stats.avgCashFlow != null && (
                 <>
-                  <span style={{ color: "var(--rv-t4)" }}>·</span>
+                  <span className="text-muted-foreground/60">·</span>
                   <span>avg </span>
                   <span style={{ color: stats.avgCashFlow < 0 ? "var(--rv-neg)" : "var(--rv-t3)" }}>
                     <Currency value={Math.round(stats.avgCashFlow)} signed />/mo
@@ -1703,7 +1755,7 @@ function PipelinePageInner() {
               )}
               {summaryExpanded && stats.exposure != null && (
                 <>
-                  <span style={{ color: "var(--rv-t4)" }}>·</span>
+                  <span className="text-muted-foreground/60">·</span>
                   <span><Currency value={stats.exposure} compact /> exposure</span>
                 </>
               )}
@@ -1720,6 +1772,72 @@ function PipelinePageInner() {
             </button>
           </div>
         </div>
+        {/* Canvas toggle — Deals (default, dashboard view) vs. Map
+            (geographic view). Lives early in the header so it reads
+            as a primary mode-switch, not buried after the Compare
+            button. Hidden when the comparison view is active (the
+            map is irrelevant when comparing). */}
+        {compareDeals.length < 2 && (
+          <div
+            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+            className="ml-2 inline-flex items-center rounded-full border border-border bg-muted p-0.5"
+            role="tablist"
+            aria-label="View mode"
+          >
+            <button
+              role="tab"
+              aria-selected={viewMode === "deals"}
+              onClick={() => setViewMode("deals")}
+              className={cn(
+                "px-3 h-7 text-[12px] font-medium tracking-tight rounded-full transition-colors",
+                viewMode === "deals"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Deals
+            </button>
+            <button
+              role="tab"
+              aria-selected={viewMode === "table"}
+              onClick={() => setViewMode("table")}
+              className={cn(
+                "px-3 h-7 text-[12px] font-medium tracking-tight rounded-full transition-colors",
+                viewMode === "table"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Table
+            </button>
+            <button
+              role="tab"
+              aria-selected={viewMode === "kanban"}
+              onClick={() => setViewMode("kanban")}
+              className={cn(
+                "px-3 h-7 text-[12px] font-medium tracking-tight rounded-full transition-colors",
+                viewMode === "kanban"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Kanban
+            </button>
+            <button
+              role="tab"
+              aria-selected={viewMode === "map"}
+              onClick={() => setViewMode("map")}
+              className={cn(
+                "px-3 h-7 text-[12px] font-medium tracking-tight rounded-full transition-colors",
+                viewMode === "map"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Map
+            </button>
+          </div>
+        )}
         {/* Compare control — three visual states:
               - idle (not in mode, no selection): a confident accent-tinted
                 button so the feature reads as a real call-to-action, not
@@ -1750,10 +1868,7 @@ function PipelinePageInner() {
                     />
                   ))}
                 </div>
-                <span
-                  className="text-[11.5px] tracking-tight tabular-nums"
-                  style={{ color: "var(--rv-t2)" }}
-                >
+                <span className="text-[11.5px] tracking-tight tabular-nums text-muted-foreground">
                   {compareIds.size === 0
                     ? "Select listings"
                     : compareIds.size === 1
@@ -1781,11 +1896,9 @@ function PipelinePageInner() {
             ) : compareIds.size > 0 ? (
               <>
                 <span
-                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-medium tabular-nums"
+                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-medium tabular-nums text-primary bg-primary/10"
                   style={{
-                    color:      "var(--rv-accent)",
-                    background: "rgba(48,164,108,0.10)",
-                    border:     "0.5px solid rgba(48,164,108,0.22)",
+                    border: "0.5px solid rgba(48,164,108,0.22)",
                   }}
                 >
                   <GitCompareArrows size={11} strokeWidth={2} />
@@ -1819,10 +1932,7 @@ function PipelinePageInner() {
             className="flex items-center gap-2"
           >
             {checkResult && (
-              <span
-                className="text-[11.5px] tracking-tight rv-watch-toast"
-                style={{ color: "var(--rv-t2)" }}
-              >
+              <span className="text-[11.5px] tracking-tight rv-watch-toast text-muted-foreground">
                 {checkResult}
               </span>
             )}
@@ -1849,7 +1959,13 @@ function PipelinePageInner() {
   )
 
   return (
-    <div className="flex flex-col h-full overflow-hidden relative" style={{ background: "transparent" }}>
+    <div
+      // Cream surface guarantees the dark MapShell (which lives behind
+      // every route) never bleeds through to the user. The Map view
+      // explicitly sets transparent middle column when it wants the
+      // map visible; the rest of Pipeline stays opaque.
+      className="flex flex-col h-full overflow-hidden relative bg-background"
+    >
       {/* Pipeline header content portals into the persistent
           AppTopBar's pipeline slot so the bar adapts without
           re-mounting. Page renders body only. */}
@@ -1861,6 +1977,99 @@ function PipelinePageInner() {
       <div style={{ pointerEvents: "auto" }}>
         <CompareModeBanner active={compareMode} count={compareIds.size} />
       </div>
+
+      {/* Stats strip — Mercury-style portfolio summary across the top
+          of the Deals canvas. Four cards: Active / Exposure / Avg cash
+          flow / Avg cap rate. Only renders in Deals mode (Map mode is
+          for geographic exploration; numbers there would compete) and
+          only when there are filtered deals to summarize. Computed from
+          the same `stats` object the topbar header already uses, so the
+          numbers are consistent with the inline summary expander. */}
+      {viewMode === "deals" && filtered.length > 0 && (
+        <div
+          className="shrink-0 px-6 pt-5 pb-4 bg-background border-b border-border"
+          style={{ pointerEvents: "auto" }}
+        >
+          {/* Stagger fade animation removed — it cost 380ms of perceived
+              lag on every Pipeline mount before the user could see the
+              stat cards. Always-mounted-routes flips visibility on
+              every nav, which means this animation re-played on every
+              Browse → Pipeline switch. Not worth the snappy nav. */}
+          <div className="grid grid-cols-1 gap-4 max-w-[1280px] mx-auto *:data-[slot=card]:bg-linear-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs sm:grid-cols-2 xl:grid-cols-4">
+            <Card className="@container/card">
+              <CardHeader>
+                <CardDescription>Active deals</CardDescription>
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+                  {String(stats.active)}
+                </CardTitle>
+                {watchedCount > 0 && (
+                  <CardAction>
+                    <Badge variant="outline">{watchedCount} watching</Badge>
+                  </CardAction>
+                )}
+              </CardHeader>
+              <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent pt-0 text-sm">
+                <div className="text-muted-foreground">In your pipeline right now</div>
+              </CardFooter>
+            </Card>
+            <Card className="@container/card">
+              <CardHeader>
+                <CardDescription>Total exposure</CardDescription>
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+                  {stats.exposure != null ? fmtCurrencyCompact(stats.exposure) : "—"}
+                </CardTitle>
+              </CardHeader>
+              <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent pt-0 text-sm">
+                <div className="text-muted-foreground">Across saved deals</div>
+              </CardFooter>
+            </Card>
+            <Card className="@container/card">
+              <CardHeader>
+                <CardDescription>Avg cash flow</CardDescription>
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+                  {stats.avgCashFlow != null
+                    ? `${stats.avgCashFlow >= 0 ? "+" : "−"}$${Math.abs(Math.round(stats.avgCashFlow)).toLocaleString("en-US")}`
+                    : "—"}
+                  {stats.avgCashFlow != null && (
+                    <span className="ml-1 text-base font-normal text-muted-foreground">/mo</span>
+                  )}
+                </CardTitle>
+                {stats.avgCashFlow != null && (
+                  <CardAction>
+                    <Badge variant="outline">
+                      {stats.avgCashFlow >= 0 ? <TrendingUpIcon /> : <TrendingDownIcon />}
+                      {stats.avgCashFlow >= 0 ? "Positive" : "Negative"}
+                    </Badge>
+                  </CardAction>
+                )}
+              </CardHeader>
+              <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent pt-0 text-sm">
+                <div className="text-muted-foreground">Per door, after expenses</div>
+              </CardFooter>
+            </Card>
+            <Card className="@container/card">
+              <CardHeader>
+                <CardDescription>Avg cap rate</CardDescription>
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+                  {stats.avgCap != null ? `${(stats.avgCap * 100).toFixed(2)}%` : "—"}
+                </CardTitle>
+              </CardHeader>
+              <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent pt-0 text-sm">
+                <div className="text-muted-foreground">Weighted mean across pipeline</div>
+              </CardFooter>
+            </Card>
+          </div>
+
+          {/* Pipeline velocity — area chart of deals added per day on top
+              of the running total. Shows up only when there's at least
+              one saved deal (otherwise it's an empty rectangle). */}
+          {filtered.length > 0 && (
+            <div className="max-w-[1280px] mx-auto mt-4">
+              <PipelineVelocityChart deals={deals ?? []} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Body — list (always) + map (always) + detail rail (slides in)
           OR comparison view (replaces map when comparing 2+).
@@ -1882,12 +2091,99 @@ function PipelinePageInner() {
         }}
       >
         {error && (
-          <div className="flex items-center justify-center w-full">
-            <p className="text-[13px]" style={{ color: "var(--rv-bad)" }}>{error}</p>
+          // Error state — fills the full body with a cream surface so
+          // the dark MapShell underneath doesn't bleed through. Same
+          // BuddyMark treatment as the empty state for consistency.
+          <div className="flex items-center justify-center w-full bg-background" style={{ pointerEvents: "auto" }}>
+            <div className="flex flex-col items-center gap-4 max-w-[320px] text-center">
+              <div className="flex aspect-square size-12 items-center justify-center rounded-xl bg-rose-500/10 border border-rose-500/20">
+                <BuddyMark size={22} tone="muted" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <p
+                  className="text-foreground"
+                  style={{ fontFamily: "var(--rv-font-display)", fontSize: 16, fontWeight: 500, letterSpacing: "-0.012em" }}
+                >
+                  Couldn't load your pipeline
+                </p>
+                <p className="text-[12px] leading-relaxed text-muted-foreground">
+                  {error}
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
-        {!error && deals !== null && (
+        {!error && deals === null && (
+          // Loading / not-signed-in state. The route renders before
+          // auth resolves; without this the body was empty (showing the
+          // dark MapShell behind it). Cream surface + breathing buddy
+          // mark keeps the user from seeing a black void.
+          <div className="flex items-center justify-center w-full bg-background" style={{ pointerEvents: "auto" }}>
+            <div className="flex flex-col items-center gap-4 max-w-[320px] text-center">
+              <div className="flex aspect-square size-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
+                <BuddyMark size={22} state="thinking" />
+              </div>
+              <p
+                className="text-foreground"
+                style={{ fontFamily: "var(--rv-font-display)", fontSize: 16, fontWeight: 500, letterSpacing: "-0.012em" }}
+              >
+                Loading your pipeline…
+              </p>
+              <p className="text-[12px] leading-relaxed text-muted-foreground">
+                If you're not signed in yet, head to Browse and sign in to sync your saved deals.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!error && deals !== null && viewMode === "table" && (
+          <div
+            className="flex-1 overflow-y-auto panel-scroll bg-background px-6 py-4"
+            style={{ pointerEvents: "auto" }}
+          >
+            <div className="max-w-[1280px] mx-auto">
+              <PipelineDealTable
+                deals={filtered}
+                selectedId={selId}
+                onSelect={(id) => onRowClick(id, { metaKey: false, ctrlKey: false, shiftKey: false })}
+                selectedIds={Array.from(compareIds)}
+                onToggleSelect={(id) => onRowToggleCompare(id)}
+              />
+            </div>
+          </div>
+        )}
+
+        {!error && deals !== null && viewMode === "kanban" && (
+          <div
+            className="flex-1 overflow-y-auto panel-scroll bg-background px-4 py-4"
+            style={{ pointerEvents: "auto" }}
+          >
+            <PipelineKanban
+              deals={filtered}
+              onSelect={(id) => onRowClick(id, { metaKey: false, ctrlKey: false, shiftKey: false })}
+              onMoveStage={async (id, nextStage) => {
+                // Optimistic flip — the card visibly lands in the new
+                // lane immediately. moveDealStage IPC fires next; revert
+                // on failure so the optimistic UI doesn't stick if the
+                // network call fails.
+                const before = deals?.find((d) => d.id === id)
+                if (!before) return
+                setDeals((prev) => prev?.map((d) =>
+                  d.id === id
+                    ? { ...d, stage: nextStage, updated_at: new Date().toISOString() }
+                    : d
+                ) ?? null)
+                const ok = await moveDealStage(id, nextStage)
+                if (!ok) {
+                  setDeals((prev) => prev?.map((d) => d.id === id ? before : d) ?? null)
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {!error && deals !== null && viewMode !== "table" && viewMode !== "kanban" && (
           <>
             {/* LEFT — always-visible deal list. Resizable via splitter. */}
             <div
@@ -1936,7 +2232,15 @@ function PipelinePageInner() {
               onPointerMove={onSplitMove}
               onPointerUp={onSplitUp}
               onPointerCancel={onSplitUp}
-              className="rv-splitter shrink-0 cursor-col-resize select-none"
+              className={cn(
+                "rv-splitter shrink-0 cursor-col-resize select-none",
+                // In Deals mode the splitter inherits the same opaque
+                // bg as the surrounding columns so the map doesn't peek
+                // through the 4px resize gap. In Map mode it stays
+                // transparent so drags can fall through to the map
+                // (the splitter still resizes the list overlay).
+                viewMode === "deals" && "bg-background"
+              )}
               style={{ width: 4, pointerEvents: "auto" }}
               title="Drag to resize"
             />
@@ -1953,22 +2257,45 @@ function PipelinePageInner() {
               style={{ pointerEvents: "none" }}
             >
               <div
-                className={compareDeals.length >= 2 ? "shrink-0 w-full" : "flex-1 min-w-0 h-full"}
+                className={cn(
+                  compareDeals.length >= 2 ? "shrink-0 w-full" : "flex-1 min-w-0 h-full",
+                  // Deals view: opaque cream surface — hides the map.
+                  // Map view: transparent — the persistent MapShell
+                  // shows through.
+                  viewMode === "deals" && "bg-background"
+                )}
                 style={{
                   ...(compareDeals.length >= 2 ? { height: "45%" } : null),
-                  // CRITICAL — let pointer events fall through to the
-                  // MapShell underneath. Without this, the empty
-                  // route-content layer at z-index 2 was eating every
-                  // drag/click and the map became unpannable.
-                  pointerEvents: "none",
+                  pointerEvents: viewMode === "map" ? "none" : "auto",
                 }}
               >
-                {/* The map used to be a local PipelineMap mount here.
-                    It's now the persistent MapShell rendered behind
-                    the entire app — Pipeline drops the scrim to 0 so
-                    the shell's map shows through this transparent
-                    region. Same Mapbox instance Browse uses; no
-                    re-mount on route change. */}
+                {/* Deals view: Pipeline Pulse feed. The middle column
+                    used to be the ambient map; now in Deals mode it's
+                    the buddy's surface — recent activity across the
+                    pipeline (saves, stage moves, watch alerts) so the
+                    user has a "what changed" read every time they open
+                    Pipeline. Generous spacing, max-width so the column
+                    doesn't sprawl on wide windows.
+
+                    Map view: transparent (renders nothing here, the
+                    map shows through). */}
+                {viewMode === "deals" && compareDeals.length < 2 && !compareMode && (
+                  // Middle column when no deal is selected and not in
+                  // compare mode. The old PipelinePulseHeader +
+                  // PipelinePulseObservations have been retired —
+                  // the SectionCards header + velocity chart at the top
+                  // of the page now carry the same "what's happening"
+                  // signal, so showing them here too was duplicate
+                  // chrome that pushed the actual deal list off-screen.
+                  // Activity feed stays — it's the only buddy-style
+                  // surface that shows per-deal events (stage moves,
+                  // watch alerts) which the header cards can't.
+                  <div className="h-full overflow-y-auto panel-scroll">
+                    <div className="max-w-[480px] mx-auto px-8 py-10">
+                      <ActivityFeed limit={8} />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {compareDeals.length >= 2 ? (
@@ -1989,10 +2316,9 @@ function PipelinePageInner() {
                 </div>
               ) : compareMode ? (
                 <div
-                  className="shrink-0 h-full"
+                  className="shrink-0 h-full bg-background"
                   style={{
                     width:        320,
-                    background:   "var(--rv-bg)",
                     boxShadow:    "-1px 0 0 rgba(255,255,255,0.06)",
                     pointerEvents: "auto",
                   }}
@@ -2014,11 +2340,10 @@ function PipelinePageInner() {
                 the focus then). */}
             {!compareMode && compareDeals.length < 2 && (
               <div
-                className="shrink-0 h-full"
+                className="shrink-0 h-full bg-background"
                 style={{
                   width:        selected ? 460 : 0,
                   overflow:     "hidden",
-                  background:   "var(--rv-bg)",
                   boxShadow:    "-1px 0 0 rgba(255,255,255,0.06)",
                   transition:   "width 240ms cubic-bezier(0.32, 0.72, 0, 1)",
                   pointerEvents: "auto",
@@ -2034,6 +2359,48 @@ function PipelinePageInner() {
           </>
         )}
       </div>
+
+      {/* Bulk action bar — floats at bottom-center whenever 1+ deals
+          are checked (table multi-select, compare-mode click-toggle,
+          or right-click "add to compare"). Surfaces actions that
+          previously lived only in per-row context menus: Compare (2-4),
+          Move stage, Delete. Position: fixed → renders above any view
+          mode without participating in layout. */}
+      {compareIds.size > 0 && (
+        <PipelineBulkBar
+          count={compareIds.size}
+          canCompare={compareIds.size >= 2 && compareIds.size <= 4}
+          onCompare={() => {
+            // Existing compare flow already triggers when compareIds.size >= 2
+            // and the comparison view replaces the map. Here we just make the
+            // implicit explicit: clicking Compare from the bar mounts the view.
+            setCompareMode(true)
+          }}
+          onMoveStage={async (stage) => {
+            const ids = Array.from(compareIds)
+            // Optimistic batch flip
+            setDeals((prev) => prev?.map((d) =>
+              ids.includes(d.id)
+                ? { ...d, stage, updated_at: new Date().toISOString() }
+                : d
+            ) ?? null)
+            // Fire IPCs in parallel; on any failure, refetch authoritative.
+            const results = await Promise.all(ids.map((id) => moveDealStage(id, stage)))
+            if (results.some((ok) => !ok)) {
+              fetchPipeline().then((rows) => setDeals(rows ?? null)).catch(() => {})
+            }
+            setCompareIds(new Set())
+          }}
+          onDelete={async () => {
+            const ids = Array.from(compareIds)
+            // Optimistic remove
+            setDeals((prev) => prev?.filter((d) => !ids.includes(d.id)) ?? null)
+            await Promise.all(ids.map((id) => deleteDeal(id)))
+            setCompareIds(new Set())
+          }}
+          onClear={() => setCompareIds(new Set())}
+        />
+      )}
     </div>
   )
 }
@@ -2044,6 +2411,269 @@ function PipelinePageInner() {
  *  the layout shift is smooth, not abrupt. The X icon at the right exits
  *  the mode (mirrors Cancel in the header). Clicking the banner itself
  *  is inert — it's a status surface. */
+/** PipelinePulseObservations — always-on substance for the Pulse
+ *  column. Computes interesting facts about the user's portfolio
+ *  (stale watching deals, biggest market cluster, deals above the buy
+ *  bar, range of cap rates, etc.) and renders the most relevant 2-4
+ *  as small buddy-voice cards. The reason this exists: ActivityFeed
+ *  returns null when there's no recent event, leaving the Pulse
+ *  column visually empty. Observations are derived from the deal
+ *  set itself, so there's always something to show.
+ *
+ *  Each observation is a small card with:
+ *    - A subtle accent dot (sage / amber / muted)
+ *    - One sentence in serif (the buddy's voice)
+ *    - Optional small metadata line (count + context) */
+function PipelinePulseObservations({ deals }: { deals: SavedDeal[] }) {
+  type Observation = {
+    id:    string
+    tone:  "pos" | "warn" | "neutral"
+    title: string
+    note?: string
+  }
+
+  const observations = useMemo<Observation[]>(() => {
+    const out: Observation[] = []
+    if (deals.length === 0) {
+      out.push({
+        id: "empty",
+        tone: "neutral",
+        title: "Your pipeline is empty.",
+        note: "Open Browse and save your first listing to start.",
+      })
+      return out
+    }
+
+    // Stale watching: deals in "watching" stage updated more than a week ago.
+    const now = Date.now()
+    const WEEK_MS = 7 * 86400_000
+    const staleWatching = deals.filter((d) => {
+      if (d.stage !== "watching") return false
+      const updated = new Date(d.updated_at).getTime()
+      return now - updated > WEEK_MS
+    })
+    if (staleWatching.length > 0) {
+      out.push({
+        id:    "stale-watching",
+        tone:  "warn",
+        title: staleWatching.length === 1
+          ? "1 deal in Watching is over a week old."
+          : `${staleWatching.length} deals in Watching are over a week old.`,
+        note:  "Worth a second look — or move them along.",
+      })
+    }
+
+    // Biggest cluster — most deals in a single city.
+    const byCity = new Map<string, number>()
+    for (const d of deals) {
+      const city = (d.city ?? "").trim()
+      if (!city) continue
+      byCity.set(city, (byCity.get(city) ?? 0) + 1)
+    }
+    let topCity:  string | null = null
+    let topCount: number = 0
+    for (const [c, n] of byCity) {
+      if (n > topCount) { topCity = c; topCount = n }
+    }
+    if (topCity && topCount >= 2) {
+      out.push({
+        id:    `cluster-${topCity}`,
+        tone:  "pos",
+        title: `Your tightest cluster: ${topCount} deals in ${topCity}.`,
+        note:  "Concentrated portfolios know their market better.",
+      })
+    }
+
+    // Cap rate range — useful framing when there's spread.
+    const caps = deals
+      .map((d) => d.snapshot?.metrics?.capRate)
+      .filter((v): v is number => Number.isFinite(v))
+    if (caps.length >= 3) {
+      const lo = Math.min(...caps) * 100
+      const hi = Math.max(...caps) * 100
+      if (hi - lo >= 2) {
+        out.push({
+          id:    "cap-range",
+          tone:  "neutral",
+          title: `Cap rates across your pipeline range from ${lo.toFixed(1)}% to ${hi.toFixed(1)}%.`,
+          note:  "Wide spread — different markets, different math.",
+        })
+      }
+    }
+
+    // Cash-flowing count — celebratory when many positive.
+    const positive = deals.filter((d) => {
+      const cf = d.snapshot?.metrics?.monthlyCashFlow
+      return Number.isFinite(cf) && (cf as number) > 0
+    })
+    if (positive.length >= 1) {
+      out.push({
+        id:    "positive",
+        tone:  "pos",
+        title: positive.length === 1
+          ? "1 deal in your pipeline cash flows positive."
+          : `${positive.length} deals cash flow positive.`,
+        note:  positive.length === deals.length
+          ? "Everything in your watchlist is in the green."
+          : undefined,
+      })
+    }
+
+    // Recently saved — momentum signal.
+    const SEVEN_DAYS_MS = 7 * 86400_000
+    const recentSaves = deals.filter((d) => now - new Date(d.created_at).getTime() < SEVEN_DAYS_MS)
+    if (recentSaves.length >= 2) {
+      out.push({
+        id:    "recent-saves",
+        tone:  "pos",
+        title: `You saved ${recentSaves.length} deals this week.`,
+        note:  "Strong momentum.",
+      })
+    }
+
+    // Trim to top 4 so the column stays scannable.
+    return out.slice(0, 4)
+  }, [deals])
+
+  if (observations.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      {observations.map((obs) => (
+        <div
+          key={obs.id}
+          className="flex items-start gap-3 rounded-[10px] border border-border bg-card px-4 py-3.5"
+        >
+          <span
+            aria-hidden
+            className="shrink-0 mt-[6px] rounded-full"
+            style={{
+              width:  6,
+              height: 6,
+              background:
+                obs.tone === "pos"  ? "var(--rv-pos)"  :
+                obs.tone === "warn" ? "var(--rv-warn)" :
+                                      "var(--rv-t4)",
+            }}
+          />
+          <div className="flex-1 min-w-0">
+            <p
+              className="leading-snug text-foreground"
+              style={{
+                fontFamily:    "var(--rv-font-display)",
+                fontSize:      14,
+                fontWeight:    400,
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {obs.title}
+            </p>
+            {obs.note && (
+              <p className="mt-1 text-[11.5px] text-muted-foreground leading-snug">
+                {obs.note}
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** PipelinePulseHeader — small "Today" header for the Pipeline Pulse
+ *  column. Shows the day name + a buddy-voice line (display serif) so
+ *  the middle column reads as a curated surface, not a generic feed.
+ *  Quiet by design — the activity rows below are the actual content. */
+function PipelinePulseHeader() {
+  const day = new Date().toLocaleDateString("en-US", { weekday: "long" })
+  const date = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2 text-[11px] font-medium tracking-tight text-muted-foreground/80 uppercase">
+        <span>Today · {day}</span>
+        <span className="text-muted-foreground/40">·</span>
+        <span>{date}</span>
+      </div>
+      <p
+        className="leading-snug text-foreground"
+        style={{
+          fontFamily:    "var(--rv-font-display)",
+          fontSize:      19,
+          fontWeight:    500,
+          letterSpacing: "-0.018em",
+        }}
+      >
+        Here's what moved in your pipeline.
+      </p>
+    </div>
+  )
+}
+
+/** PipelineStatCard — Mercury-style portfolio stat for the Pipeline
+ *  Deals view header. Flat white card with hairline border, generous
+ *  padding (Mercury runs ~24px), big serif number (32px), sentence-case
+ *  label that breathes, optional inline sub. The number is the
+ *  typographic event; everything else supports it. No gradients, no
+ *  shadows — depth comes from the warm-cream/white surface contrast. */
+function PipelineStatCard({
+  label, value, valueSuffix, sub, tone = "neutral",
+}: {
+  label: string
+  value: string
+  valueSuffix?: string
+  sub?: string
+  tone?: "neg" | "neutral"
+}) {
+  return (
+    <div className="flex flex-col rounded-[12px] border border-border bg-card px-6 py-5 min-w-0">
+      <div className="text-[11px] font-medium text-muted-foreground tracking-tight truncate">
+        {label}
+      </div>
+      <div className="mt-3 flex items-baseline gap-1.5 min-w-0">
+        <span
+          className={cn(
+            "tabular-nums leading-none truncate",
+            tone === "neg" ? "text-rose-600" : "text-foreground"
+          )}
+          style={{
+            fontFamily:    "var(--rv-font-display)",
+            fontSize:      32,
+            fontWeight:    500,
+            letterSpacing: "-0.025em",
+          }}
+        >
+          {value}
+        </span>
+        {valueSuffix && (
+          <span
+            className={cn(
+              "tabular-nums",
+              tone === "neg" ? "text-rose-500/80" : "text-muted-foreground"
+            )}
+            style={{ fontSize: 13, fontWeight: 500 }}
+          >
+            {valueSuffix}
+          </span>
+        )}
+      </div>
+      {sub && (
+        <div className="mt-2 text-[12px] text-muted-foreground truncate">
+          {sub}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Compact currency formatter — $4.2M / $750K style. Used by the stat
+ *  cards' Total Exposure value where we want the number to read at a
+ *  glance instead of "$4,235,000". */
+function fmtCurrencyCompact(n: number): string {
+  if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`
+  if (Math.abs(n) >= 1_000)     return `$${Math.round(n / 1_000)}K`
+  return `$${Math.round(n).toLocaleString("en-US")}`
+}
+
 function CompareModeBanner({ active, count }: { active: boolean; count: number }) {
   const message = count === 0
     ? "Pick 2 to 4 deals from the list — click rows, right-click, or drag up."
@@ -2078,10 +2708,7 @@ function CompareModeBanner({ active, count }: { active: boolean; count: number }
             background: "var(--rv-accent)",
           }}
         />
-        <span
-          className="text-[12px] tracking-tight"
-          style={{ color: "var(--rv-t2)" }}
-        >
+        <span className="text-[12px] tracking-tight text-muted-foreground">
           {message}
         </span>
       </div>
@@ -2102,33 +2729,23 @@ function CompareSelectingPane({
   onRemove: (id: string) => void
 }) {
   return (
-    <div
-      className="h-full overflow-y-auto panel-scroll flex flex-col items-center justify-center gap-6 px-8"
-      style={{
-        // Subtle accent wash signals "you're in compare mode" without
-        // overwhelming. Pulls the eye back to the list (the action
-        // surface) rather than competing with it.
-        background:           "var(--rv-bg)",
-      }}
-    >
+    <div className="h-full overflow-y-auto panel-scroll flex flex-col items-center justify-center gap-6 px-8 bg-background">
       <div className="flex flex-col items-center gap-3 text-center max-w-[420px]">
         <div
-          className="flex items-center justify-center rounded-full"
+          className="flex items-center justify-center rounded-full text-primary bg-primary/10"
           style={{
             width: 44, height: 44,
-            background: "rgba(48,164,108,0.12)",
-            border:     "0.5px solid rgba(48,164,108,0.26)",
-            color:      "var(--rv-accent)",
+            border: "0.5px solid rgba(48,164,108,0.26)",
           }}
         >
           <GitCompareArrows size={20} strokeWidth={1.8} />
         </div>
-        <p className="text-[15px] font-semibold tracking-tight" style={{ color: "var(--rv-t1)" }}>
+        <p className="text-[15px] font-semibold tracking-tight text-foreground">
           {picked.length === 0
             ? "Pick deals to compare"
             : "Add at least one more"}
         </p>
-        <p className="text-[12.5px] leading-relaxed" style={{ color: "var(--rv-t3)" }}>
+        <p className="text-[12.5px] leading-relaxed text-muted-foreground">
           {picked.length === 0
             ? "Click any row in the list, right-click to add it, or drag a row up. You can compare up to 4 deals at a time."
             : "Compare needs 2 or more deals to show side-by-side."}
@@ -2141,7 +2758,7 @@ function CompareSelectingPane({
           return (
             <div
               key={i}
-              className="flex-1 flex flex-col items-center justify-center gap-1.5 rounded-[10px] transition-all"
+              className="flex-1 flex flex-col items-center justify-center gap-1.5 rounded-[10px] transition-opacity duration-150"
               style={{
                 minHeight:  88,
                 padding:    "10px 8px",
@@ -2153,17 +2770,13 @@ function CompareSelectingPane({
             >
               {deal ? (
                 <>
-                  <p
-                    className="text-[12px] font-semibold tabular-nums truncate w-full text-center"
-                    style={{ color: "var(--rv-t1)" }}
-                  >
+                  <p className="text-[12px] font-semibold tabular-nums truncate w-full text-center text-foreground">
                     {deal.list_price != null
                       ? <Currency value={deal.list_price} whole />
                       : "—"}
                   </p>
                   <p
-                    className="text-[10.5px] truncate w-full text-center leading-tight"
-                    style={{ color: "var(--rv-t3)" }}
+                    className="text-[10.5px] truncate w-full text-center leading-tight text-muted-foreground"
                     title={[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
                   >
                     {deal.address ?? deal.site_name ?? "Saved deal"}
@@ -2179,7 +2792,7 @@ function CompareSelectingPane({
                   </button>
                 </>
               ) : (
-                <span className="text-[11px]" style={{ color: "var(--rv-t4)" }}>
+                <span className="text-[11px] text-muted-foreground/60">
                   Slot {i + 1}
                 </span>
               )}
@@ -2249,22 +2862,38 @@ function ListEmpty({
   onClearStage: () => void
 }) {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-16 text-center gap-3">
-      <p className="text-[12.5px]" style={{ color: "var(--rv-t2)" }}>
-        {hasAny ? `Nothing in ${stageTitle}` : "No saved deals yet"}
-      </p>
-      {hasAny ? (
+    // Empty state with the BuddyMark — the brand presence shows up in
+    // the moments where there's "nothing here." Quiet, not desperate;
+    // the buddy is just standing at the desk with no work to do yet.
+    <div className="flex flex-col items-center justify-center px-6 py-20 text-center gap-4">
+      <div className="flex aspect-square size-12 items-center justify-center rounded-xl bg-primary/8 border border-primary/15">
+        <BuddyMark size={22} tone="muted" />
+      </div>
+      <div className="flex flex-col gap-1.5 max-w-[280px]">
+        <p
+          className="text-foreground"
+          style={{
+            fontFamily: "var(--rv-font-display)",
+            fontSize:   16,
+            fontWeight: 500,
+            letterSpacing: "-0.012em",
+          }}
+        >
+          {hasAny ? `Nothing in ${stageTitle}` : "Your pipeline is empty"}
+        </p>
+        <p className="text-[12px] leading-relaxed text-muted-foreground">
+          {hasAny
+            ? "Switch stages from the header — or save more deals from Browse."
+            : "Open Browse, find a listing on Zillow / Redfin / anywhere, hit Save."}
+        </p>
+      </div>
+      {hasAny && (
         <button
           onClick={onClearStage}
-          className="text-[11.5px] underline-offset-2"
-          style={{ color: "var(--rv-accent)" }}
+          className="mt-2 text-[12px] font-medium underline-offset-4 text-primary hover:underline"
         >
-          See all active
+          See all active →
         </button>
-      ) : (
-        <p className="text-[11px] leading-relaxed" style={{ color: "var(--rv-t4)" }}>
-          Open Browse, find a listing, hit Save.
-        </p>
       )}
     </div>
   )

@@ -245,11 +245,13 @@ export interface DownloadState {
   totalBytes?: number
 }
 
-/** User-pickable theme. "system" auto-resolves to dark or light based on
- *  the macOS appearance preference; the others are explicit. */
-export type ThemePicked   = "system" | "dark" | "charcoal-warm" | "light"
+/** User-pickable theme. "system" auto-resolves to paper or paper-dark
+ *  based on the macOS appearance preference; the others are explicit.
+ *  Legacy values (dark, charcoal-warm, light) still accepted for
+ *  backwards compat — they coerce to the closest paper variant. */
+export type ThemePicked   = "system" | "paper" | "paper-dark" | "dark" | "charcoal-warm" | "light"
 /** Concrete theme actually applied (after resolving "system"). */
-export type ThemeResolved = "dark" | "charcoal-warm" | "light"
+export type ThemeResolved = "paper" | "paper-dark"
 
 export interface AnalysisInputs {
   purchasePrice: number

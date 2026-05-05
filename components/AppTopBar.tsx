@@ -18,7 +18,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { usePathname } from "next/navigation"
 import { useTopBarSlots } from "@/lib/topBarSlots"
-import { useSidebar } from "@/components/sidebar/context"
+import { useSidebar } from "@/components/ui/sidebar"
 
 type Mode = "browse" | "pipeline" | "settings" | "other"
 
@@ -39,6 +39,7 @@ export default function AppTopBar({
   const pathname = usePathname()
   const mode = modeForPath(pathname)
   const { setBrowse, setPipeline, setSettings, setBrowseAux } = useTopBarSlots()
+  // shadcn's useSidebar exposes `open` (boolean) — same shape as before.
   const { open: sidebarOpen } = useSidebar()
   // When the sidebar is OPEN (default state), the floating
   // SidebarToggle is hidden behind it, so the brand zone only needs

@@ -75,7 +75,7 @@ function NavItem({
     <Link
       href={href}
       data-active={active}
-      className="group relative flex items-center select-none rounded-md transition-all duration-150"
+      className="group relative flex items-center select-none rounded-md transition-colors duration-150"
       style={{
         height:        34,
         gap:           iconsOnly ? 0 : 10,

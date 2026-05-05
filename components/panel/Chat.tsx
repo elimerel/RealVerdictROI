@@ -160,8 +160,8 @@ export default function PanelChat({
           style={{
             maxHeight:        "min(360px, 60vh)",
             background:       "var(--rv-popover-bg)",
-            backdropFilter:   "blur(28px) saturate(160%)",
-            WebkitBackdropFilter: "blur(28px) saturate(160%)",
+            backdropFilter:   "blur(14px) saturate(160%)",
+            WebkitBackdropFilter: "blur(14px) saturate(160%)",
             border:           "0.5px solid var(--rv-border-mid)",
             boxShadow:        "0 12px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
             overflow:         "hidden",
@@ -206,8 +206,8 @@ export default function PanelChat({
           className="pointer-events-auto mx-3 mb-2 rounded-[12px] flex flex-col gap-1.5 px-2.5 pt-2.5 pb-2 rv-chat-history-pop"
           style={{
             background:       "var(--rv-popover-bg)",
-            backdropFilter:   "blur(28px) saturate(160%)",
-            WebkitBackdropFilter: "blur(28px) saturate(160%)",
+            backdropFilter:   "blur(14px) saturate(160%)",
+            WebkitBackdropFilter: "blur(14px) saturate(160%)",
             border:           "0.5px solid var(--rv-border-mid)",
             boxShadow:        "0 12px 32px rgba(0,0,0,0.45)",
           }}
@@ -223,8 +223,8 @@ export default function PanelChat({
         className="pointer-events-auto mx-3 mb-3 rounded-[10px] flex items-end gap-2 px-2.5 py-2 transition-colors"
         style={{
           background:     "var(--rv-popover-bg)",
-          backdropFilter: "blur(28px) saturate(160%)",
-          WebkitBackdropFilter: "blur(28px) saturate(160%)",
+          backdropFilter: "blur(14px) saturate(160%)",
+          WebkitBackdropFilter: "blur(14px) saturate(160%)",
           border:         "0.5px solid var(--rv-border-mid)",
           boxShadow:      "0 6px 18px rgba(0,0,0,0.30)",
         }}

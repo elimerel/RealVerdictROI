@@ -239,7 +239,20 @@ export default function MapShell() {
   const lastPathnameRef = useRef(pathname)
   useEffect(() => {
     if (lastPathnameRef.current === pathname) return
+    const prevPath = lastPathnameRef.current
     lastPathnameRef.current = pathname
+    // Halt any in-flight camera animation when the user leaves the
+    // map's home routes (Browse / Pipeline). Without this, an easeTo or
+    // flyTo started on the last route keeps running rAF for its full
+    // duration even though the user is now on Settings — wasted GPU
+    // and a stutter risk on the route they just landed on.
+    const leftMapRoute = !prevPath.startsWith("/browse") &&
+                         !prevPath.startsWith("/pipeline") ? false :
+                         (!pathname.startsWith("/browse") &&
+                          !pathname.startsWith("/pipeline"))
+    if (leftMapRoute) {
+      try { mapRef.current?.stop() } catch { /* ignore */ }
+    }
     // 180ms = chrome transition (160ms) + 20ms grace so the map
     // resize happens just AFTER the layout has fully settled.
     const t = setTimeout(() => {
@@ -317,10 +330,15 @@ export default function MapShell() {
           // obvious bright/wrong color. Light theme overrides via
           // an inline check on the html class — keeps the gap
           // invisible across themes.
-          background: typeof document !== "undefined" &&
-            document.documentElement.classList.contains("theme-light")
+          background: (() => {
+            if (typeof document === "undefined") return "#1a1d23"
+            const cls = document.documentElement.classList
+            // Light themes (paper, legacy theme-light) → cream gap;
+            // dark themes (paper-dark, anything else) → near-canvas grey.
+            return (cls.contains("theme-paper") || cls.contains("theme-light"))
               ? "#eaeaec"
-              : "#1a1d23",
+              : "#1a1d23"
+          })(),
         }}
       />
       {placedDeals.length >= 2 && (

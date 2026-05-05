@@ -14,9 +14,9 @@
 // deals instantly because it's a plain <img> not an iframe.
 
 import { useEffect, useState } from "react"
-import { X } from "lucide-react"
 import { geocode, type Coords } from "@/lib/mapbox"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 
 const GOOGLE_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? ""
 
@@ -61,32 +61,18 @@ export default function PropertyView({
     return () => { cancelled = true }
   }, [address, city, state, zip, coords])
 
-  // Esc closes — matches SourcesDrawer pattern.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
+  // Esc / overlay click handled by shadcn Dialog automatically.
 
   if (!GOOGLE_KEY) {
-    // Caller shouldn't be opening this without a key, but render a
-    // dismissable "configure" hint just in case.
     return (
-      <div
-        className="fixed inset-0 z-[1000] flex items-center justify-center"
-        style={{ background: "rgba(0, 0, 0, 0.72)" }}
-        onClick={onClose}
-      >
-        <div
-          className="rounded-[12px] px-6 py-5 max-w-sm text-center"
-          style={{ background: "var(--rv-bg)", border: "0.5px solid var(--rv-border-mid)" }}
-          onClick={(e) => e.stopPropagation()}
-        >
+      <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+        <DialogContent className="max-w-sm text-center">
+          <DialogTitle className="sr-only">Google Maps key required</DialogTitle>
           <p className="text-[13.5px]" style={{ color: "var(--rv-t1)" }}>
             Set <code style={{ color: "var(--rv-t2)" }}>NEXT_PUBLIC_GOOGLE_MAPS_KEY</code> in <code>.env.local</code> to enable street view.
           </p>
-        </div>
-      </div>
+        </DialogContent>
+      </Dialog>
     )
   }
 
@@ -97,28 +83,12 @@ export default function PropertyView({
     : aerialSrc
 
   return (
-    <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center"
-      style={{
-        background:           "rgba(0, 0, 0, 0.78)",
-        backdropFilter:       "blur(8px)",
-        WebkitBackdropFilter: "blur(8px)",
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="relative flex flex-col"
-        style={{
-          width:        "min(1100px, 90vw)",
-          height:       "min(720px, 86vh)",
-          background:   "var(--rv-bg)",
-          border:       "0.5px solid var(--rv-border-mid)",
-          borderRadius: 14,
-          overflow:     "hidden",
-          boxShadow:    "0 30px 80px rgba(0, 0, 0, 0.55)",
-        }}
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent
+        className="p-0 gap-0 max-w-[1100px] w-[90vw] h-[86vh] max-h-[720px] overflow-hidden flex flex-col"
+        showCloseButton={false}
       >
+        <DialogTitle className="sr-only">Property view</DialogTitle>
         <div
           className="flex items-center justify-between px-4 shrink-0"
           style={{ height: 48, borderBottom: "0.5px solid var(--rv-border)" }}
@@ -143,13 +113,7 @@ export default function PropertyView({
               </Button>
             ))}
           </div>
-          <Button onClick={onClose} aria-label="Close" variant="ghost" size="icon-sm">
-            <X size={15} strokeWidth={2} />
-          </Button>
         </div>
-
-        {/* Both iframes always rendered, opacity-toggled — switching
-            tabs is instant, no re-fetch. */}
         <div className="flex-1 min-h-0 relative">
           <iframe
             title="Property aerial view"
@@ -188,7 +152,7 @@ export default function PropertyView({
             allowFullScreen
           />
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

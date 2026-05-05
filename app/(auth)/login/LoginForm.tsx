@@ -204,20 +204,20 @@ export default function LoginForm({
 
   if (status.state === "needs_confirmation") {
     return (
-      <div className="w-full max-w-md rounded-2xl p-8 rv-shadow-md"
-           style={{ background: "var(--rv-surface-1)", border: "1px solid var(--rv-fill-border)" }}>
+      <div className="w-full max-w-md rounded-2xl p-8 shadow-sm"
+           style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
         <div
           className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-full"
           style={{ background: "var(--rv-accent-subtle)", color: "var(--rv-accent)" }}
         >
           ✓
         </div>
-        <h1 className="text-xl font-semibold rv-t1" style={{ letterSpacing: "-0.02em" }}>
+        <h1 className="text-xl font-semibold text-foreground" style={{ letterSpacing: "-0.02em" }}>
           Check your email
         </h1>
-        <p className="mt-2 text-[13px] rv-t3 leading-relaxed">
+        <p className="mt-2 text-[13px] text-muted-foreground leading-relaxed">
           We sent a confirmation link to{" "}
-          <span className="font-mono rv-t1">{email}</span>
+          <span className="font-mono text-foreground">{email}</span>
           . Click it to activate your account, then sign in.
         </p>
         <Button
@@ -242,7 +242,7 @@ export default function LoginForm({
   if (compact) {
     return (
       <div className="w-full max-w-xs">
-        <p className="mb-3 text-center text-[11px] rv-t3">
+        <p className="mb-3 text-center text-[11px] text-muted-foreground">
           {mode === "signup" ? "Create your account" : "Sign in to your account"}
         </p>
 
@@ -260,15 +260,15 @@ export default function LoginForm({
 
         {/* Divider */}
         <div className="mb-3 flex items-center gap-3">
-          <div className="flex-1 h-px" style={{ background: "var(--rv-fill-border)" }} />
-          <span className="text-[11px] rv-t4">or</span>
-          <div className="flex-1 h-px" style={{ background: "var(--rv-fill-border)" }} />
+          <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+          <span className="text-[11px] text-muted-foreground/70">or</span>
+          <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
         </div>
 
         <form onSubmit={submit} className="flex flex-col gap-2.5">
           <div className="flex flex-col gap-1">
-            <label htmlFor="email-compact" className="text-[11px] font-medium rv-t3">Email</label>
-            <div className="rv-input flex items-center px-3 py-2">
+            <label htmlFor="email-compact" className="text-[11px] font-medium text-muted-foreground">Email</label>
+            <div className="rounded-md border border-border bg-card flex items-center px-3 py-2">
               <input
                 id="email-compact"
                 type="email"
@@ -276,14 +276,14 @@ export default function LoginForm({
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="flex-1 bg-transparent text-[13px] rv-t1 placeholder:rv-t4"
+                className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/50"
                 placeholder="you@example.com"
               />
             </div>
           </div>
           <div className="flex flex-col gap-1">
-            <label htmlFor="password-compact" className="text-[11px] font-medium rv-t3">Password</label>
-            <div className="rv-input flex items-center px-3 py-2">
+            <label htmlFor="password-compact" className="text-[11px] font-medium text-muted-foreground">Password</label>
+            <div className="rounded-md border border-border bg-card flex items-center px-3 py-2">
               <input
                 id="password-compact"
                 type="password"
@@ -292,13 +292,13 @@ export default function LoginForm({
                 minLength={6}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="flex-1 bg-transparent text-[13px] rv-t1"
+                className="flex-1 bg-transparent text-[13px] text-foreground"
               />
             </div>
           </div>
 
           {mode === "signup" && (
-            <label className="mt-1 flex items-start gap-2 text-[11px] leading-snug rv-t3">
+            <label className="mt-1 flex items-start gap-2 text-[11px] leading-snug text-muted-foreground">
               <input
                 type="checkbox"
                 checked={termsAccepted}
@@ -312,7 +312,7 @@ export default function LoginForm({
                   href="https://realverdict.app/terms"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rv-t1 underline underline-offset-2"
+                  className="text-foreground underline underline-offset-2"
                 >
                   Terms of Service
                 </a>{" "}
@@ -321,7 +321,7 @@ export default function LoginForm({
                   href="https://realverdict.app/privacy"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rv-t1 underline underline-offset-2"
+                  className="text-foreground underline underline-offset-2"
                 >
                   Privacy Policy
                 </a>
@@ -367,14 +367,14 @@ export default function LoginForm({
   // Standard web layout (with card)
   return (
     <div
-      className="w-full max-w-md rounded-2xl p-8 rv-shadow-md"
-      style={{ background: "var(--rv-surface-1)", border: "1px solid var(--rv-fill-border)" }}
+      className="w-full max-w-md rounded-2xl p-8 shadow-sm"
+      style={{ background: "var(--card)", border: "1px solid var(--border)" }}
     >
       <div className="mb-6 flex flex-col gap-1.5">
-        <h1 className="text-[22px] font-semibold rv-t1" style={{ letterSpacing: "-0.022em" }}>
+        <h1 className="text-[22px] font-semibold text-foreground" style={{ letterSpacing: "-0.022em" }}>
           {mode === "signup" ? "Create your account" : "Welcome back"}
         </h1>
-        <p className="text-[13px] rv-t3">
+        <p className="text-[13px] text-muted-foreground">
           {mode === "signup"
             ? "Save deals and build your portfolio."
             : "Sign in to access your dashboard."}
@@ -395,17 +395,17 @@ export default function LoginForm({
 
       {/* Divider */}
       <div className="mb-4 flex items-center gap-3">
-        <div className="flex-1 h-px" style={{ background: "var(--rv-fill-border)" }} />
-        <span className="text-[11px] rv-t4">or</span>
-        <div className="flex-1 h-px" style={{ background: "var(--rv-fill-border)" }} />
+        <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+        <span className="text-[11px] text-muted-foreground/70">or</span>
+        <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="email" className="text-[11px] font-semibold uppercase tracking-[0.08em] rv-t3">
+          <label htmlFor="email" className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Email
           </label>
-          <div className="rv-input flex items-center px-3 py-2.5">
+          <div className="rounded-md border border-border bg-card flex items-center px-3 py-2.5">
             <input
               id="email"
               type="email"
@@ -413,16 +413,16 @@ export default function LoginForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="flex-1 bg-transparent text-[13px] rv-t1 placeholder:rv-t4"
+              className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/50"
               placeholder="you@example.com"
             />
           </div>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="password" className="text-[11px] font-semibold uppercase tracking-[0.08em] rv-t3">
+          <label htmlFor="password" className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Password
           </label>
-          <div className="rv-input flex items-center px-3 py-2.5">
+          <div className="rounded-md border border-border bg-card flex items-center px-3 py-2.5">
             <input
               id="password"
               type="password"
@@ -431,16 +431,16 @@ export default function LoginForm({
               minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="flex-1 bg-transparent text-[13px] rv-t1"
+              className="flex-1 bg-transparent text-[13px] text-foreground"
             />
           </div>
           {mode === "signup" && (
-            <p className="text-[11px] rv-t4">At least 6 characters.</p>
+            <p className="text-[11px] text-muted-foreground/70">At least 6 characters.</p>
           )}
         </div>
 
         {mode === "signup" && (
-          <label className="flex items-start gap-2.5 text-[12px] leading-snug rv-t3">
+          <label className="flex items-start gap-2.5 text-[12px] leading-snug text-muted-foreground">
             <input
               type="checkbox"
               checked={termsAccepted}
@@ -454,7 +454,7 @@ export default function LoginForm({
                 href="/terms"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rv-t1 font-medium underline underline-offset-2"
+                className="text-foreground font-medium underline underline-offset-2"
               >
                 Terms of Service
               </a>{" "}
@@ -463,7 +463,7 @@ export default function LoginForm({
                 href="/privacy"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rv-t1 font-medium underline underline-offset-2"
+                className="text-foreground font-medium underline underline-offset-2"
               >
                 Privacy Policy
               </a>
@@ -501,7 +501,7 @@ export default function LoginForm({
         >
           {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
         </Button>
-        <Link href="/" className="rv-t4 hover:rv-t2 transition-colors">
+        <Link href="/" className="text-muted-foreground/70 hover:text-muted-foreground transition-colors">
           Back home
         </Link>
       </div>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react"
-import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { NavUpdate } from "@/lib/electron"
 // Sidebar imports dropped — Toolbar lives inside AppTopBar now and
 // no longer derives its left padding from sidebar state.
@@ -201,16 +201,18 @@ export default function Toolbar({
     title: string
     children: React.ReactNode
   }) => (
-    <Button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      variant="ghost"
-      size="icon-xs"
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-    >
-      {children}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={title}
+        className="inline-flex items-center justify-center size-7 rounded-md transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{title}</TooltipContent>
+    </Tooltip>
   )
 
   return (

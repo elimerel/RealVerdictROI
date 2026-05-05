@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "rea
 import { createPortal } from "react-dom"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { useTopBarSlots } from "@/lib/topBarSlots"
+import { useIsActiveRoute } from "@/lib/useIsActiveRoute"
 import type { ChatContext, ChatMessage, NavUpdate, PanelPayload, PanelResult, TabInfo } from "@/lib/electron"
 import Toolbar from "@/components/browser/Toolbar"
 import TabStrip from "@/components/browser/TabStrip"
@@ -13,7 +14,8 @@ import Panel, { type PanelContentState, type ManualFacts } from "@/components/pa
 // BrowseTabsRow now).
 import { Bookmark, BookmarkCheck, ExternalLink, RefreshCw, PanelRight, GitCompareArrows, FilePlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import StageMenu from "@/components/StageMenu"
 import { usePaletteActions, type Action as PaletteAction } from "@/components/command-palette"
 import {
@@ -105,6 +107,25 @@ function BrowsePageInner() {
   const searchParams  = useSearchParams()
   const router        = useRouter()
   const pathname      = usePathname()
+  // Add-deal mode: the sidebar's "Add deal" CTA routes here with
+  // mode=addDeal. We surface a focused-mode banner + Esc/cancel exit,
+  // and auto-route back to Pipeline once the user saves a listing.
+  const isAddDealMode = searchParams.get("mode") === "addDeal"
+
+  // Esc cancels add-deal mode — same effect as clicking the X button
+  // on the banner. Window-level keydown so it works even when focus
+  // is inside the embedded BrowserView (the BrowserView has its own
+  // focus, but Electron forwards keyboard events to the renderer when
+  // not handled by the page).
+  useEffect(() => {
+    if (!isAddDealMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return
+      router.push("/pipeline")
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [isAddDealMode, router])
   // Browse stays mounted at layout level even when the user is on
   // Pipeline / Settings (always-mounted routes architecture). The
   // embedded BrowserView is a NATIVE Chromium overlay composited
@@ -112,7 +133,14 @@ function BrowsePageInner() {
   // doesn't hide it. So we gate every show/setLayout call on this
   // route-active flag, and explicitly hide the native view whenever
   // the user navigates away.
-  const routeActive   = pathname.startsWith("/browse")
+  // Always-mounted-routes gate. See lib/useIsActiveRoute.ts. Browse
+  // is "active" whenever the user isn't on /pipeline or /settings —
+  // every IPC subscription, window listener, and BrowserView visibility
+  // path below pauses while inactive. `routeActive` is kept as an alias
+  // for the call sites that pre-date the hook so we don't introduce
+  // duplicate variables.
+  const isActive      = useIsActiveRoute("browse")
+  const routeActive   = isActive
 
   const [nav,           setNav]           = useState<NavUpdate>({})
   const [panelOpen,     setPanelOpen]     = useState(false)
@@ -150,18 +178,23 @@ function BrowsePageInner() {
   // partial overrides into the scenario bus. The active ResultPane is
   // subscribed and merges the change live; metrics recompute instantly.
   useEffect(() => {
+    // Browse is always-mounted; pause AI tool-use bridge while invisible
+    // so Claude's adjust_scenario broadcasts don't churn React state
+    // when the user is on /pipeline or /settings.
+    if (!routeActive) return
     if (!api?.onApplyScenario) return
     return api.onApplyScenario((changes) => {
       // Cast: the IPC payload is Record<string, number>, the bus
       // accepts Partial<ScenarioOverrides>. Same shape modulo typing.
       applyScenarioFromBus(changes as Partial<ScenarioOverrides>)
     })
-  }, [api])
+  }, [api, routeActive])
 
   useEffect(() => {
+    if (!routeActive) return
     if (!api?.onResetScenario) return
     return api.onResetScenario(() => resetScenarioFromBus())
-  }, [api])
+  }, [api, routeActive])
 
   // Log every listing-URL navigation to browse_history. Listing-only by
   // design — non-real-estate URLs aren't tracked. The nav.isListing flag
@@ -280,25 +313,37 @@ function BrowsePageInner() {
   // Subscribe to tab state. Main broadcasts on every change (create, close,
   // activate, navigate). We mirror it locally for the strip + active-tab
   // gating logic.
+  //
+  // Gated on routeActive: when the user is on /pipeline or /settings,
+  // Browse is invisible and tab-state churn (Zillow ads/iframes firing
+  // page-title-updated as the embedded view keeps loading) shouldn't
+  // re-render Browse's tree. The paired listTabs() initial fetch
+  // re-runs on every routeActive flip, so state re-syncs the moment
+  // the user comes back to /browse.
   useEffect(() => {
+    if (!routeActive) return
     if (!api?.onTabsState) return
     const off = api.onTabsState(({ tabs: list, activeId }) => {
       setTabs(list)
       setActiveTabId(activeId)
     })
-    // Pull the initial state too — onTabsState only fires on changes.
-    // listTabs returns the REAL activeId from main, so we never have
-    // to guess "first tab" (which was the bug that forced you to the
-    // first tab on every Browse return).
     api.listTabs?.().then(({ tabs: list, activeId }) => {
       setTabs(list)
       setActiveTabId(activeId)
     }).catch(() => {})
     return () => { off() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api])
+  }, [api, routeActive])
 
+  // Gated on routeActive: the largest IPC subscriber bundle on /browse.
+  // While the user is on /pipeline or /settings, every panel:* and
+  // browser:nav-update broadcast was triggering setState here and
+  // re-rendering Browse's ~71-inline-style tree. Pausing the bundle
+  // while invisible removes that work entirely. Tradeoff: nav state /
+  // panel state may be slightly stale when the user returns; the next
+  // navigation event re-syncs.
   useEffect(() => {
+    if (!routeActive) return
     if (!api) return
     const offNav = api.onNavUpdate((p) => setNav((prev) => ({ ...prev, ...p })))
 
@@ -362,7 +407,7 @@ function BrowsePageInner() {
     // state and a raw .focus() here would no-op when the input isn't
     // mounted yet.
     return () => { offNav(); offAnalyzing(); offReady(); offHide(); offError(); offDownload() }
-  }, [api])
+  }, [api, routeActive])
 
   // Auto-dismiss the download toast 3.5s after the most-recent state change.
   // Manually-cancelled downloads dismiss immediately; "started" pulses for
@@ -629,6 +674,15 @@ function BrowsePageInner() {
     // Replace the optimistic row with the real saved row from Supabase.
     setSavedByUrl((prev) => ({ ...prev, [url]: saved }))
 
+    // Add-deal mode: the user came here specifically to add ONE deal.
+    // The save succeeded — return them to Pipeline with the deal
+    // pre-selected. Plain Browse mode stays put so they can keep
+    // exploring after saving (different intent). Tag-fetching below
+    // is fire-and-forget, so the redirect doesn't lose tag enrichment
+    // (the tagDeal IPC keeps running; tags land on the row when it
+    // resolves, regardless of which page is foreground).
+    const shouldAutoReturn = isAddDealMode
+
     // Fire-and-forget: ask Haiku for 2-3 short factual tags. On success,
     // patch the saved row + local cache. On failure, the deal just stays
     // untagged — tags are nice-to-have, not load-bearing.
@@ -657,7 +711,14 @@ function BrowsePageInner() {
         }))
       }
     }).catch(() => { /* silent */ })
-  }, [panelContent, nav.url, savedByUrl, pendingScenario, api])
+
+    // Add-deal mode: kick the user back to Pipeline now that the save
+    // landed. Tag enrichment above is fire-and-forget and will patch the
+    // row whenever it resolves, regardless of which page is foreground.
+    if (shouldAutoReturn) {
+      router.push(`/pipeline?id=${saved.id}`)
+    }
+  }, [panelContent, nav.url, savedByUrl, pendingScenario, api, isAddDealMode, router])
 
   // Scenario persist callback the panel debounces. Saved listings: write
   // to the pipeline row (and patch local cache so Recent strip / averages
@@ -679,7 +740,14 @@ function BrowsePageInner() {
   // are contextual to /browse: save-listing and reanalyze. Both fire
   // regardless of focus (browserView, sidebar, or React content), which
   // is the reason we route through the menu rather than window keydown.
+  //
+  // Gated on routeActive: these shortcuts only act on /browse state
+  // (save the current listing, reanalyze it). On /pipeline or
+  // /settings we'd be reacting to keystrokes meant for the visible
+  // route, which would be wrong AND redundant with the menu's own
+  // visibility filtering.
   useEffect(() => {
+    if (!routeActive) return
     const off = window.__rvOnShortcut?.((kind) => {
       if (kind === "save-listing" && panelContent.phase === "ready") {
         void saveCurrentListing()
@@ -688,7 +756,7 @@ function BrowsePageInner() {
       }
     })
     return () => { off?.() }
-  }, [panelContent.phase, saveCurrentListing, reanalyze, nav.isListing])
+  }, [panelContent.phase, saveCurrentListing, reanalyze, nav.isListing, routeActive])
 
   const currentSaved      = nav.url ? savedByUrl[nav.url] : undefined
   const currentSavedStage = currentSaved ? STAGE_LABEL[currentSaved.stage] : undefined
@@ -954,15 +1022,23 @@ function BrowsePageInner() {
     shellSetScrim(0.78)
     shellSetVisible(null)
   }, [shellSetScrim, shellSetVisible])
+  // Gated on routeActive: pin-click on /browse routes to /pipeline. On
+  // /pipeline, Pipeline's own subscriber handles selection; we don't
+  // want Browse also re-routing the URL.
   useEffect(() => {
+    if (!routeActive) return
     return shellOnPinClick((id) => {
-      // The shell's camera + selection update happens inside MapShell.
-      // Routing into /pipeline lets the Pipeline page take ownership;
-      // the same map continues underneath, no remount.
       router.push(`/pipeline?id=${id}`)
     })
-  }, [shellOnPinClick, router])
+  }, [shellOnPinClick, router, routeActive])
+  // Gated on routeActive: start-screen context fetch + DEALS_CHANGED
+  // listener. While on /pipeline, every save/stage-move/delete fires
+  // DEALS_CHANGED — without the gate, we re-fetched the start screen's
+  // context AND the full pipeline on every pipeline operation, then
+  // re-rendered Browse. Now: only subscribed while /browse is active.
+  // Re-fetches once on each return so data is fresh.
   useEffect(() => {
+    if (!routeActive) return
     let cancelled = false
     const refresh = () => {
       fetchStartScreenContext().then((ctx) => {
@@ -984,7 +1060,7 @@ function BrowsePageInner() {
       cancelled = true
       window.removeEventListener(DEALS_CHANGED_EVENT, refresh)
     }
-  }, [])
+  }, [routeActive])
 
   // showPlaceholder is true when there's no active page. Use the
   // REAL state from main (nav.url + tabs) — no module-level cache,
@@ -1002,12 +1078,13 @@ function BrowsePageInner() {
     // Treats the panel as a primary surface like the sidebar — same
     // pattern Cursor / Linear / VS Code use.
     <div
-      className="flex w-full h-full overflow-hidden"
+      className="flex w-full h-full overflow-hidden relative"
       // No explicit pointerEvents — AlwaysMountedRoutes' active layer
       // sets pe:auto, inactive sets pe:none. Re-enabling here would
       // make this content intercept clicks on /pipeline / /settings
       // because Browse stays mounted underneath them.
     >
+
       {/* Panel-action buttons portaled into the AppTopBar's browseAux
           slot — Save / Stage / Re-analyze live pinned right of the
           URL bar in the top chrome instead of consuming vertical
@@ -1031,11 +1108,8 @@ function BrowsePageInner() {
                   }
                 }}
               />
-              <span
-                className="inline-flex items-center gap-1 text-[11.5px] tracking-tight"
-                style={{ color: "var(--rv-t3)" }}
-              >
-                <BookmarkCheck size={11} strokeWidth={2.2} style={{ color: "var(--rv-accent)" }} />
+              <span className="inline-flex items-center gap-1 text-[11.5px] tracking-tight text-muted-foreground">
+                <BookmarkCheck size={11} strokeWidth={2.2} className="text-primary" />
                 Saved
               </span>
             </>
@@ -1113,12 +1187,7 @@ function BrowsePageInner() {
             painted a visible frame around the browser whenever the
             BrowserView's bounds didn't perfectly match (resize, panel
             slide, etc). No scrim, no frame. */}
-        <div
-          className="flex-1 min-h-0 relative"
-          style={{
-            background: "transparent",
-          }}
-        >
+        <div className="flex-1 min-h-0 relative bg-transparent">
           <div className="absolute inset-0">
             {showPlaceholder && (
               <>
@@ -1575,7 +1644,7 @@ function HeroStatsStrip({
   const watchingCount = ctx?.pipeline?.watchingCount ?? 0
 
   return (
-    <div className="grid grid-cols-4 gap-3 mt-4">
+    <div className="rv-stagger grid grid-cols-4 gap-3 mt-4">
       <HeroStatCard
         label="Active deals"
         value={String(stats.active)}
@@ -1620,61 +1689,52 @@ function HeroStatCard({
   trend:        { text: string; tone: "pos" | "neg" | "neutral" } | null
   tone?:        "neg" | "neutral"
 }) {
-  // Tremor / Linear 2026 metrics-card aesthetic. shadcn Card under
-  // the hood (uses our themed --card / --border / --foreground
-  // tokens), Inter for the value (no display serif — feels editorial,
-  // not data-app), tabular numerals, tight 16px padding, 12px radius.
-  // Reads as a tool, not a marketing card.
-  const valueColor = tone === "neg" ? "var(--rv-neg)" : "var(--rv-t1)"
-  const trendColor =
-    trend?.tone === "pos" ? "var(--rv-pos)" :
-    trend?.tone === "neg" ? "var(--rv-neg)" :
-                            "var(--rv-t3)"
+  // Pure shadcn styling — text-foreground / text-muted-foreground,
+  // proper CardHeader / CardContent structure, no inline --rv-* token
+  // overrides. This is the shadcn-blocks-page aesthetic the user
+  // approved. Let the design system breathe.
+  const trendCls =
+    trend?.tone === "pos" ? "text-emerald-500" :
+    trend?.tone === "neg" ? "text-rose-500" :
+                            "text-muted-foreground"
   return (
-    <Card className="rounded-[12px] gap-0 p-4 shadow-sm hover:shadow-md transition-shadow">
-      <div
-        className="text-[11px] uppercase tracking-wider font-medium"
-        style={{ color: "var(--rv-t3)" }}
-      >
-        {label}
-      </div>
-      <div className="flex items-baseline gap-1 mt-3">
-        <span
-          className="font-semibold tabular-nums leading-none"
-          style={{
-            color:         valueColor,
-            fontSize:      28,
-            letterSpacing: "-0.02em",
-          }}
-        >
-          {value}
-        </span>
-        {valueSuffix && (
+    <Card className="gap-0 p-0">
+      <CardHeader className="px-4 pt-4 pb-2">
+        <CardDescription className="text-[11px] uppercase tracking-wider font-medium">
+          {label}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 flex flex-col gap-2">
+        <div className="flex items-baseline gap-1">
           <span
-            className="font-medium tabular-nums"
-            style={{ color: "var(--rv-t4)", fontSize: 12 }}
+            className={cn(
+              "font-semibold tabular-nums leading-none text-3xl tracking-tight",
+              tone === "neg" ? "text-rose-500" : "text-foreground"
+            )}
           >
-            {valueSuffix}
+            {value}
           </span>
-        )}
-      </div>
-      <div className="flex items-baseline justify-between mt-2 gap-2 min-h-[16px]">
-        {sub && (
-          <span className="text-[11px] truncate" style={{ color: "var(--rv-t3)" }}>
-            {sub}
-          </span>
-        )}
-        {trend && (
-          <span
-            className="text-[11px] tracking-tight tabular-nums shrink-0 ml-auto inline-flex items-center gap-0.5"
-            style={{ color: trendColor }}
-          >
-            {trend.tone === "pos" && "↑"}
-            {trend.tone === "neg" && "↓"}
-            {trend.text}
-          </span>
-        )}
-      </div>
+          {valueSuffix && (
+            <span className="font-medium tabular-nums text-xs text-muted-foreground">
+              {valueSuffix}
+            </span>
+          )}
+        </div>
+        <div className="flex items-baseline justify-between gap-2 min-h-[16px]">
+          {sub && (
+            <span className="text-xs truncate text-muted-foreground">
+              {sub}
+            </span>
+          )}
+          {trend && (
+            <span className={cn("text-xs tracking-tight tabular-nums shrink-0 ml-auto inline-flex items-center gap-0.5", trendCls)}>
+              {trend.tone === "pos" && "↑"}
+              {trend.tone === "neg" && "↓"}
+              {trend.text}
+            </span>
+          )}
+        </div>
+      </CardContent>
     </Card>
   )
 }
@@ -1690,10 +1750,7 @@ function DashboardCard({
   return (
     <Card className={`gap-0 p-0 flex flex-col ${className ?? ""}`}>
       <div className="flex items-center justify-between px-5 pt-4 pb-3">
-        <p
-          className="text-[10px] uppercase tracking-widest font-medium"
-          style={{ color: "var(--rv-t3)" }}
-        >
+        <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground">
           {title}
         </p>
         {action}
@@ -1821,11 +1878,11 @@ function PipelineDashCard({
             >
               <SourceMark source="listing" siteName={deal.site_name} />
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium truncate leading-tight" style={{ color: "var(--rv-t1)" }}>
+                <p className="text-[13px] font-medium truncate leading-tight text-foreground">
                   {address}
                 </p>
                 {deal.list_price != null && (
-                  <p className="text-[11.5px] tabular-nums leading-tight mt-0.5" style={{ color: "var(--rv-t3)" }}>
+                  <p className="text-[11.5px] tabular-nums leading-tight mt-0.5 text-muted-foreground">
                     <Currency value={deal.list_price} whole />
                   </p>
                 )}
@@ -1838,7 +1895,7 @@ function PipelineDashCard({
                   >
                     <Currency value={cashFlow} signed />
                   </span>
-                  <span className="block text-[9.5px] tracking-wide" style={{ color: "var(--rv-t4)" }}>/mo</span>
+                  <span className="block text-[9.5px] tracking-wide text-muted-foreground/60">/mo</span>
                 </div>
               )}
             </button>
@@ -1868,12 +1925,12 @@ function MarketDashCard() {
     <DashboardCard title="30-yr fixed">
       <div className="flex flex-col px-5 pb-4" style={{ gap: 4 }}>
         <span
-          className="tabular-nums font-bold leading-none"
-          style={{ color: "var(--rv-t1)", fontSize: 28, letterSpacing: "-0.03em" }}
+          className="tabular-nums font-bold leading-none text-foreground"
+          style={{ fontSize: 28, letterSpacing: "-0.03em" }}
         >
           {rate ? `${rate.rate.toFixed(2)}%` : "—"}
         </span>
-        <p className="text-[10.5px]" style={{ color: "var(--rv-t4)" }}>
+        <p className="text-[10.5px] text-muted-foreground/60">
           {asOf ? `${asOf} · FRED` : "Loading…"}
         </p>
       </div>
@@ -1916,7 +1973,7 @@ function SinceLastLookCard({ activeDeals }: { activeDeals: SavedDeal[] }) {
               className="mt-[6px] shrink-0 rounded-full"
               style={{ width: 5, height: 5, background: it.dot }}
             />
-            <span className="text-[12.5px] leading-relaxed" style={{ color: "var(--rv-t2)" }}>
+            <span className="text-[12.5px] leading-relaxed text-muted-foreground">
               {it.text}
             </span>
           </div>
@@ -2101,15 +2158,9 @@ function StartScreen({
       //   - welcome / sparse: vertically centered, classic empty-state
       // Either way, content max-width is 540px so we don't sprawl on
       // wide windows.
-      className={`absolute inset-0 flex flex-col items-center px-12 select-none ${introCls("rv-start-fade")} overflow-y-auto rv-invisible-scroll ${
+      className={`absolute inset-0 flex flex-col items-center px-12 select-none ${introCls("rv-start-fade")} overflow-y-auto rv-invisible-scroll bg-background ${
         isWorkstation ? "justify-start pt-16" : "justify-center"
       }`}
-      // Opaque bg so the persistent map shell doesn't show through.
-      // Was relying on a route-controlled scrim overlay to dim the
-      // map in Browse — that scrim's opacity transition was the
-      // glitchy thing on route change. Static opacity on the start-
-      // screen container is structural and never animates.
-      style={{ background: "var(--rv-bg)" }}
     >
       {/* Per-screen atmospheric gradient removed — the global
           AmbientBackdrop (z-index -1) handles atmosphere everywhere now. */}
@@ -2134,24 +2185,17 @@ function StartScreen({
                 dashboard heading. */}
             <div className={`${introCls("rv-greeting")} flex flex-col items-stretch w-full mb-10`}>
               <h1
-                className="tracking-[-0.025em] leading-[1.0]"
-                style={{
-                  color:      "var(--rv-t1)",
-                  fontSize:   52,
-                  fontFamily: "var(--rv-font-display)",
-                  fontWeight: 500,
-                }}
+                className="tracking-[-0.03em] leading-[1.0] font-semibold text-foreground"
+                style={{ fontSize: 52 }}
               >
                 {greetWithName || " "}
               </h1>
               <p
-                className={`${introCls("rv-subhead")} mt-4 leading-snug`}
+                className={`${introCls("rv-subhead")} mt-3 leading-snug text-muted-foreground`}
                 style={{
-                  color:      "var(--rv-t2)",
-                  fontSize:   17,
-                  fontFamily: "var(--rv-font-display)",
+                  fontSize:   16,
                   fontWeight: 400,
-                  letterSpacing: "-0.012em",
+                  letterSpacing: "-0.005em",
                   maxWidth:   560,
                 }}
               >
@@ -2199,13 +2243,10 @@ function StartScreen({
               </div>
             )}
 
-            <p
-              className={`${introCls("rv-hint")} mt-6 flex items-center gap-1.5 text-[11px] px-1`}
-              style={{ color: "var(--rv-t4)" }}
-            >
+            <p className={`${introCls("rv-hint")} mt-6 flex items-center gap-1.5 text-[11px] px-1 text-muted-foreground/60`}>
               <kbd
-                className="inline-flex items-center justify-center rounded px-1 py-[1px] text-[10px] font-medium"
-                style={{ background: "var(--rv-elev-3)", color: "var(--rv-t3)", minWidth: 18 }}
+                className="inline-flex items-center justify-center rounded px-1 py-[1px] text-[10px] font-medium bg-muted text-muted-foreground"
+                style={{ minWidth: 18 }}
               >
                 ⌘L
               </kbd>
@@ -2219,9 +2260,8 @@ function StartScreen({
           // inviting — the "first impression" surface of the whole app.
           <>
             <h1
-              className={`${introCls("rv-greeting")} text-center leading-[1.0] tracking-[-0.025em]`}
+              className={`${introCls("rv-greeting")} text-center leading-[1.0] tracking-[-0.025em] text-foreground`}
               style={{
-                color:      "var(--rv-t1)",
                 fontSize:   54,
                 fontFamily: "var(--rv-font-display)",
                 fontWeight: 500,
@@ -2248,17 +2288,13 @@ function StartScreen({
             {/* First-time welcome — three concrete steps, bigger card.  */}
             {isFirstTime && (
               <div
-                className="mt-10 w-full max-w-[520px] flex flex-col gap-4 rounded-[14px] px-6 py-6"
+                className="mt-10 w-full max-w-[520px] flex flex-col gap-4 rounded-[14px] px-6 py-6 bg-muted"
                 style={{
-                  background: "var(--rv-elev-2)",
                   border:     "0.5px solid var(--rv-border-mid)",
                   boxShadow:  "var(--rv-shadow-inset), var(--rv-shadow-outer-sm)",
                 }}
               >
-                <p
-                  className="text-[10px] uppercase tracking-widest font-medium"
-                  style={{ color: "var(--rv-t4)" }}
-                >
+                <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground/60">
                   Three steps to get rolling
                 </p>
                 <OnboardStep
@@ -2281,10 +2317,7 @@ function StartScreen({
 
             {/* Site shortcuts (welcome mode only) */}
             <div className="mt-8 w-full">
-              <p
-                className="text-[10px] uppercase tracking-widest font-medium mb-2 text-center"
-                style={{ color: "var(--rv-t4)" }}
-              >
+              <p className="text-[10px] uppercase tracking-widest font-medium mb-2 text-center text-muted-foreground/60">
                 Or start from
               </p>
               <div className="flex flex-wrap items-center justify-center gap-1.5 w-full max-w-[460px] mx-auto">
@@ -2305,17 +2338,10 @@ function StartScreen({
 
             <div className="mt-7 flex flex-col items-center">
               <MortgageRateLine />
-              <p
-                className={`${introCls("rv-hint")} mt-3 flex items-center gap-1.5 text-[11px]`}
-                style={{ color: "var(--rv-t4)" }}
-              >
+              <p className={`${introCls("rv-hint")} mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground/60`}>
                 <kbd
-                  className="inline-flex items-center justify-center rounded px-1 py-[1px] text-[10px] font-medium"
-                  style={{
-                    background: "var(--rv-elev-3)",
-                    color: "var(--rv-t3)",
-                    minWidth: 18,
-                  }}
+                  className="inline-flex items-center justify-center rounded px-1 py-[1px] text-[10px] font-medium bg-muted text-muted-foreground"
+                  style={{ minWidth: 18 }}
                 >
                   ⌘L
                 </kbd>
@@ -2397,17 +2423,13 @@ function WeeklyDigestCard({ onPick }: { onPick: (url: string) => void }) {
 
   return (
     <div
-      className="mt-7 w-full max-w-[460px] flex flex-col gap-3 rounded-[12px] px-5 py-4"
+      className="mt-7 w-full max-w-[460px] flex flex-col gap-3 rounded-[12px] px-5 py-4 bg-muted"
       style={{
-        background: "var(--rv-elev-2)",
-        border:     "0.5px solid var(--rv-border)",
+        border: "0.5px solid var(--rv-border)",
       }}
     >
       <div className="flex items-center justify-between">
-        <p
-          className="text-[10px] uppercase tracking-widest font-medium"
-          style={{ color: "var(--rv-t4)" }}
-        >
+        <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground/60">
           Past 7 days
         </p>
         <Button
@@ -2449,16 +2471,13 @@ function WeeklyDigestCard({ onPick }: { onPick: (url: string) => void }) {
           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.10)" }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(48,164,108,0.06)" }}
         >
-          <span
-            className="w-1.5 h-1.5 rounded-full shrink-0"
-            style={{ background: "var(--rv-accent)" }}
-          />
-          <p className="text-[12px] leading-snug flex-1 min-w-0 truncate" style={{ color: "var(--rv-t1)" }}>
+          <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-primary" />
+          <p className="text-[12px] leading-snug flex-1 min-w-0 truncate text-foreground">
             You revisited{" "}
-            <span style={{ color: "var(--rv-t1)", fontWeight: 500 }}>
+            <span className="font-medium">
               {digest.mostViewed.address || prettyHostname(digest.mostViewed.url)}
             </span>{" "}
-            <span style={{ color: "var(--rv-t3)" }}>
+            <span className="text-muted-foreground">
               {digest.mostViewed.count} times.
             </span>
           </p>
@@ -2472,12 +2491,12 @@ function DigestStat({ n, label }: { n: number; label: string }) {
   return (
     <div className="flex items-baseline gap-1.5">
       <span
-        className="text-[20px] font-semibold tabular-nums leading-none"
-        style={{ color: "var(--rv-t1)", letterSpacing: "-0.02em" }}
+        className="text-[20px] font-semibold tabular-nums leading-none text-foreground"
+        style={{ letterSpacing: "-0.02em" }}
       >
         {n}
       </span>
-      <span className="text-[11px]" style={{ color: "var(--rv-t3)" }}>
+      <span className="text-[11px] text-muted-foreground">
         {label}
       </span>
     </div>
@@ -2516,24 +2535,20 @@ function WatchNoticeBanner({
         top:        16,
         background: "rgba(48,164,108,0.10)",
         border:     "0.5px solid rgba(48,164,108,0.22)",
-        backdropFilter: "blur(20px) saturate(160%)",
-        WebkitBackdropFilter: "blur(20px) saturate(160%)",
+        backdropFilter: "blur(12px) saturate(160%)",
+        WebkitBackdropFilter: "blur(12px) saturate(160%)",
         maxWidth:   460,
       }}
     >
-      <span
-        className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ background: "var(--rv-accent)" }}
-      />
+      <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-primary" />
       <button
         onClick={onClick}
-        className="text-[12px] tracking-tight text-left flex-1 min-w-0"
-        style={{ color: "var(--rv-t1)" }}
+        className="text-[12px] tracking-tight text-left flex-1 min-w-0 text-foreground"
       >
-        <span style={{ fontWeight: 500 }}>
+        <span className="font-medium">
           {notice.changed} of your watched deals moved
         </span>
-        <span className="ml-1" style={{ color: "var(--rv-t3)" }}>
+        <span className="ml-1 text-muted-foreground">
           · net {sign}{fmtCurrency(notice.deltaTotal)}
         </span>
       </button>
@@ -2573,20 +2588,17 @@ function MortgageRateLine() {
   })
   return (
     <p
-      className="rv-hint mt-9 flex items-center gap-2 text-[11px] tabular-nums"
-      style={{ color: "var(--rv-t4)", letterSpacing: "-0.005em" }}
+      className="rv-hint mt-9 flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground/60"
+      style={{ letterSpacing: "-0.005em" }}
       title={`30-Year Fixed Mortgage Rate · FRED PMMS · published ${rate.asOf}`}
     >
-      <span style={{ color: "var(--rv-t3)" }}>30-yr fixed</span>
-      <span
-        className="font-semibold"
-        style={{ color: "var(--rv-t1)" }}
-      >
+      <span className="text-muted-foreground">30-yr fixed</span>
+      <span className="font-semibold text-foreground">
         {rate.rate.toFixed(2)}%
       </span>
-      <span style={{ color: "var(--rv-t4)" }}>·</span>
+      <span className="text-muted-foreground/60">·</span>
       <span>{asOf}</span>
-      <span style={{ color: "var(--rv-t4)" }}>·</span>
+      <span className="text-muted-foreground/60">·</span>
       <span className="uppercase tracking-widest" style={{ fontSize: 10 }}>FRED</span>
     </p>
   )
@@ -2595,21 +2607,14 @@ function MortgageRateLine() {
 function OnboardStep({ n, title, body }: { n: number; title: string; body: string }) {
   return (
     <div className="flex items-start gap-3">
-      <span
-        className="shrink-0 w-5 h-5 rounded-full inline-flex items-center justify-center text-[10.5px] font-semibold tabular-nums"
-        style={{
-          color:      "var(--rv-accent)",
-          background: "rgba(48,164,108,0.12)",
-          border:     "0.5px solid rgba(48,164,108,0.25)",
-        }}
-      >
+      <span className="shrink-0 size-5 rounded-full inline-flex items-center justify-center text-[10.5px] font-semibold tabular-nums bg-primary/10 text-primary border border-primary/20">
         {n}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-[12.5px] font-medium leading-tight" style={{ color: "var(--rv-t1)" }}>
+        <p className="text-[12.5px] font-medium leading-tight text-foreground">
           {title}
         </p>
-        <p className="text-[11.5px] leading-snug mt-1" style={{ color: "var(--rv-t3)" }}>
+        <p className="text-[11.5px] leading-snug mt-1 text-muted-foreground">
           {body}
         </p>
       </div>
@@ -2651,13 +2656,10 @@ function ActiveDealsCard({
       }}
     >
       <div className="flex items-baseline justify-between px-4 pt-3 pb-2.5">
-        <p
-          className="text-[10px] uppercase tracking-widest font-medium"
-          style={{ color: "var(--rv-t4)" }}
-        >
+        <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground/60">
           Your pipeline
         </p>
-        <span className="text-[10.5px] tabular-nums" style={{ color: "var(--rv-t4)" }}>
+        <span className="text-[10.5px] tabular-nums text-muted-foreground/60">
           {deals.length} active
         </span>
       </div>
@@ -2684,18 +2686,15 @@ function ActiveDealsCard({
               onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-2)" }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
             >
-              <span
-                className="text-[11px] uppercase tracking-wider shrink-0 w-[68px]"
-                style={{ color: "var(--rv-t4)" }}
-              >
+              <span className="text-[11px] uppercase tracking-wider shrink-0 w-[68px] text-muted-foreground/60">
                 {STAGE_LABEL[deal.stage]}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="text-[12.5px] truncate leading-tight" style={{ color: "var(--rv-t1)" }}>
+                <p className="text-[12.5px] truncate leading-tight text-foreground">
                   {address}
                 </p>
                 {deal.list_price != null && (
-                  <p className="text-[10.5px] tabular-nums leading-tight mt-0.5" style={{ color: "var(--rv-t4)" }}>
+                  <p className="text-[10.5px] tabular-nums leading-tight mt-0.5 text-muted-foreground/60">
                     {fmtCurrency(deal.list_price)}
                   </p>
                 )}
@@ -2781,10 +2780,7 @@ function DownloadToast({
             </svg>
           )}
         </span>
-        <span
-          className="flex-1 text-[12px] leading-tight truncate"
-          style={{ color: "var(--rv-t1)" }}
-        >
+        <span className="flex-1 text-[12px] leading-tight truncate text-foreground">
           {message}
         </span>
         <button
@@ -2817,24 +2813,20 @@ function RecentRow({ listing, onOpen }: { listing: RecentListing; onOpen: (url: 
   return (
     <button
       onClick={() => onOpen(listing.url)}
-      className="group flex items-center gap-3 rounded-[8px] px-3 py-2 text-left transition-all duration-100"
-      style={{ background: "var(--rv-elev-2)" }}
+      className="group flex items-center gap-3 rounded-[8px] px-3 py-2 text-left bg-muted"
       onMouseEnter={(e) => { e.currentTarget.style.background = "var(--rv-elev-4)" }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "var(--rv-elev-2)" }}
     >
-      <span
-        className="w-1.5 h-1.5 rounded-full shrink-0 opacity-50"
-        style={{ background: "var(--rv-accent)" }}
-      />
+      <span className="w-1.5 h-1.5 rounded-full shrink-0 opacity-50 bg-primary" />
       <div className="flex-1 min-w-0">
-        <p className="text-[12px] truncate leading-tight" style={{ color: "var(--rv-t1)" }}>
+        <p className="text-[12px] truncate leading-tight text-foreground">
           {headline}
         </p>
-        <p className="text-[10.5px] truncate leading-tight mt-0.5" style={{ color: "var(--rv-t4)" }}>
+        <p className="text-[10.5px] truncate leading-tight mt-0.5 text-muted-foreground/60">
           {sub}
         </p>
       </div>
-      <span className="text-[10px] tabular-nums shrink-0" style={{ color: "var(--rv-t4)" }}>
+      <span className="text-[10px] tabular-nums shrink-0 text-muted-foreground/60">
         {age}
       </span>
     </button>

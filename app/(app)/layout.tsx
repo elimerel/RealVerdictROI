@@ -1,9 +1,9 @@
 "use client"
 
-import { memo, useEffect, useState } from "react"
+import { memo, useEffect, useMemo, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
-import Sidebar from "@/components/sidebar"
-import { SidebarProvider, useSidebar } from "@/components/sidebar/context"
+import { AppSidebar } from "@/components/app-sidebar"
+import { SidebarProvider, useSidebar, SidebarInset } from "@/components/ui/sidebar"
 import SidebarToggle from "@/components/sidebar/toggle"
 import { PanelStateProvider } from "@/components/panel/context"
 // PanelToggle is no longer mounted at app-layout level — it lives inline
@@ -14,8 +14,14 @@ import MapShell from "@/components/MapShell"
 import { MapShellProvider, useMapShell } from "@/lib/mapShell"
 import { fetchPipeline, DEALS_CHANGED_EVENT } from "@/lib/pipeline"
 import AppTopBar from "@/components/AppTopBar"
-import BrowseTabsRow from "@/components/BrowseTabsRow"
-import BookmarksBar from "@/components/BookmarksBar"
+// BrowseTabsRow + BookmarksBar removed from the persistent shell.
+// Top chrome is now one row on every route — Pipeline / Settings /
+// Browse are visually identical at the top edge.
+// BookmarksBar removed — the persistent row was duplicative with the
+// site shortcuts already on the Browse start screen. Removing it
+// reduces top chrome by one row, makes Browse closer to the same
+// height as Pipeline / Settings, and gives the user one less band of
+// visual chrome above the actual content.
 import PanelToggle from "@/components/browser/PanelToggle"
 import { TopBarSlotsProvider } from "@/lib/topBarSlots"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -41,14 +47,16 @@ const SettingsPage = memo(SettingsPageRaw)
  */
 function ShortcutHost() {
   const router = useRouter()
-  const { toggle } = useSidebar()
+  // shadcn's useSidebar exposes toggleSidebar (not toggle). Same job:
+  // collapses/expands the rail in response to a menu accelerator.
+  const { toggleSidebar } = useSidebar()
   useEffect(() => {
     const off = window.__rvOnShortcut?.((kind, arg) => {
       if (kind === "navigate" && typeof arg === "string") router.push(arg)
-      else if (kind === "toggle-sidebar") toggle()
+      else if (kind === "toggle-sidebar") toggleSidebar()
     })
     return () => { off?.() }
-  }, [router, toggle])
+  }, [router, toggleSidebar])
   return null
 }
 
@@ -97,25 +105,40 @@ function AlwaysMountedRoutes() {
     if (typeof document === "undefined") return
     document.body.dataset.rvRoute = route
   }, [route])
-  const layerStyle = (active: boolean): React.CSSProperties => ({
-    position:      "absolute",
-    inset:         0,
-    display:       "flex",
-    flexDirection: "column",
-    minHeight:     0,
-    visibility:    active ? "visible" : "hidden",
-    pointerEvents: active ? "auto"    : "none",
-  })
+  // Memoize the three layer styles so a route flip only mutates the two
+  // affected entries (the leaving + entering route), not all three. With
+  // fresh objects every render React sees three new style props on every
+  // pathname change and reapplies inline styles to all three layers.
+  const browseStyle   = useMemo(() => layerStyleFor(route === "browse"),   [route])
+  const pipelineStyle = useMemo(() => layerStyleFor(route === "pipeline"), [route])
+  const settingsStyle = useMemo(() => layerStyleFor(route === "settings"), [route])
   return (
     <div
       className="relative flex flex-col flex-1 min-h-0"
-      style={{ pointerEvents: "none" }}
+      style={SHELL_STYLE}
     >
-      <div style={layerStyle(route === "browse")}><BrowsePage /></div>
-      <div style={layerStyle(route === "pipeline")}><PipelinePage /></div>
-      <div style={layerStyle(route === "settings")}><SettingsPage /></div>
+      <div style={browseStyle}><BrowsePage /></div>
+      <div style={pipelineStyle}><PipelinePage /></div>
+      <div style={settingsStyle}><SettingsPage /></div>
     </div>
   )
+}
+
+// Hoisted out of AlwaysMountedRoutes so the object is stable across
+// every render, not re-created. Tiny fix individually; in aggregate
+// these matter when the parent re-renders on every pathname change.
+const SHELL_STYLE: React.CSSProperties = { pointerEvents: "none" }
+const LAYER_BASE: React.CSSProperties = {
+  position:      "absolute",
+  inset:         0,
+  display:       "flex",
+  flexDirection: "column",
+  minHeight:     0,
+}
+const LAYER_VISIBLE: React.CSSProperties = { ...LAYER_BASE, visibility: "visible", pointerEvents: "auto" }
+const LAYER_HIDDEN:  React.CSSProperties = { ...LAYER_BASE, visibility: "hidden",  pointerEvents: "none" }
+function layerStyleFor(active: boolean) {
+  return active ? LAYER_VISIBLE : LAYER_HIDDEN
 }
 
 /** Mirror the THEME_SCRIPT logic at runtime. Called on every
@@ -123,10 +146,11 @@ function AlwaysMountedRoutes() {
  *  hint for the next mount. */
 function applyThemeClass(resolved: string, picked?: string) {
   const cls = document.documentElement.classList
-  cls.remove("theme-charcoal-warm", "theme-charcoal-cinema", "theme-light")
-  if (resolved === "charcoal-warm") cls.add("theme-charcoal-warm")
-  if (resolved === "light")         cls.add("theme-light")
-  if (resolved === "light") cls.remove("dark"); else cls.add("dark")
+  cls.remove("theme-charcoal-warm", "theme-charcoal-cinema", "theme-light", "theme-paper", "theme-paper-dark")
+  if (resolved === "paper")      cls.add("theme-paper")
+  if (resolved === "paper-dark") cls.add("theme-paper-dark")
+  // .dark covers any remaining `dark:` Tailwind variants.
+  if (resolved === "paper-dark") cls.add("dark"); else cls.remove("dark")
   if (picked) {
     try { localStorage.setItem("rv-theme", picked) } catch { /* private mode */ }
   }
@@ -218,24 +242,15 @@ function GoogleMapsPrefetch() {
  *  the canvas there. Simpler, no transition glitches.
  */
 function MapShellLayer() {
-  const { open: sbOpen, width: sbWidth } = useSidebar()
-  const left = sbOpen ? sbWidth : 0
+  // Map shell now lives inside SidebarInset (the right column), which
+  // is already positioned next to the full-height sidebar. We just
+  // fill the parent — no manual `left` offset needed.
+  const pathname = usePathname()
+  // Settings doesn't use the map at all. Skipping the mount here saves a
+  // full Mapbox GL instance + tile fetches + a constant ResizeObserver.
+  if (pathname.startsWith("/settings")) return null
   return (
-    <div
-      style={{
-        // 42 — matches the AppTopBar height. Map sits behind the
-        // toolbar; routes that don't show tab strip / bookmarks
-        // bar (Pipeline / Settings) reveal the map starting at the
-        // bottom edge of the toolbar.
-        position: "fixed",
-        top:      42,
-        left,
-        right:    0,
-        bottom:   0,
-        zIndex:   0,
-        transition: "left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
-      }}
-    >
+    <div className="absolute inset-0" style={{ zIndex: 0 }}>
       <MapShell />
     </div>
   )
@@ -315,49 +330,56 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <ShortcutHost />
             <ThemeHydrator />
             <DealsHydrator />
+            {/* Shell architecture:
+                  Row 1 (top): full-width URL bar / page title — always
+                  42px tall, consistent across every route. Macros
+                  traffic lights live naturally in its top-left.
+                  Row 2 (rest): sidebar (full height of remaining space)
+                  + right column (route-specific chrome above content).
+
+                The "different per route" problem the previous design
+                had is solved by keeping the URL bar height fixed and
+                pushing route-specific extras (Browse's tabs +
+                bookmarks bar) into the RIGHT column — so the sidebar
+                always starts at y=42 regardless of route. */}
             <div
               className="flex flex-col w-screen h-screen overflow-hidden"
               style={{ background: "var(--rv-bg)" }}
             >
-              {/* BrowseTabsRow — Chrome-style tabs row that sits
-                  ABOVE the AppTopBar. Collapses to 0 height on non-
-                  Browse routes. Browse portals its TabStrip into
-                  this row's slot; the URL toolbar stays in the
-                  AppTopBar below, restoring the "tabs above URL"
-                  ordering Chrome users expect. */}
-              <BrowseTabsRow />
-              {/* AppTopBar — persistent global chrome bar mounted ONCE
-                  at the shell level. Each route portals its mode-
-                  specific UI INTO this bar via the TopBarSlots
-                  provider; the bar itself never re-mounts on route
-                  change. */}
-              <AppTopBar
-                globalCluster={<TopBarGlobalCluster />}
-              />
-              {/* BookmarksBar — Chrome's third chrome row. Sits
-                  directly below the URL toolbar; collapses to 0
-                  height on non-Browse routes. */}
-              <BookmarksBar />
+              {/* AppTopBar — persistent global chrome, full window
+                  width, ~42px. Traffic light region clears via
+                  internal padding. Same height every route. */}
+              <AppTopBar globalCluster={<TopBarGlobalCluster />} />
               <div className="flex flex-1 min-h-0 overflow-hidden">
-                <Sidebar />
-                <main className="flex flex-col flex-1 min-w-0 h-full relative">
-                  {/* Persistent map + scrim sit behind the routed content,
-                      so navigating between Browse and Pipeline never
-                      re-mounts the map. */}
-                  <MapShellLayer />
-                  <div
-                    className="relative flex flex-col flex-1 min-h-0"
-                    style={{ zIndex: 2, pointerEvents: "none" }}
-                  >
-                    <AlwaysMountedRoutes />
-                    {/* Next.js still renders the matched route's
-                        default export here (each is a stub returning
-                        null). Keeps routing/URL behavior intact while
-                        the actual content lives in AlwaysMountedRoutes
-                        above. */}
-                    <div style={{ display: "none" }}>{children}</div>
-                  </div>
-                </main>
+                <AppSidebar />
+                <SidebarInset className="flex flex-col min-w-0 h-full overflow-hidden">
+                  {/* Browser chrome rows (tabs + bookmarks) removed
+                      from the persistent shell entirely. The shell is
+                      now ONE row on every route — Pipeline / Settings
+                      / Browse are visually identical at the top edge.
+                      Tabs are still accessible via the keyboard
+                      (⌘T new, ⌘W close, ⌘1..9 switch); the URL bar
+                      in AppTopBar handles navigation. Bookmarks live
+                      on the Browse start screen. */}
+                  <main className="flex flex-col flex-1 min-w-0 min-h-0 relative">
+                    {/* Persistent map + scrim sit behind the routed content,
+                        so navigating between Browse and Pipeline never
+                        re-mounts the map. */}
+                    <MapShellLayer />
+                    <div
+                      className="relative flex flex-col flex-1 min-h-0"
+                      style={{ zIndex: 2, pointerEvents: "none" }}
+                    >
+                      <AlwaysMountedRoutes />
+                      {/* Next.js still renders the matched route's
+                          default export here (each is a stub returning
+                          null). Keeps routing/URL behavior intact while
+                          the actual content lives in AlwaysMountedRoutes
+                          above. */}
+                      <div style={{ display: "none" }}>{children}</div>
+                    </div>
+                  </main>
+                </SidebarInset>
               </div>
             </div>
             <SidebarToggle />

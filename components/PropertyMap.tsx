@@ -152,7 +152,7 @@ export default function PropertyMap({
           {/* CTA chip — quiet by default, lifts on hover. Sits at the
               bottom-right so it doesn't crowd the corner caption. */}
           <div
-            className="absolute bottom-2.5 right-2.5 transition-all duration-200 pointer-events-none opacity-70 group-hover:opacity-100"
+            className="absolute bottom-2.5 right-2.5 transition-opacity duration-200 pointer-events-none opacity-70 group-hover:opacity-100"
           >
             <div
               className="inline-flex items-center gap-1.5 rounded-full text-[10.5px] uppercase tracking-widest font-medium"

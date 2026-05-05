@@ -6,6 +6,7 @@ import { useTopBarSlots } from "@/lib/topBarSlots"
 import { Slider } from "@/components/ui/slider"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import {
   Check,
   ChevronDown,
@@ -20,10 +21,10 @@ import {
   Info,
   Palette,
 } from "lucide-react"
-import { useSidebar, SNAP_ICONS } from "@/components/sidebar/context"
 import { createClient } from "@/lib/supabase/client"
 import type { InvestmentPrefs, ThemePicked, MapStyleKey } from "@/lib/electron"
 import { PREFS_CHANGED_EVENT } from "@/lib/useMapStyle"
+import { BuddyMark } from "@/components/BuddyMark"
 
 // ── Section frame ─────────────────────────────────────────────────────────
 //
@@ -45,11 +46,10 @@ function SettingsSection({
   return (
     <section id={id} className="flex flex-col gap-4 scroll-mt-12">
       <div className="flex items-center gap-3">
-        {icon && <span style={{ color: "var(--rv-accent)" }}>{icon}</span>}
+        {icon && <span className="text-primary">{icon}</span>}
         <h2
-          className="leading-tight font-semibold tracking-tight"
+          className="leading-tight font-semibold tracking-tight text-foreground"
           style={{
-            color:    "var(--rv-t1)",
             fontSize: 20,
             letterSpacing: "-0.02em",
           }}
@@ -58,7 +58,7 @@ function SettingsSection({
         </h2>
       </div>
       {description && (
-        <p className="text-[13px] leading-relaxed max-w-[560px]" style={{ color: "var(--rv-t3)" }}>
+        <p className="text-[13px] leading-relaxed max-w-[560px] text-muted-foreground">
           {description}
         </p>
       )}
@@ -85,11 +85,11 @@ function PercentRow({
   return (
     <div className="flex items-center gap-5">
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium leading-tight" style={{ color: "var(--rv-t1)" }}>
+        <p className="text-[13px] font-medium leading-tight text-foreground">
           {label}
         </p>
         {hint && (
-          <p className="text-[11.5px] leading-snug mt-1" style={{ color: "var(--rv-t4)" }}>
+          <p className="text-[11.5px] leading-snug mt-1 text-muted-foreground/60">
             {hint}
           </p>
         )}
@@ -102,10 +102,7 @@ function PercentRow({
         onValueChange={(v) => onChange(Array.isArray(v) ? (v[0] ?? value) : v)}
         className="flex-1 max-w-[200px]"
       />
-      <span
-        className="w-[56px] text-right tabular-nums text-[13px] font-medium"
-        style={{ color: "var(--rv-t1)" }}
-      >
+      <span className="w-[56px] text-right tabular-nums text-[13px] font-medium text-foreground">
         {(value * 100).toFixed(value < 0.1 && step < 0.005 ? 1 : 0)}%
       </span>
     </div>
@@ -123,11 +120,11 @@ function BpsRow({
   return (
     <div className="flex items-center gap-5">
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium leading-tight" style={{ color: "var(--rv-t1)" }}>
+        <p className="text-[13px] font-medium leading-tight text-foreground">
           {label}
         </p>
         {hint && (
-          <p className="text-[11.5px] leading-snug mt-1" style={{ color: "var(--rv-t4)" }}>
+          <p className="text-[11.5px] leading-snug mt-1 text-muted-foreground/60">
             {hint}
           </p>
         )}
@@ -140,10 +137,7 @@ function BpsRow({
         onValueChange={(v) => onChange(Array.isArray(v) ? (v[0] ?? value) : v)}
         className="flex-1 max-w-[200px]"
       />
-      <span
-        className="w-[56px] text-right tabular-nums text-[13px] font-medium"
-        style={{ color: "var(--rv-t1)" }}
-      >
+      <span className="w-[56px] text-right tabular-nums text-[13px] font-medium text-foreground">
         +{value} bps
       </span>
     </div>
@@ -170,10 +164,9 @@ interface ThemeOptionDef {
 }
 
 const THEME_OPTIONS_DEF: ThemeOptionDef[] = [
-  { picked: "system",        label: "System",   preview: { bg: "#0d0d0f", surface: "#1e1e22", line: "#30a46c" }, split: true },
-  { picked: "dark",          label: "Dark",     preview: { bg: "#0d0d0f", surface: "#1e1e22", line: "#30a46c" } },
-  { picked: "charcoal-warm", label: "Charcoal", preview: { bg: "#16120e", surface: "#2c241c", line: "#30a46c" } },
-  { picked: "light",         label: "Light",    preview: { bg: "#f5f5f7", surface: "#ffffff", line: "#30a46c" } },
+  { picked: "paper",      label: "Paper",      preview: { bg: "#FAF8F2", surface: "#FFFFFF", line: "#2F7A52" } },
+  { picked: "system",     label: "System",     preview: { bg: "#FAF8F2", surface: "#1d1c19", line: "#2F7A52" }, split: true },
+  { picked: "paper-dark", label: "Paper dark", preview: { bg: "#1d1c19", surface: "#252320", line: "#2F7A52" } },
 ]
 
 function ThemePickerSection() {
@@ -204,13 +197,13 @@ function ThemePickerSection() {
     let resolved: string = theme
     if (theme === "system") {
       resolved = (typeof window !== "undefined" && window.matchMedia &&
-                  window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light"
+                  window.matchMedia("(prefers-color-scheme: dark)").matches) ? "paper-dark" : "paper"
     }
     const cls = document.documentElement.classList
-    cls.remove("theme-charcoal-warm", "theme-charcoal-cinema", "theme-light")
-    if (resolved === "charcoal-warm") cls.add("theme-charcoal-warm")
-    if (resolved === "light")         cls.add("theme-light")
-    if (resolved === "light") cls.remove("dark"); else cls.add("dark")
+    cls.remove("theme-charcoal-warm", "theme-charcoal-cinema", "theme-light", "theme-paper", "theme-paper-dark")
+    if (resolved === "paper")      cls.add("theme-paper")
+    if (resolved === "paper-dark") cls.add("theme-paper-dark")
+    if (resolved === "paper-dark") cls.add("dark"); else cls.remove("dark")
 
     try { localStorage.setItem("rv-theme", theme) } catch {}
     // Native side (vibrancy + window bg + persistence). Fire-and-forget;
@@ -500,10 +493,10 @@ function InvestmentDefaultsSection() {
         className="mt-2 pt-5"
         style={{ borderTop: "0.5px solid var(--rv-border)" }}
       >
-        <p className="text-[10px] uppercase tracking-widest font-semibold mb-1" style={{ color: "var(--rv-accent)" }}>
+        <p className="text-[10px] uppercase tracking-widest font-semibold mb-1 text-primary">
           Your buy bar
         </p>
-        <p className="text-[12px] leading-snug mb-4" style={{ color: "var(--rv-t3)" }}>
+        <p className="text-[12px] leading-snug mb-4 text-muted-foreground">
           Optional. The numbers you actually buy at. Each metric in the panel will quietly say "above bar" or "below bar" — not a score, just memory of your criteria.
         </p>
         <div className="flex flex-col gap-3.5">
@@ -561,17 +554,16 @@ function ThresholdRow({
   return (
     <div className="flex items-center gap-5">
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium leading-tight" style={{ color: "var(--rv-t1)" }}>
+        <p className="text-[13px] font-medium leading-tight text-foreground">
           {label}
         </p>
-        <p className="text-[11.5px] leading-snug mt-1" style={{ color: "var(--rv-t4)" }}>
+        <p className="text-[11.5px] leading-snug mt-1 text-muted-foreground/60">
           {hint}
         </p>
       </div>
       <div
-        className="inline-flex items-center gap-1.5 rounded-[7px]"
+        className="inline-flex items-center gap-1.5 rounded-[7px] bg-muted"
         style={{
-          background: "var(--rv-elev-2)",
           border:     "0.5px solid var(--rv-border)",
           padding:    "5px 10px",
           width:      130,
@@ -597,11 +589,10 @@ function ThresholdRow({
           // min-w-0 on the input so flex-1 actually shrinks it below
           // the browser's default ~150px min-width — was pushing the
           // unit (%, $/mo, ×) clean out of the box.
-          className="flex-1 min-w-0 bg-transparent border-none outline-none text-[13px] tabular-nums font-medium"
-          style={{ color: "var(--rv-t1)" }}
+          className="flex-1 min-w-0 bg-transparent border-none outline-none text-[13px] tabular-nums font-medium text-foreground"
           size={1}
         />
-        <span className="text-[11.5px] shrink-0" style={{ color: "var(--rv-t4)" }}>{unit}</span>
+        <span className="text-[11.5px] shrink-0 text-muted-foreground/60">{unit}</span>
       </div>
     </div>
   )
@@ -689,10 +680,10 @@ function DataRow({
   return (
     <div className="flex items-start gap-4">
       <div className="flex-1 min-w-0">
-        <p className="text-[12.5px] font-medium leading-tight" style={{ color: "var(--rv-t1)" }}>
+        <p className="text-[12.5px] font-medium leading-tight text-foreground">
           {label}
         </p>
-        <p className="text-[11px] leading-relaxed mt-1" style={{ color: "var(--rv-t4)" }}>
+        <p className="text-[11px] leading-relaxed mt-1 text-muted-foreground/60">
           {hint}
         </p>
       </div>
@@ -749,12 +740,10 @@ function ShortcutsSection() {
       <div className="flex flex-col gap-2">
         {shortcuts.map((s) => (
           <div key={s.keys} className="flex items-center justify-between gap-3">
-            <span className="text-[12.5px]" style={{ color: "var(--rv-t2)" }}>{s.desc}</span>
+            <span className="text-[12.5px] text-muted-foreground">{s.desc}</span>
             <kbd
-              className="inline-flex items-center gap-1 px-1.5 py-[3px] text-[10.5px] tracking-wider rounded-[5px]"
+              className="inline-flex items-center gap-1 px-1.5 py-[3px] text-[10.5px] tracking-wider rounded-[5px] bg-muted text-muted-foreground"
               style={{
-                background: "var(--rv-elev-2)",
-                color:      "var(--rv-t2)",
                 border:     "0.5px solid var(--rv-border)",
                 fontFamily: "ui-monospace, SF Mono, Menlo, monospace",
               }}
@@ -814,10 +803,10 @@ function AccountSection() {
             {email ? email[0]?.toUpperCase() : "·"}
           </div>
           <div className="min-w-0">
-            <p className="text-[12.5px] font-medium truncate" style={{ color: "var(--rv-t1)" }}>
+            <p className="text-[12.5px] font-medium truncate text-foreground">
               {email ?? "Not signed in"}
             </p>
-            <p className="text-[11px]" style={{ color: "var(--rv-t4)" }}>
+            <p className="text-[11px] text-muted-foreground/60">
               {email ? "Signed in" : "Open Browse to sign in"}
             </p>
           </div>
@@ -874,22 +863,22 @@ function KeyField({ label, hint, hasValueFn, saveFn, consoleUrl }: KeyFieldProps
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
-        <label className="text-[12.5px] font-medium" style={{ color: "var(--rv-t1)" }}>
+        <label className="text-[12.5px] font-medium text-foreground">
           {label}
         </label>
         {savedFlash && (
-          <span className="inline-flex items-center gap-1 text-[10.5px]" style={{ color: "var(--rv-accent)" }}>
+          <span className="inline-flex items-center gap-1 text-[10.5px] text-primary">
             <Check size={11} strokeWidth={2.2} /> Saved
           </span>
         )}
       </div>
       {!editing && hasKey ? (
         <div
-          className="flex items-center gap-2.5 rounded-[8px]"
-          style={{ padding: "9px 12px", background: "var(--rv-elev-2)", border: "0.5px solid var(--rv-border)" }}
+          className="flex items-center gap-2.5 rounded-[8px] bg-muted"
+          style={{ padding: "9px 12px", border: "0.5px solid var(--rv-border)" }}
         >
-          <KeyRound size={13} strokeWidth={1.7} style={{ color: "var(--rv-accent)" }} />
-          <span className="text-[12px] tabular-nums flex-1" style={{ color: "var(--rv-t2)" }}>
+          <KeyRound size={13} strokeWidth={1.7} className="text-primary" />
+          <span className="text-[12px] tabular-nums flex-1 text-muted-foreground">
             ••••••••••••••••••••
           </span>
           <Button
@@ -902,8 +891,8 @@ function KeyField({ label, hint, hasValueFn, saveFn, consoleUrl }: KeyFieldProps
         </div>
       ) : (
         <div
-          className="flex items-center gap-2 rounded-[8px]"
-          style={{ padding: "2px 4px 2px 12px", background: "var(--rv-elev-2)", border: "0.5px solid var(--rv-border)" }}
+          className="flex items-center gap-2 rounded-[8px] bg-muted"
+          style={{ padding: "2px 4px 2px 12px", border: "0.5px solid var(--rv-border)" }}
         >
           <input
             ref={inputRef}
@@ -912,8 +901,8 @@ function KeyField({ label, hint, hasValueFn, saveFn, consoleUrl }: KeyFieldProps
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void onSave() } if (e.key === "Escape") { setEditing(false); setValue("") } }}
             placeholder="sk-ant-…"
-            className="flex-1 bg-transparent border-none outline-none text-[12.5px] leading-none py-2"
-            style={{ color: "var(--rv-t1)", fontFamily: "ui-monospace, SF Mono, Menlo, monospace" }}
+            className="flex-1 bg-transparent border-none outline-none text-[12.5px] leading-none py-2 text-foreground"
+            style={{ fontFamily: "ui-monospace, SF Mono, Menlo, monospace" }}
             spellCheck={false}
             autoComplete="off"
           />
@@ -935,12 +924,12 @@ function KeyField({ label, hint, hasValueFn, saveFn, consoleUrl }: KeyFieldProps
           </Button>
         </div>
       )}
-      <p className="text-[11px] leading-relaxed" style={{ color: "var(--rv-t4)" }}>
+      <p className="text-[11px] leading-relaxed text-muted-foreground/60">
         {hint}
         {consoleUrl && (
           <>
             {" "}
-            <a href={consoleUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline" style={{ color: "var(--rv-t3)" }}>
+            <a href={consoleUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline text-muted-foreground">
               Get a key →
             </a>
           </>
@@ -961,10 +950,10 @@ function AdvancedSection() {
         variant="ghost"
         className="justify-between text-left h-auto py-2"
       >
-        <span className="text-[12px] font-medium tracking-tight" style={{ color: "var(--rv-t3)" }}>
+        <span className="text-[12px] font-medium tracking-tight text-muted-foreground">
           Advanced
         </span>
-        <span style={{ color: "var(--rv-t4)" }}>
+        <span className="text-muted-foreground/60">
           <ChevronDown
             size={13}
             strokeWidth={1.8}
@@ -981,8 +970,8 @@ function AdvancedSection() {
             border:     "0.5px dashed var(--rv-border-mid)",
           }}
         >
-          <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--rv-t3)" }}>
-            <span style={{ color: "var(--rv-t2)" }}>For developers and self-hosted setups.</span>{" "}
+          <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+            <span className="text-muted-foreground">For developers and self-hosted setups.</span>{" "}
             Eventually RealVerdict will manage AI keys for you. Until then, the AI features (extraction, tags, the daily greeting) need a key — stored only on this device.
           </p>
           <KeyField
@@ -1014,12 +1003,39 @@ function AboutSection() {
       title="About"
       icon={<Info size={14} strokeWidth={1.7} />}
     >
-      <div className="flex flex-col gap-2 text-[12px]" style={{ color: "var(--rv-t2)" }}>
-        <div className="flex justify-between"><span style={{ color: "var(--rv-t3)" }}>Version</span><span className="tabular-nums">0.1.0 (dev)</span></div>
-        <div className="flex justify-between"><span style={{ color: "var(--rv-t3)" }}>Storage</span><span>Local config + your Supabase project</span></div>
-        <div className="flex justify-between"><span style={{ color: "var(--rv-t3)" }}>Telemetry</span><span>None</span></div>
+      {/* Brand block — the BuddyMark gets a moment to itself in
+          Settings → About, where the user is explicitly looking at
+          "what is this app." Sage-tinted square + display-serif
+          wordmark + a one-line voice statement so the first-class
+          identity surface answers the "what is RealVerdict" question
+          honestly. */}
+      <div className="flex items-center gap-3.5 mb-2">
+        <div className="flex aspect-square size-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
+          <BuddyMark size={26} />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p
+            className="text-foreground"
+            style={{
+              fontFamily: "var(--rv-font-display)",
+              fontSize:   18,
+              fontWeight: 500,
+              letterSpacing: "-0.014em",
+            }}
+          >
+            RealVerdict
+          </p>
+          <p className="text-[12px] text-muted-foreground leading-snug">
+            The two halves of buying a rental, joined.
+          </p>
+        </div>
       </div>
-      <div className="flex gap-3 text-[11.5px]" style={{ color: "var(--rv-t3)" }}>
+      <div className="flex flex-col gap-2 text-[12px] text-muted-foreground">
+        <div className="flex justify-between"><span className="text-muted-foreground">Version</span><span className="tabular-nums">0.1.0 (dev)</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">Storage</span><span>Local config + your Supabase project</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">Telemetry</span><span>None</span></div>
+      </div>
+      <div className="flex gap-3 text-[11.5px] text-muted-foreground">
         <a href="https://realverdict.app/privacy" target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">Privacy</a>
         <a href="https://realverdict.app/terms"   target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">Terms</a>
         <a href="https://realverdict.app/report"  target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">Report a concern</a>
@@ -1035,25 +1051,13 @@ export function SettingsPage() {
   const { settings: settingsSlot } = useTopBarSlots()
 
   return (
-    <div
-      className="flex flex-col h-full overflow-hidden"
-      style={{
-        background: "var(--rv-bg)",
-        // No explicit pointerEvents — AlwaysMountedRoutes' active
-        // layer handles pe. Setting auto here would make Settings
-        // intercept clicks on /browse / /pipeline because Settings
-        // stays mounted underneath them.
-      }}
-    >
+    <div className="flex flex-col h-full overflow-hidden bg-background">
       {/* Title portals into the persistent AppTopBar's settings slot
           so the bar renders our content without re-mounting on
           navigation. The portal is conditional on the slot ref being
           attached (it gets set after AppTopBar's first render). */}
       {settingsSlot && createPortal(
-        <h1
-          className="text-[15px] font-semibold tracking-tight px-3"
-          style={{ color: "var(--rv-t1)" }}
-        >
+        <h1 className="text-[15px] font-semibold tracking-tight px-3 text-foreground">
           Settings
         </h1>,
         settingsSlot,
@@ -1061,50 +1065,56 @@ export function SettingsPage() {
       {/* Header removed — moved to the persistent AppTopBar at the
           shell level. Settings is now pure content. */}
 
-      {/* Centered single column — Mercury-style settings surface. Hero
-          intro at the top sets the tone before sections begin, so
-          Settings reads as a real page in the app, not a config dump. */}
-      <div className="flex-1 min-h-0 overflow-y-auto rv-invisible-scroll">
-        <div className="max-w-[680px] mx-auto px-8 pt-16 pb-20 flex flex-col gap-14">
-          {/* Hero — display serif headline + buddy-voice subtitle.
-              Same typographic treatment as the Browse greeting so
-              Settings sits in the same visual family. */}
-          <div className="flex flex-col gap-3">
-            <h1
-              className="leading-[1.0] tracking-[-0.025em]"
-              style={{
-                color:      "var(--rv-t1)",
-                fontSize:   42,
-                fontFamily: "var(--rv-font-display)",
-                fontWeight: 500,
-              }}
-            >
-              Settings
-            </h1>
-            <p
-              className="leading-snug"
-              style={{
-                color:      "var(--rv-t2)",
-                fontSize:   15,
-                fontFamily: "var(--rv-font-display)",
-                fontWeight: 400,
-                letterSpacing: "-0.012em",
-                maxWidth:   560,
-              }}
-            >
-              Tune the analysis defaults, switch themes, manage your account.
-              Everything stays on this device unless you sign in.
-            </p>
-          </div>
+      {/* Two-column layout — vertical Tabs sidebar (left) + content
+          pane (right). Replaces the previous long-scroll-of-sections
+          with the standard settings pattern (Linear / Mercury / Notion
+          all use this). Each section becomes a tab pane, so jumping
+          to "Theme" or "Account" is one click instead of a scroll
+          hunt. The shadcn Tabs primitive supports orientation="vertical"
+          natively — no custom nav code required. */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="max-w-[1080px] mx-auto h-full px-8 pt-10 pb-12">
+          <Tabs
+            defaultValue="appearance"
+            orientation="vertical"
+            className="h-full !flex-row gap-10"
+          >
+            {/* Left rail — section nav. Sticky so it stays visible
+                while the content pane scrolls. */}
+            <aside className="shrink-0 w-[200px] flex flex-col gap-6">
+              <div className="flex flex-col gap-1">
+                <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
+                  Settings
+                </h1>
+                <p className="text-[12.5px] text-muted-foreground">
+                  Tune the analysis, switch themes, manage your account.
+                </p>
+              </div>
+              <TabsList variant="line" className="!flex-col items-stretch !w-full !h-auto !p-0 gap-0.5">
+                <TabsTrigger value="appearance"   className="!justify-start !px-3 !h-8 text-[13px]">Appearance</TabsTrigger>
+                <TabsTrigger value="map"          className="!justify-start !px-3 !h-8 text-[13px]">Map</TabsTrigger>
+                <TabsTrigger value="investment"   className="!justify-start !px-3 !h-8 text-[13px]">Investment defaults</TabsTrigger>
+                <TabsTrigger value="account"      className="!justify-start !px-3 !h-8 text-[13px]">Account</TabsTrigger>
+                <TabsTrigger value="privacy"      className="!justify-start !px-3 !h-8 text-[13px]">Privacy &amp; data</TabsTrigger>
+                <TabsTrigger value="shortcuts"    className="!justify-start !px-3 !h-8 text-[13px]">Shortcuts</TabsTrigger>
+                <TabsTrigger value="about"        className="!justify-start !px-3 !h-8 text-[13px]">About</TabsTrigger>
+                <TabsTrigger value="advanced"     className="!justify-start !px-3 !h-8 text-[13px]">Advanced</TabsTrigger>
+              </TabsList>
+            </aside>
 
-          <ThemePickerSection />
-          <MapStyleSection />
-          <InvestmentDefaultsSection />
-          <AccountSection />
-          <PrivacyDataSection />
-          <ShortcutsSection />
-          <AboutSection />
-          <AdvancedSection />
+            {/* Right pane — single section visible at a time. Each
+                pane scrolls independently of the rail. */}
+            <div className="flex-1 min-w-0 overflow-y-auto rv-invisible-scroll pr-2 pb-12">
+              <TabsContent value="appearance"><ThemePickerSection /></TabsContent>
+              <TabsContent value="map"><MapStyleSection /></TabsContent>
+              <TabsContent value="investment"><InvestmentDefaultsSection /></TabsContent>
+              <TabsContent value="account"><AccountSection /></TabsContent>
+              <TabsContent value="privacy"><PrivacyDataSection /></TabsContent>
+              <TabsContent value="shortcuts"><ShortcutsSection /></TabsContent>
+              <TabsContent value="about"><AboutSection /></TabsContent>
+              <TabsContent value="advanced"><AdvancedSection /></TabsContent>
+            </div>
+          </Tabs>
         </div>
       </div>
     </div>

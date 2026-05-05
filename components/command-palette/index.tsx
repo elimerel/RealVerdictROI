@@ -12,12 +12,20 @@ import {
   Compass,
   LayoutGrid,
   Settings,
-  Search,
   Bookmark,
   History,
   Sparkles,
   type LucideIcon,
 } from "lucide-react"
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import {
   fetchPipeline,
   fetchRecentListings,
@@ -103,8 +111,6 @@ export default function CommandPalette() {
    *  Cleared on next query / next open. */
   const [askAnswer,  setAskAnswer]  = useState<{ text: string } | null>(null)
   const [askLoading, setAskLoading] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const listRef  = useRef<HTMLDivElement>(null)
 
   // Subscribe to global open/close + ⌘K keyboard shortcut.
   // Two paths fire ⌘K:
@@ -148,12 +154,11 @@ export default function CommandPalette() {
     return () => { contextSubscribers.delete(cb) }
   }, [])
 
-  // Reset query + focus input on each open.
+  // Reset query on each open. CommandDialog auto-focuses the input.
   useEffect(() => {
     if (!open) return
     setQuery("")
     setAskAnswer(null)
-    requestAnimationFrame(() => inputRef.current?.focus())
     // Pull fresh data on open so the lists reflect any saves since last open.
     fetchRecentListings(8).then(setRecents).catch(() => {})
     fetchPipeline().then(setDeals).catch(() => {})
@@ -300,40 +305,6 @@ export default function CommandPalette() {
     return askEntry ? [...base, askEntry] : base
   }, [query, allActions, askEntry])
 
-  // Selection (highlighted row). Indexes into the flat filtered array.
-  const [selIndex, setSelIndex] = useState(0)
-  useEffect(() => { setSelIndex(0) }, [query, open])
-
-  // Key navigation while open.
-  const handleKey = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Escape") {
-      e.preventDefault()
-      setOpen(false)
-      return
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault()
-      setSelIndex((i) => Math.min(filtered.length - 1, i + 1))
-      return
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault()
-      setSelIndex((i) => Math.max(0, i - 1))
-      return
-    }
-    if (e.key === "Enter") {
-      e.preventDefault()
-      const a = filtered[selIndex]
-      if (a) {
-        a.run()
-        if (a.id !== "ask-ai") setOpen(false)
-      }
-      return
-    }
-  }, [filtered, selIndex])
-
-  if (!open) return null
-
   // Suppress nav-to-current entries — clutter.
   const filteredFinal = filtered.filter((a) => {
     if (a.id === "nav-browse"   && pathname === "/browse")   return false
@@ -342,71 +313,37 @@ export default function CommandPalette() {
     return true
   })
 
-  return (
-    <div
-      className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh] rv-palette-fade"
-      style={{
-        background: "var(--rv-scrim)",
-        backdropFilter: "blur(8px)",
-        WebkitBackdropFilter: "blur(8px)",
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) setOpen(false)
-      }}
-    >
-      <div
-        className="w-full max-w-[600px] mx-4 flex flex-col rv-palette-rise"
-        style={{
-          background: "var(--rv-popover-bg)",
-          backdropFilter: "blur(40px) saturate(160%)",
-          WebkitBackdropFilter: "blur(40px) saturate(160%)",
-          border: "0.5px solid var(--rv-border-mid)",
-          borderRadius: 14,
-          boxShadow: "0 24px 60px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(0,0,0,0.6)",
-          maxHeight: "60vh",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Search input row */}
-        <div
-          className="flex items-center gap-2.5 px-4 shrink-0"
-          style={{ height: 48, borderBottom: "0.5px solid var(--rv-border)" }}
-        >
-          <Search size={14} strokeWidth={1.7} style={{ color: "var(--rv-t3)" }} />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKey}
-            placeholder="Search saved deals, recent listings, or actions…"
-            className="flex-1 bg-transparent border-none outline-none text-[14px] leading-none"
-            style={{ color: "var(--rv-t1)", letterSpacing: "-0.005em" }}
-            spellCheck={false}
-            autoComplete="off"
-          />
-          <span
-            className="hidden md:flex items-center gap-1 text-[10px]"
-            style={{ color: "var(--rv-t4)" }}
-          >
-            <kbd
-              className="inline-flex items-center justify-center rounded px-1 py-[1px] text-[10px]"
-              style={{ background: "var(--rv-elev-3)", color: "var(--rv-t3)" }}
-            >
-              esc
-            </kbd>
-          </span>
-        </div>
+  // Group actions by category for the cmdk-rendered list.
+  const groupedActions = groupKeysInOrder(filteredFinal).map((g) => ({
+    name:  g,
+    items: filteredFinal.filter((a) => a.group === g),
+  }))
 
-        {/* Inline AI answer / loading card — only when the Ask flow has been
-            invoked OR is in flight. Sits above the list so the result is the
-            first thing the user sees. */}
+  return (
+    <CommandDialog
+      open={open}
+      onOpenChange={setOpen}
+      title="Command Palette"
+      description="Search saved deals, recent listings, or actions"
+      className="max-w-[640px]"
+    >
+      {/* cmdk's built-in fuzzy filter clashes with our context actions
+          (which are state-driven), so we drive filtering ourselves and
+          tell cmdk to render every item via shouldFilter={false}. */}
+      <Command shouldFilter={false} loop className="rounded-xl">
+        <CommandInput
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Search saved deals, recent listings, or actions…"
+        />
+        {/* Inline AI answer card — sits above the list when Ask fires. */}
         {(askAnswer || askLoading) && (
-          <div className="px-3 pt-2.5 pb-1.5">
+          <div className="px-2 pt-2 pb-1">
             <div
-              className="flex items-start gap-2.5 rounded-[8px] px-3 py-2.5"
+              className="flex items-start gap-2.5 rounded-md px-3 py-2.5"
               style={{
-                background: "rgba(48,164,108,0.07)",
-                border:     "0.5px solid rgba(48,164,108,0.20)",
+                background: "var(--rv-accent-dim)",
+                border:     "0.5px solid var(--rv-accent-border)",
               }}
             >
               <Sparkles size={12} strokeWidth={1.7} style={{ color: "var(--rv-accent)", marginTop: 2 }} />
@@ -416,111 +353,46 @@ export default function CommandPalette() {
             </div>
           </div>
         )}
-
-        {/* Results */}
-        <div ref={listRef} className="flex-1 overflow-y-auto panel-scroll p-1.5">
-          {filteredFinal.length === 0 ? (
-            <EmptyHint query={query} />
-          ) : (
-            <GroupedList
-              groups={
-                groupKeysInOrder(filteredFinal).map((g) => ({
-                  name: g,
-                  items: filteredFinal.filter((a) => a.group === g),
-                }))
-              }
-              selIndex={selIndex}
-              flatList={filteredFinal}
-              onPick={(a) => {
-                if (a.id === "ask-ai") { a.run(); return }
-                a.run(); setOpen(false)
-              }}
-              onHover={(i) => setSelIndex(i)}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Subcomponents ─────────────────────────────────────────────────────────
-
-function EmptyHint({ query }: { query: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-10 px-6 gap-2 text-center">
-      <Sparkles size={16} strokeWidth={1.5} style={{ color: "var(--rv-t4)" }} />
-      <p className="text-[12.5px]" style={{ color: "var(--rv-t2)" }}>
-        {query ? "No matches" : "Start typing to search"}
-      </p>
-      {query && (
-        <p className="text-[11px]" style={{ color: "var(--rv-t4)" }}>
-          Try a stage, address, or "save"
-        </p>
-      )}
-    </div>
-  )
-}
-
-function GroupedList({
-  groups,
-  selIndex,
-  flatList,
-  onPick,
-  onHover,
-}: {
-  groups: { name: string; items: Action[] }[]
-  selIndex: number
-  flatList: Action[]
-  onPick: (a: Action) => void
-  onHover: (idx: number) => void
-}) {
-  // Convert flat selIndex back into (group, item) — easier than tracking
-  // index-in-group everywhere.
-  return (
-    <div className="flex flex-col gap-2">
-      {groups.map(({ name, items }) => (
-        <div key={name} className="flex flex-col">
-          <p
-            className="text-[10px] uppercase tracking-widest font-medium px-2.5 py-1.5"
-            style={{ color: "var(--rv-t4)" }}
-          >
-            {name}
-          </p>
-          <div className="flex flex-col">
-            {items.map((a) => {
-              const idx = flatList.indexOf(a)
-              const active = idx === selIndex
-              return (
-                <button
+        <CommandList className="max-h-[60vh]">
+          <CommandEmpty>
+            <div className="flex flex-col items-center gap-2 py-2">
+              <Sparkles size={16} strokeWidth={1.5} style={{ color: "var(--rv-t4)" }} />
+              <p className="text-[12.5px]" style={{ color: "var(--rv-t2)" }}>
+                {query ? "No matches" : "Start typing to search"}
+              </p>
+              {query && (
+                <p className="text-[11px]" style={{ color: "var(--rv-t4)" }}>
+                  Try a stage, address, or "save"
+                </p>
+              )}
+            </div>
+          </CommandEmpty>
+          {groupedActions.map(({ name, items }) => (
+            <CommandGroup key={name} heading={name}>
+              {items.map((a) => (
+                <CommandItem
                   key={a.id}
-                  onMouseEnter={() => onHover(idx)}
-                  onClick={() => onPick(a)}
-                  className="flex items-center gap-2.5 rounded-[7px] px-2.5 py-2 text-left transition-colors duration-100"
-                  style={{
-                    background: active ? "var(--rv-elev-3)" : "transparent",
-                    color:      active ? "var(--rv-t1)" : "var(--rv-t2)",
+                  value={`${a.id}-${a.label}`}
+                  onSelect={() => {
+                    a.run()
+                    if (a.id !== "ask-ai") setOpen(false)
                   }}
                 >
-                  {a.Icon && (
-                    <span style={{ color: active ? "var(--rv-accent)" : "var(--rv-t3)" }}>
-                      <a.Icon size={14} strokeWidth={1.7} />
-                    </span>
-                  )}
+                  {a.Icon && <a.Icon className="text-muted-foreground" />}
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] truncate leading-tight">{a.label}</p>
+                    <div className="text-[13px] truncate leading-tight">{a.label}</div>
                     {a.sub && (
-                      <p
+                      <div
                         className="text-[11px] truncate leading-tight mt-0.5"
                         style={{ color: "var(--rv-t4)" }}
                       >
                         {a.sub}
-                      </p>
+                      </div>
                     )}
                   </div>
                   {a.shortcut && (
                     <kbd
-                      className="hidden md:inline-flex items-center justify-center rounded px-1.5 py-[2px] text-[10px]"
+                      className="ml-auto hidden md:inline-flex items-center justify-center rounded px-1.5 py-[2px] text-[10px]"
                       style={{
                         background: "var(--rv-elev-2)",
                         color:      "var(--rv-t3)",
@@ -530,13 +402,13 @@ function GroupedList({
                       {a.shortcut}
                     </kbd>
                   )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ))}
+        </CommandList>
+      </Command>
+    </CommandDialog>
   )
 }
 

@@ -124,7 +124,10 @@ export function staticMapUrl({
  *  has already stamped the right class before first paint. */
 export function styleForTheme(): "dark-v11" | "light-v11" {
   if (typeof document === "undefined") return "dark-v11"
-  return document.documentElement.classList.contains("theme-light")
+  const cls = document.documentElement.classList
+  // theme-paper / legacy theme-light → light Mapbox style.
+  // Everything else (theme-paper-dark, no theme class) → dark style.
+  return (cls.contains("theme-paper") || cls.contains("theme-light"))
     ? "light-v11"
     : "dark-v11"
 }

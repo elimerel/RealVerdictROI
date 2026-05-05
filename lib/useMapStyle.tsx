@@ -16,8 +16,12 @@ export const PREFS_CHANGED_EVENT = "rv:prefs-changed"
  *  signal MapShell already uses for its initial bg pick. */
 export function resolveMapStyleUrl(key: MapStyleKey): string {
   if (key === "auto") {
-    const isLight = typeof document !== "undefined" &&
-      document.documentElement.classList.contains("theme-light")
+    // theme-paper = light cream, theme-paper-dark = dark canvas. The
+    // legacy theme-light class is also still treated as light for any
+    // user who hasn't been migrated yet.
+    const cls = typeof document !== "undefined"
+      ? document.documentElement.classList : null
+    const isLight = !!cls && (cls.contains("theme-paper") || cls.contains("theme-light"))
     return isLight
       ? "mapbox://styles/mapbox/light-v11"
       : "mapbox://styles/mapbox/dark-v11"

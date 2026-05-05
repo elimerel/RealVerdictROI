@@ -51,9 +51,13 @@ try {
     path.join(__dirname, "..", ".env.local"),
     path.join(__dirname, "..", ".env"),
   ]
+  // override: true so an empty/stale shell export doesn't shadow .env.local.
+  // We had a real bug where ANTHROPIC_API_KEY="" was exported in zsh,
+  // dotenv saw the existing (empty) value and skipped loading the real key,
+  // and the auto-analyzer reported "Add an Anthropic key" forever.
   for (const f of dotenvCandidates) {
     if (fs.existsSync(f)) {
-      require("dotenv").config({ path: f, override: false })
+      require("dotenv").config({ path: f, override: true })
     }
   }
 } catch (err) {
@@ -332,12 +336,13 @@ function readConfig() {
   // Fall through to env vars when settings are blank — matters for dev
   // where keys live in .env.local, and for users who set the key in their
   // shell rather than the Settings UI.
-  if (!cfg.anthropicApiKey && process.env.ANTHROPIC_API_KEY) {
-    cfg.anthropicApiKey = process.env.ANTHROPIC_API_KEY
-  }
-  if (!cfg.openaiApiKey && process.env.OPENAI_API_KEY) {
-    cfg.openaiApiKey = process.env.OPENAI_API_KEY
-  }
+  // Empty string env vars (often leftover shell exports) are treated as
+  // unset — without this, "ANTHROPIC_API_KEY=" in the shell silently wins
+  // over a real key in .env.local.
+  const envAnthropic = (process.env.ANTHROPIC_API_KEY || "").trim()
+  const envOpenAI    = (process.env.OPENAI_API_KEY    || "").trim()
+  if (!cfg.anthropicApiKey && envAnthropic) cfg.anthropicApiKey = envAnthropic
+  if (!cfg.openaiApiKey    && envOpenAI)    cfg.openaiApiKey    = envOpenAI
   return cfg
 }
 
@@ -363,34 +368,37 @@ function writeConfig(data) {
 // match the new token set.
 // ---------------------------------------------------------------------------
 
-const THEME_OPTIONS = ["system", "dark", "charcoal-warm", "light"]
-const DEFAULT_THEME = "dark"
+// Two themes + system. Legacy picks (charcoal-warm, light, dark) still
+// accepted for backwards compatibility but get coerced to the closest
+// paper variant on resolve. Eventually we'll drop them from the
+// recognized list once nobody's persisted config carries them.
+const THEME_OPTIONS = ["system", "paper", "paper-dark", "dark", "charcoal-warm", "light"]
+const DEFAULT_THEME = "system"
 
 /** macOS vibrancy material per resolved theme. */
 function vibrancyForTheme(resolved) {
-  if (resolved === "light") return "light"
-  return "sidebar"
+  return resolved === "paper-dark" ? "sidebar" : "light"
 }
 
 /** Window backgroundColor fallback (visible only when vibrancy is briefly
- *  unavailable, e.g. during resize). Matches each theme's bg token. */
+ *  unavailable, e.g. during resize). */
 function backgroundForTheme(resolved) {
-  switch (resolved) {
-    case "light":            return "#f5f5f7"
-    case "charcoal-warm":    return "#16120e"
-    case "dark":
-    default:                 return "#0a0a0c"
-  }
+  return resolved === "paper-dark" ? "#1d1c19" : "#FAF8F2"
 }
 
-/** "system" resolves to "dark" or "light" based on the OS preference;
- *  every other option resolves to itself. */
+/** Resolve a saved pick to one of the two live themes (paper / paper-dark).
+ *  - "system": follow the OS
+ *  - legacy picks (charcoal-warm, dark): map to paper-dark
+ *  - "light": map to paper
+ *  - "paper" / "paper-dark": pass through */
 function resolveTheme(picked) {
   if (picked === "system") {
-    return nativeTheme.shouldUseDarkColors ? "dark" : "light"
+    return nativeTheme.shouldUseDarkColors ? "paper-dark" : "paper"
   }
-  if (THEME_OPTIONS.includes(picked) && picked !== "system") return picked
-  return DEFAULT_THEME
+  if (picked === "paper" || picked === "paper-dark") return picked
+  if (picked === "charcoal-warm" || picked === "dark") return "paper-dark"
+  if (picked === "light") return "paper"
+  return "paper"
 }
 
 let _systemListenerAttached = false
@@ -415,7 +423,7 @@ function applyTheme(picked, opts = {}) {
     }
     try { appWindow.setBackgroundColor(backgroundForTheme(resolved)) } catch {}
   }
-  nativeTheme.themeSource = resolved === "light" ? "light" : "dark"
+  nativeTheme.themeSource = (resolved === "light" || resolved === "paper") ? "light" : "dark"
 
   if (!opts.broadcastOnly) {
     const cfg = readConfig()
@@ -627,6 +635,76 @@ function createAppWindow() {
     if (appWindow && !appWindow.isDestroyed()) appWindow.show()
   })
 
+  // Auto-retry on dev-server unreachable. In dev, Next.js restarts
+  // when route or config files change — for a few hundred ms the
+  // renderer can land on chrome-error://chromewebdata/ and stay
+  // there. This handler retries the load with backoff so we don't
+  // have to manually quit + relaunch Electron every time the dev
+  // server hiccups. Capped at 10 attempts so we don't spin forever
+  // if the server is genuinely down.
+  if (DEV) {
+    // Two-layer recovery from dev-server hiccups (Next.js restarts when
+    // route/config files change, leaving the renderer stuck on
+    // chrome-error://chromewebdata for ~5 seconds before stabilizing):
+    //
+    //   Layer 1 — `did-fail-load`: when a load explicitly fails with a
+    //   network-ish code, retry with backoff. Catches the immediate
+    //   failure on first navigation while Next is still booting.
+    //
+    //   Layer 2 — chrome-error polling: if the renderer is sitting on a
+    //   chrome-error page (which happens when Layer 1 already fired and
+    //   then stopped retrying), poll every 2s for the dev server to
+    //   come back, then force-reload. This makes the "blank white
+    //   screen" auto-heal without the user noticing.
+    let retryAttempts = 0
+    let lastIntendedURL = `${BASE_URL}/login?source=electron`
+    const RETRY_CODES = new Set([-2, -105, -106, -109, -118])
+    appWindow.webContents.on("did-fail-load", (_event, errorCode, _desc, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return
+      if (!RETRY_CODES.has(errorCode)) return
+      if (!validatedURL.startsWith(BASE_URL)) return
+      lastIntendedURL = validatedURL
+      if (retryAttempts >= 10) return
+      retryAttempts++
+      const delay = Math.min(500 * retryAttempts, 3000)
+      setTimeout(() => {
+        if (!appWindow || appWindow.isDestroyed()) return
+        console.log(`[main] dev-server retry #${retryAttempts} → ${validatedURL}`)
+        appWindow.webContents.loadURL(validatedURL)
+      }, delay)
+    })
+    appWindow.webContents.on("did-finish-load", () => { retryAttempts = 0 })
+    // Track the URL the renderer is *supposed* to be on, so we know
+    // where to reload back to when chrome-error recovers.
+    appWindow.webContents.on("did-navigate", (_e, url) => {
+      if (url.startsWith(BASE_URL)) lastIntendedURL = url
+    })
+    // Layer 2: chrome-error polling. Fires every 2 seconds; if the
+    // renderer is on a chrome-error URL, attempt to fetch the dev
+    // server and reload when it responds.
+    const errorPollInterval = setInterval(async () => {
+      if (!appWindow || appWindow.isDestroyed()) return
+      const currentURL = appWindow.webContents.getURL()
+      if (!currentURL.startsWith("chrome-error://")) return
+      // Probe the dev server with a fast HEAD-style fetch via
+      // electron's net module (works in main, no CORS).
+      try {
+        const ok = await new Promise((resolve) => {
+          const req = require("electron").net.request(BASE_URL)
+          req.on("response", () => resolve(true))
+          req.on("error",   () => resolve(false))
+          req.end()
+          setTimeout(() => resolve(false), 1500)
+        })
+        if (ok) {
+          console.log(`[main] dev-server back online → reloading ${lastIntendedURL}`)
+          appWindow.webContents.loadURL(lastIntendedURL)
+        }
+      } catch { /* ignore — try again next tick */ }
+    }, 2000)
+    appWindow.on("close", () => clearInterval(errorPollInterval))
+  }
+
   appWindow.loadURL(`${BASE_URL}/login?source=electron`)
 
   const persistMainBounds = () => {
@@ -683,7 +761,7 @@ function createAppWindow() {
 
 /**
  * Expand the window into full main-app mode after a successful sign-in.
- * Resizes to 1400×900 then navigates to /browse (unless already there).
+ * Resizes to 1400×900 then navigates to /pipeline (unless already there).
  */
 function expandToMainApp() {
   if (!appWindow || appWindow.isDestroyed()) return
@@ -711,7 +789,7 @@ function expandToMainApp() {
       !u.pathname.startsWith("/login") && !u.pathname.startsWith("/auth")
   } catch { /* ignore */ }
   if (!alreadyOnApp) {
-    appWindow.loadURL(`${BASE_URL}/browse`)
+    appWindow.loadURL(`${BASE_URL}/pipeline`)
   }
 
   if (DEV) appWindow.webContents.openDevTools({ mode: "detach" })
@@ -998,9 +1076,50 @@ function attachTabListeners(tab) {
     broadcastTabsState()
   }
 
-  view.webContents.on("did-navigate",         () => sendNav(false))
-  view.webContents.on("did-navigate-in-page", () => sendNav(false))
-  view.webContents.on("page-title-updated",   () => sendNav(false))
+  // ── Per-tab broadcast throttle ────────────────────────────────────────
+  // Listing sites (Zillow especially) fire 10–20+ did-navigate-in-page
+  // and page-title-updated events per page load — every embedded ad
+  // iframe, every dynamic <title> mutation, every modal/anchor change.
+  // Each one used to flow straight to broadcast() → renderer setState →
+  // Browse re-render (which paints ~70 inline-styled nodes). The
+  // amplification was a real CPU hot spot.
+  //
+  // Leading-edge throttle: first call fires immediately so the renderer
+  // sees the navigation right away; subsequent calls within `THROTTLE_MS`
+  // collapse and schedule a single trailing fire with the most recent
+  // navState. Trailing fire is critical so the FINAL title / URL after
+  // a burst still reaches the renderer (otherwise we'd ship the very
+  // first title and miss the settled one).
+  //
+  // Only applied to the rapid-fire callsites below. did-start-loading
+  // and did-stop-loading bypass — they're rare state transitions and
+  // did-stop-loading triggers autoAnalyze(), which must not be deferred.
+  const THROTTLE_MS = 100
+  let throttleLastFire = 0
+  let throttleTimer = null
+  const sendNavThrottled = () => {
+    const now = Date.now()
+    const elapsed = now - throttleLastFire
+    if (elapsed >= THROTTLE_MS) {
+      throttleLastFire = now
+      sendNav(false)
+      return
+    }
+    if (throttleTimer) return  // trailing fire already scheduled
+    throttleTimer = setTimeout(() => {
+      throttleLastFire = Date.now()
+      throttleTimer = null
+      // Guard: if the tab was closed during the throttle window, the
+      // webContents is destroyed and reading getURL/getTitle from
+      // sendNav would throw.
+      if (view.webContents.isDestroyed()) return
+      sendNav(false)
+    }, THROTTLE_MS - elapsed)
+  }
+
+  view.webContents.on("did-navigate",         () => sendNavThrottled())
+  view.webContents.on("did-navigate-in-page", () => sendNavThrottled())
+  view.webContents.on("page-title-updated",   () => sendNavThrottled())
   view.webContents.on("did-start-loading", () => {
     tab.navState.loading = true
     // Zero out the stale isListing flag — we're loading SOMETHING new

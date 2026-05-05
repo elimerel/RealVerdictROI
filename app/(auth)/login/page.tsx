@@ -76,46 +76,54 @@ export default async function LoginPage({
   const user = await getCurrentUser()
   if (user) redirect(redirectTo)
 
+  // Web (browser) sign-in path. The Electron path above stays compact —
+  // it lives inside a small auth window and shouldn't grow chrome. The
+  // web path adopts the shadcn login-04 layout: centered Card, BuddyMark
+  // hero, all colors via theme tokens (paper / paper-dark works for free).
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-[var(--f-bg)] px-6 py-16">
-      <div className="mb-8 flex items-center gap-2">
-        <div
-          className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[var(--accent)]"
-          style={{ boxShadow: "0 1px 4px var(--accent-border)" }}
-        >
-          <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden>
-            <path d="M7 1L3 8h4l-1 5 5-7H7l1-5z" fill="white" strokeWidth="0"/>
-          </svg>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-16">
+      <div className="w-full max-w-sm flex flex-col gap-6">
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex size-9 items-center justify-center rounded-[10px] bg-primary text-primary-foreground shadow-sm">
+            <svg width="18" height="18" viewBox="0 0 14 14" fill="none" aria-hidden>
+              <path d="M7 1L3 8h4l-1 5 5-7H7l1-5z" fill="currentColor" />
+            </svg>
+          </div>
+          <h1 className="text-[16px] font-semibold tracking-tight text-foreground">
+            RealVerdict
+          </h1>
+          <p className="text-[12.5px] text-muted-foreground">
+            {initialMode === "signup" ? "Create your account" : "Sign in to continue"}
+          </p>
         </div>
-        <span className="text-[15px] font-semibold text-[var(--f-t1)] tracking-tight">RealVerdict</span>
-      </div>
 
-      {supabaseEnv().configured ? (
-        <>
-          {oauthError && (
-            <div className="mb-4 w-full max-w-md rounded-lg border border-[var(--bad)] bg-[var(--bad-bg)] px-4 py-3 text-sm text-[var(--bad)]">
-              {oauthError}
-            </div>
-          )}
-          <LoginForm redirectTo={redirectTo} initialMode={initialMode} />
-        </>
-      ) : (
-        <UnconfiguredNotice />
-      )}
+        {supabaseEnv().configured ? (
+          <>
+            {oauthError && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-[12.5px] text-destructive">
+                {oauthError}
+              </div>
+            )}
+            <LoginForm redirectTo={redirectTo} initialMode={initialMode} />
+          </>
+        ) : (
+          <UnconfiguredNotice />
+        )}
+      </div>
     </div>
   )
 }
 
 function UnconfiguredNotice() {
   return (
-    <div className="max-w-md rounded-2xl border border-[var(--warn-bg)] bg-[var(--warn-bg)] p-6 text-sm text-[var(--warn)]">
-      <h2 className="mb-2 text-base font-semibold">Auth is not configured</h2>
-      <p className="leading-relaxed opacity-80">
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-[13px] text-amber-700 dark:text-amber-400">
+      <h2 className="mb-2 text-[15px] font-semibold">Auth is not configured</h2>
+      <p className="leading-relaxed">
         Set{" "}
-        <code className="rounded bg-black/10 px-1.5 py-0.5 font-mono text-xs">NEXT_PUBLIC_SUPABASE_URL</code>
+        <code className="rounded bg-foreground/10 px-1.5 py-0.5 font-mono text-[11px]">NEXT_PUBLIC_SUPABASE_URL</code>
         {" "}and{" "}
-        <code className="rounded bg-black/10 px-1.5 py-0.5 font-mono text-xs">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>
-        {" "}in your <code>.env.local</code>.
+        <code className="rounded bg-foreground/10 px-1.5 py-0.5 font-mono text-[11px]">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>
+        {" "}in your <code className="font-mono">.env.local</code>.
       </p>
     </div>
   )

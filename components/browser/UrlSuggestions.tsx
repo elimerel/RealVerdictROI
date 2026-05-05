@@ -120,8 +120,8 @@ export default function UrlSuggestions({ draft, selected, onPick, onRowsChange }
       style={{
         zIndex:         50,
         background:     "var(--rv-popover-bg)",
-        backdropFilter: "blur(30px) saturate(160%)",
-        WebkitBackdropFilter: "blur(30px) saturate(160%)",
+        backdropFilter: "blur(14px) saturate(160%)",
+        WebkitBackdropFilter: "blur(14px) saturate(160%)",
         border:         "0.5px solid var(--rv-border-mid)",
         boxShadow:      "0 12px 32px rgba(0,0,0,0.45), 0 0 0 0.5px rgba(255,255,255,0.04) inset",
         padding:        4,

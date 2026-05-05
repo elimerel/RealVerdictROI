@@ -86,15 +86,17 @@
   --rv-border-mid: rgba(255, 255, 255, 0.14);
   --rv-border-hi:  rgba(255, 255, 255, 0.22);
 
-  /* Accent — deep moss / forest green.
-     Was the brighter Radix green-9 (#30a46c) which read as candy/neon
-     against the warm canvas. Shifted to a deeper, lower-saturation
-     moss so the brand color sits in the surface like a finished
-     material instead of a glowing button. Premium-finance palette
-     (Ramp, deep banking) tends to live in this range. */
-  --rv-accent:        #4a7d5e;
-  --rv-accent-dim:    rgba(74, 125, 94, 0.10);
-  --rv-accent-border: rgba(74, 125, 94, 0.22);
+  /* Accent — punchier emerald.
+     Previous --rv-accent #4a7d5e was deliberately muted "premium
+     banking" — read as conservative/dated against the modern
+     fintech reference (Linear, Mercury, Stripe). Shifted to a
+     cleaner saturated emerald (#10b981) that still feels
+     real-estate-finance appropriate (matches "growth / cash flow
+     positive") but lands as 2026, not 2018. Same hue family,
+     more brand presence. */
+  --rv-accent:        #10b981;
+  --rv-accent-dim:    rgba(16, 185, 129, 0.12);
+  --rv-accent-border: rgba(16, 185, 129, 0.28);
 
   /* Secondary accent — clay / terracotta
      The "physical / attention warranted" tone. Real-estate-specific:
@@ -107,11 +109,13 @@
   --rv-clay-border:   rgba(194, 117, 74, 0.26);
 
   /* Display font stack — system serif. macOS gets "New York" (Apple's
-     modern serif used in Keynote, TextEdit). Other systems fall back
-     gracefully to Source Serif → Charter → Georgia. Used ONLY on
-     greeting + property prices for the "Mercury-style editorial weight"
-     feel. No web font loading; always instant. */
-  --rv-font-display:  ui-serif, "New York", "Source Serif 4", "Source Serif Pro", Charter, Georgia, serif;
+     Source Serif 4 Variable, loaded locally (see app/layout.tsx). 50KB
+     variable woff2, renders consistently across every OS, designed for
+     both display and body. Replaced the previous ui-serif/Charter chain
+     which fell back unpredictably. Used on hero numbers, display
+     numbers, page titles, and the buddy-voice greeting. Fallback
+     chain stays for the brief moment before the woff2 loads. */
+  --rv-font-display:  var(--font-display), ui-serif, Charter, Georgia, serif;
 
   /* Signals
      ──────────────────────────────────────────────────────────────────────────
@@ -228,100 +232,262 @@
    The native side (electron-app/main.js) handles vibrancy + window
    backgroundColor + nativeTheme.themeSource via the theme:set IPC. */
 
-/* Warm Charcoal — distinctly warmer than Dark. Earthier slate-brown
-   undertone instead of cool slate-gray; surfaces shift noticeably so it
-   reads as a real second variant, not "dark with the warmth turned up
-   slightly." Same vibrancy material as Dark. */
-.theme-charcoal-warm {
-  /* Real charcoal — sits in the neutral-grey family. Multiple passes:
-     v1 was too brown, v2 still tipped warm. This version uses
-     equal-channel grey (R=G=B) for the bg and adds a hair of warmth
-     ONLY on the higher elevations, so the canvas reads as honest
-     charcoal grey while raised surfaces breathe slightly warmer. */
-  --rv-bg:       #2a2a2a;
-  --rv-surface:  #353433;
-  --rv-raised:   #3f3e3c;
-  --rv-overlay:  #4a4847;
+/* Legacy theme classes (.theme-charcoal-warm, .theme-light) were removed
+   on 2026-05-05 once Paper + Paper dark covered the spectrum. The
+   THEME_SCRIPT in app/layout.tsx coerces any persisted legacy pick to
+   the closest paper variant on next load, so existing users transition
+   silently. If you see references to those class names anywhere in
+   code (search "theme-light" / "theme-charcoal-warm"), they're either
+   safe legacy compatibility checks or stale and can be deleted. */
 
-  /* Text — neutral white (matches the neutral-grey body). Was tilting
-     warm earlier and that was carrying the surface back toward earth-
-     tone whenever the eye averaged the two. */
-  --rv-t1: rgba(248, 248, 248, 1.00);
-  --rv-t2: rgba(248, 248, 248, 0.76);
-  --rv-t3: rgba(248, 248, 248, 0.52);
-  --rv-t4: rgba(248, 248, 248, 0.32);
+/* ── Paper — the new Mercury × Claude direction ──────────────────────────
+   Warm cream paper background with white cards, sage forest accent,
+   matte everything. Generated via TweakCN from a brief that locked
+   the Mercury × Claude.app reference, then mapped to RealVerdict's
+   --rv-* token names so existing component code keeps working.
 
-  --rv-panel-bg:   rgba(46, 46, 46, 0.80);
-  --rv-drawer-bg:  rgba(53, 52, 51, 0.92);
-  --rv-popover-bg: rgba(50, 49, 48, 0.96);
-  --rv-toast-bg:   rgba(53, 52, 51, 0.94);
-  --rv-badge-ring: rgba(40, 40, 40, 0.85);
+   This is the new DEFAULT (THEME_SCRIPT in app/layout.tsx applies
+   .theme-paper when localStorage is empty or set to 'paper').
+
+   Visual character:
+   - Background: warm cream paper, NOT pure white (#FAF8F2 territory)
+   - Cards: pure white lifted by hairline borders, NOT shadows or
+     gradients — depth comes from spacing
+   - Accent: sage forest #2F7A52, used SPARINGLY (CTAs, save state,
+     active sidebar item)
+   - Type: warm charcoal hierarchy with brown undertone (oklch hue
+     ~80-90), never pure black
+   - All shadows soft + warm (TweakCN export — soft drop shadows for
+     popovers only, none on resting surfaces) */
+.theme-paper {
+  /* Surfaces — TweakCN cream + white. White cards on cream paper
+     read as documents on a desk. */
+  --rv-bg:      oklch(0.9761 0.0041 91.4461);
+  --rv-surface: oklch(1.0000 0 0);
+  --rv-raised:  oklch(1.0000 0 0);
+  --rv-overlay: oklch(1.0000 0 0);
+
+  /* Elevation tokens — flip from white-alpha (dark) to warm dark-alpha (light) */
+  --rv-elev-1: oklch(0.2181 0.0041 84.5884 / 0.025);
+  --rv-elev-2: oklch(0.2181 0.0041 84.5884 / 0.04);
+  --rv-elev-3: oklch(0.2181 0.0041 84.5884 / 0.06);
+  --rv-elev-4: oklch(0.2181 0.0041 84.5884 / 0.09);
+  --rv-elev-5: oklch(0.2181 0.0041 84.5884 / 0.12);
+
+  /* Glass tints — flip to warm dark-alpha for the cream surface */
+  --rv-glass-tint:        oklch(0.2181 0.0041 84.5884 / 0.025);
+  --rv-glass-tint-strong: oklch(0.2181 0.0041 84.5884 / 0.04);
+  --rv-glass-mid:         oklch(0.2181 0.0041 84.5884 / 0.04);
+
+  /* Scrim — gentler on cream */
+  --rv-scrim:        rgba(0, 0, 0, 0.14);
+  --rv-scrim-strong: rgba(0, 0, 0, 0.26);
+
+  /* Shadows — TweakCN's soft warm-shadow values, applied to popovers only.
+     Resting surfaces get NO shadow — that's the matte rule. */
+  --rv-shadow-outer-sm: 0 4px 12px hsl(40 6% 10% / 0.05), 0 1px 2px -1px hsl(40 6% 10% / 0.05);
+  --rv-shadow-outer-md: 0 4px 12px hsl(40 6% 10% / 0.05), 0 2px 4px -1px hsl(40 6% 10% / 0.05);
+  --rv-shadow-outer-lg: 0 4px 12px hsl(40 6% 10% / 0.05), 0 4px 6px -1px hsl(40 6% 10% / 0.05);
+  --rv-shadow-inset:    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  --rv-hairline-gradient: linear-gradient(90deg, oklch(0.2181 0.0041 84.5884 / 0.10) 0%, oklch(0.2181 0.0041 84.5884 / 0.04) 60%, transparent 100%);
+
+  /* Glass chrome — solid white over the cream so the panel/drawer/popover
+     reads as its own surface, never as translucent dark on cream. */
+  --rv-panel-bg:   rgba(255, 255, 255, 0.96);
+  --rv-drawer-bg:  rgba(255, 255, 255, 0.98);
+  --rv-popover-bg: rgba(255, 255, 255, 0.99);
+  --rv-toast-bg:   rgba(255, 255, 255, 0.96);
+  --rv-badge-ring: rgba(250, 248, 242, 0.94);
+
+  /* Text — TweakCN warm charcoal hierarchy. The brown undertone (hue
+     ~80-90) keeps the type from feeling "designer-rendered Helvetica
+     on white." Mercury reads as warm because their grays have brown
+     in them; ours will too. */
+  --rv-t1: oklch(0.2181 0.0041 84.5884);  /* primary text, hero numbers */
+  --rv-t2: oklch(0.3800 0.0050 82.0000);  /* secondary body */
+  --rv-t3: oklch(0.5775 0.0071 75.3713);  /* muted (TweakCN's muted-foreground) */
+  --rv-t4: oklch(0.7400 0.0090 78.0000);  /* placeholder, disabled */
+
+  /* Borders — soft cream hairlines */
+  --rv-border:     oklch(0.9099 0.0112 89.7280);
+  --rv-border-mid: oklch(0.8400 0.0150 88.0000);
+  --rv-border-hi:  oklch(0.7000 0.0200 85.0000);
+
+  /* Accent — TweakCN sage. Calmer than the previous Radix #10b981 emerald.
+     This is the workhorse "RealVerdict green" that lives on cream paper. */
+  --rv-accent:        oklch(0.4878 0.0635 159.5243);
+  --rv-accent-dim:    oklch(0.4878 0.0635 159.5243 / 0.10);
+  --rv-accent-border: oklch(0.4878 0.0635 159.5243 / 0.22);
+
+  /* Signals — re-tuned for cream surface */
+  --rv-pos:     oklch(0.4878 0.0635 159.5243);  /* same as accent: good news = brand */
+  --rv-pos-bg:  oklch(0.4878 0.0635 159.5243 / 0.10);
+  --rv-neg:     oklch(0.5222 0.0891 31.3960);   /* TweakCN destructive — warm brick */
+  --rv-neg-bg:  oklch(0.5222 0.0891 31.3960 / 0.10);
+  --rv-warn:    oklch(0.6345 0.0844 77.6101);   /* warm amber */
+  --rv-warn-bg: oklch(0.6345 0.0844 77.6101 / 0.12);
+  --rv-alarm:   oklch(0.5222 0.0891 31.3960);
+  --rv-alarm-bg: oklch(0.5222 0.0891 31.3960 / 0.10);
+
+  /* Source confidence chips — re-derive from new pos/neg */
+  --rv-src-hi-bg: oklch(0.4878 0.0635 159.5243 / 0.14);
+  --rv-src-hi-fg: var(--rv-pos);
+  --rv-src-md-bg: oklch(0.6345 0.0844 77.6101 / 0.12);
+  --rv-src-md-fg: var(--rv-warn);
+  --rv-src-lo-bg: oklch(0.5222 0.0891 31.3960 / 0.10);
+  --rv-src-lo-fg: var(--rv-neg);
+
+  /* TweakCN shadcn tokens — explicit values so the new tokens
+     (--accent, --secondary, --ring etc.) get the cream/sage palette
+     directly rather than via the --rv-* alias chain. */
+  --background:           oklch(0.9761 0.0041 91.4461);
+  --foreground:           oklch(0.2181 0.0041 84.5884);
+  --card:                 oklch(1.0000 0 0);
+  --card-foreground:      oklch(0.2181 0.0041 84.5884);
+  --popover:              oklch(1.0000 0 0);
+  --popover-foreground:   oklch(0.2181 0.0041 84.5884);
+  --primary:              oklch(0.5485 0.0833 158.7106);
+  --primary-foreground:   oklch(1.0000 0 0);
+  --secondary:            oklch(0.9099 0.0112 89.7280);
+  --secondary-foreground: oklch(0.2181 0.0041 84.5884);
+  --muted:                oklch(0.9099 0.0112 89.7280);
+  --muted-foreground:     oklch(0.5775 0.0071 75.3713);
+  --accent:               oklch(0.9470 0.0074 80.7208);
+  --accent-foreground:    oklch(0.4878 0.0635 159.5243);
+  --destructive:          oklch(0.5222 0.0891 31.3960);
+  --destructive-foreground: oklch(1.0000 0 0);
+  --border:               oklch(0.9099 0.0112 89.7280);
+  --input:                oklch(0.9099 0.0112 89.7280);
+  --ring:                 oklch(0.4878 0.0635 159.5243);
+
+  /* Sidebar — TweakCN exported a solid-sage active state
+     (sidebar-primary: sage, sidebar-primary-foreground: white) which
+     renders as a heavy green block. Toned down here to a tinted
+     state: sage-on-tinted-cream, like Mercury's nav. */
+  --sidebar:                    oklch(0.9761 0.0041 91.4461);
+  --sidebar-foreground:         oklch(0.2181 0.0041 84.5884);
+  --sidebar-primary:            oklch(0.4878 0.0635 159.5243 / 0.12);
+  --sidebar-primary-foreground: oklch(0.4878 0.0635 159.5243);
+  --sidebar-accent:             oklch(0.9099 0.0112 89.7280);
+  --sidebar-accent-foreground:  oklch(0.4878 0.0635 159.5243);
+  --sidebar-border:             oklch(0.9099 0.0112 89.7280);
+  --sidebar-ring:               oklch(0.4878 0.0635 159.5243);
 }
 
-/* Light — full inversion. Vibrancy switches to "light" material; window
-   backgroundColor flips to a light fallback. Text becomes near-black on
-   off-white surfaces; elevations and tints invert (white → black at low
-   alpha). Forest-green accent stays (vibrant on light too). */
-.theme-light {
-  --rv-bg:       #f5f5f7;
-  --rv-surface:  #ffffff;
-  --rv-raised:   #fafafa;
-  --rv-overlay:  #ffffff;
+/* ── Paper Dark — sibling to .theme-paper ──────────────────────────────
+   Same TweakCN palette generator, dark variant. Pulled from the
+   tweakcn.com theme export the user supplied (matched to the cream
+   paper light theme — same sage accent, same warm neutral hue).
+   When the user picks "paper-dark" or "system" with macOS in dark
+   mode, this class is applied instead of .theme-paper.
 
-  --rv-elev-1: rgba(0, 0, 0, 0.025);
-  --rv-elev-2: rgba(0, 0, 0, 0.04);
-  --rv-elev-3: rgba(0, 0, 0, 0.06);
-  --rv-elev-4: rgba(0, 0, 0, 0.09);
-  --rv-elev-5: rgba(0, 0, 0, 0.12);
+   Visual character:
+   - Background: warm dark charcoal (oklch ~0.22), not cool slate-grey
+   - Cards: a notch lighter than canvas (oklch ~0.25) for tactile depth
+   - Accent: same sage forest #2F7A52, vivid on dark
+   - Type: warm cream-white hierarchy (matches paper-light's brown
+     undertone, just inverted) */
+.theme-paper-dark {
+  /* Surfaces — TweakCN dark export */
+  --rv-bg:      oklch(0.2181 0.0041 84.5884);
+  --rv-surface: oklch(0.2488 0.0063 78.2094);
+  --rv-raised:  oklch(0.2820 0.0061 78.2283);
+  --rv-overlay: oklch(0.2820 0.0061 78.2283);
 
-  --rv-glass-tint:        rgba(0, 0, 0, 0.025);
-  --rv-glass-tint-strong: rgba(0, 0, 0, 0.04);
-  --rv-glass-mid:         rgba(0, 0, 0, 0.04);
+  /* Elevation tokens — light-alpha rises lift surfaces toward viewer */
+  --rv-elev-1: rgba(255, 255, 255, 0.025);
+  --rv-elev-2: rgba(255, 255, 255, 0.04);
+  --rv-elev-3: rgba(255, 255, 255, 0.06);
+  --rv-elev-4: rgba(255, 255, 255, 0.09);
+  --rv-elev-5: rgba(255, 255, 255, 0.12);
 
-  --rv-scrim:        rgba(0, 0, 0, 0.18);
-  --rv-scrim-strong: rgba(0, 0, 0, 0.28);
+  --rv-glass-tint:        rgba(255, 255, 255, 0.025);
+  --rv-glass-tint-strong: rgba(255, 255, 255, 0.04);
+  --rv-glass-mid:         rgba(255, 255, 255, 0.04);
 
-  --rv-shadow-outer-sm: 0 2px 8px rgba(15, 15, 18, 0.08);
-  --rv-shadow-outer-md: 0 6px 18px rgba(15, 15, 18, 0.12);
-  --rv-shadow-outer-lg: 0 12px 32px rgba(15, 15, 18, 0.16);
-  --rv-shadow-inset:    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --rv-scrim:        rgba(0, 0, 0, 0.40);
+  --rv-scrim-strong: rgba(0, 0, 0, 0.55);
 
-  --rv-hairline-gradient: linear-gradient(90deg, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.06) 60%, transparent 100%);
+  /* Shadows — TweakCN's dark-mode soft shadows */
+  --rv-shadow-outer-sm: 0px 8px 20px 0px hsl(0 0% 0% / 0.20);
+  --rv-shadow-outer-md: 0px 8px 20px 0px hsl(0 0% 0% / 0.40), 0px 2px 4px -1px hsl(0 0% 0% / 0.40);
+  --rv-shadow-outer-lg: 0px 8px 20px 0px hsl(0 0% 0% / 0.40), 0px 4px 6px -1px hsl(0 0% 0% / 0.40);
+  --rv-shadow-inset:    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
-  --rv-t1: rgba(15, 15, 18, 1.00);
-  --rv-t2: rgba(15, 15, 18, 0.78);
-  --rv-t3: rgba(15, 15, 18, 0.56);
-  --rv-t4: rgba(15, 15, 18, 0.36);
+  --rv-hairline-gradient: linear-gradient(90deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 60%, transparent 100%);
 
-  /* Light-mode borders bumped a notch — at the same alphas as dark mode's
-     white-on-dark borders, dark-on-light reads as too faint and panel
-     edges visually disappear. These values give clean hairlines. */
-  --rv-border:     rgba(0, 0, 0, 0.12);
-  --rv-border-mid: rgba(0, 0, 0, 0.20);
-  --rv-border-hi:  rgba(0, 0, 0, 0.32);
+  /* Glass chrome — solid raised over the dark canvas */
+  --rv-panel-bg:   rgba(40, 38, 35, 0.94);
+  --rv-drawer-bg:  rgba(45, 43, 40, 0.96);
+  --rv-popover-bg: rgba(48, 46, 43, 0.98);
+  --rv-toast-bg:   rgba(45, 43, 40, 0.95);
+  --rv-badge-ring: rgba(36, 34, 32, 0.92);
 
-  /* Accent dim and signal-bg get re-tuned for light surfaces — at low
-     alpha on white they were nearly invisible. */
-  --rv-accent-dim:    rgba(48, 164, 108, 0.10);
-  --rv-accent-border: rgba(48, 164, 108, 0.32);
-  --rv-pos-bg:        rgba(47, 156, 105, 0.10);
-  --rv-neg-bg:        rgba(212, 89, 109, 0.10);
-  --rv-warn-bg:       rgba(245, 158, 11, 0.12);
-  --rv-alarm-bg:      rgba(239, 68, 68, 0.10);
+  /* Text — warm cream hierarchy mirroring paper-light's brown undertone */
+  --rv-t1: oklch(0.9761 0.0041 91.4461);
+  --rv-t2: oklch(0.8800 0.0050 88.0000);
+  --rv-t3: oklch(0.5775 0.0071 75.3713);
+  --rv-t4: oklch(0.4500 0.0060 78.0000);
 
-  /* Glass chrome surfaces — semi-opaque white sitting OVER the macOS
-     light vibrancy material. Without these, the dark-glass values
-     defined in :root would render as near-black smears in Light mode. */
-  --rv-panel-bg:   rgba(252, 252, 254, 0.82);
-  --rv-drawer-bg:  rgba(255, 255, 255, 0.92);
-  --rv-popover-bg: rgba(255, 255, 255, 0.97);
-  --rv-toast-bg:   rgba(255, 255, 255, 0.95);
-  --rv-badge-ring: rgba(245, 245, 247, 0.92);
+  /* Borders — soft dark hairlines */
+  --rv-border:     oklch(0.2820 0.0061 78.2283);
+  --rv-border-mid: oklch(0.3500 0.0080 78.0000);
+  --rv-border-hi:  oklch(0.4500 0.0090 76.0000);
 
-  /* Glass-tint inversion — sidebar/panel chrome tints become subtle
-     darker overlays on light vibrancy instead of white-on-dark. */
-  --rv-glass-tint:        rgba(0, 0, 0, 0.025);
-  --rv-glass-tint-strong: rgba(0, 0, 0, 0.04);
+  /* Accent — same TweakCN sage as paper-light */
+  --rv-accent:        oklch(0.4878 0.0635 159.5243);
+  --rv-accent-dim:    oklch(0.4878 0.0635 159.5243 / 0.18);
+  --rv-accent-border: oklch(0.4878 0.0635 159.5243 / 0.30);
+
+  /* Signals */
+  --rv-pos:     oklch(0.4878 0.0635 159.5243);
+  --rv-pos-bg:  oklch(0.4878 0.0635 159.5243 / 0.16);
+  --rv-neg:     oklch(0.5222 0.0891 31.3960);
+  --rv-neg-bg:  oklch(0.5222 0.0891 31.3960 / 0.16);
+  --rv-warn:    oklch(0.7158 0.0681 76.2579);
+  --rv-warn-bg: oklch(0.7158 0.0681 76.2579 / 0.16);
+  --rv-alarm:   oklch(0.5222 0.0891 31.3960);
+  --rv-alarm-bg: oklch(0.5222 0.0891 31.3960 / 0.16);
+
+  /* Source confidence chips */
+  --rv-src-hi-bg: oklch(0.4878 0.0635 159.5243 / 0.20);
+  --rv-src-hi-fg: var(--rv-pos);
+  --rv-src-md-bg: oklch(0.7158 0.0681 76.2579 / 0.16);
+  --rv-src-md-fg: var(--rv-warn);
+  --rv-src-lo-bg: oklch(0.5222 0.0891 31.3960 / 0.16);
+  --rv-src-lo-fg: var(--rv-neg);
+
+  /* TweakCN shadcn tokens — pulled directly from the .dark export */
+  --background:           oklch(0.2181 0.0041 84.5884);
+  --foreground:           oklch(0.9761 0.0041 91.4461);
+  --card:                 oklch(0.2488 0.0063 78.2094);
+  --card-foreground:      oklch(0.9761 0.0041 91.4461);
+  --popover:              oklch(0.2488 0.0063 78.2094);
+  --popover-foreground:   oklch(0.9761 0.0041 91.4461);
+  --primary:              oklch(0.4878 0.0635 159.5243);
+  --primary-foreground:   oklch(1.0000 0 0);
+  --secondary:            oklch(0.2820 0.0061 78.2283);
+  --secondary-foreground: oklch(0.9761 0.0041 91.4461);
+  --muted:                oklch(0.2820 0.0061 78.2283);
+  --muted-foreground:     oklch(0.5775 0.0071 75.3713);
+  --accent:               oklch(0.2820 0.0061 78.2283);
+  --accent-foreground:    oklch(0.4878 0.0635 159.5243);
+  --destructive:          oklch(0.5222 0.0891 31.3960);
+  --destructive-foreground: oklch(1.0000 0 0);
+  --border:               oklch(0.2820 0.0061 78.2283);
+  --input:                oklch(0.2820 0.0061 78.2283);
+  --ring:                 oklch(0.4878 0.0635 159.5243);
+
+  /* Sidebar — same family, dark-canvas variant */
+  --sidebar:                    oklch(0.2181 0.0041 84.5884);
+  --sidebar-foreground:         oklch(0.9761 0.0041 91.4461);
+  --sidebar-primary:            oklch(0.4878 0.0635 159.5243 / 0.18);
+  --sidebar-primary-foreground: oklch(0.4878 0.0635 159.5243);
+  --sidebar-accent:             oklch(0.2820 0.0061 78.2283);
+  --sidebar-accent-foreground:  oklch(0.9761 0.0041 91.4461);
+  --sidebar-border:             oklch(0.2820 0.0061 78.2283);
+  --sidebar-ring:               oklch(0.4878 0.0635 159.5243);
 }
 
 /* .dark stays as a no-op alias for backwards compatibility — the @theme
@@ -333,30 +499,47 @@
   --input:       var(--rv-surface);
 }
 
+
 @theme inline {
-  --color-background:            var(--background);
-  --color-foreground:            var(--foreground);
-  --color-card:                  var(--card);
-  --color-card-foreground:       var(--card-foreground);
-  --color-popover:               var(--popover);
-  --color-popover-foreground:    var(--popover-foreground);
-  --color-primary:               var(--primary);
-  --color-primary-foreground:    var(--primary-foreground);
-  --color-secondary:             var(--secondary);
-  --color-secondary-foreground:  var(--secondary-foreground);
-  --color-muted:                 var(--muted);
-  --color-muted-foreground:      var(--muted-foreground);
-  --color-destructive:           var(--destructive);
-  --color-border:                var(--border);
-  --color-input:                 var(--input);
-  --color-ring:                  var(--ring);
+  --color-background:                var(--background);
+  --color-foreground:                var(--foreground);
+  --color-card:                      var(--card);
+  --color-card-foreground:           var(--card-foreground);
+  --color-popover:                   var(--popover);
+  --color-popover-foreground:        var(--popover-foreground);
+  --color-primary:                   var(--primary);
+  --color-primary-foreground:        var(--primary-foreground);
+  --color-secondary:                 var(--secondary);
+  --color-secondary-foreground:      var(--secondary-foreground);
+  --color-muted:                     var(--muted);
+  --color-muted-foreground:          var(--muted-foreground);
+  --color-accent:                    var(--accent);
+  --color-accent-foreground:         var(--accent-foreground);
+  --color-destructive:               var(--destructive);
+  --color-destructive-foreground:    var(--destructive-foreground);
+  --color-border:                    var(--border);
+  --color-input:                     var(--input);
+  --color-ring:                      var(--ring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar:               var(--sidebar);
-  --color-sidebar-foreground:    var(--sidebar-foreground);
-  --color-sidebar-border:        var(--sidebar-border);
+  --color-sidebar:                       var(--sidebar);
+  --color-sidebar-foreground:            var(--sidebar-foreground);
+  --color-sidebar-primary:               var(--sidebar-primary);
+  --color-sidebar-primary-foreground:    var(--sidebar-primary-foreground);
+  --color-sidebar-accent:                var(--sidebar-accent);
+  --color-sidebar-accent-foreground:     var(--sidebar-accent-foreground);
+  --color-sidebar-border:                var(--sidebar-border);
+  --color-sidebar-ring:                  var(--sidebar-ring);
+
+  /* Font tokens — pull from next/font/local (--font-inter, --font-display,
+     --font-mono are wired in app/layout.tsx). The string fallbacks are
+     what TweakCN emitted; the var() prefix is what makes the loaded woff2
+     actually render. */
+  --font-sans:    var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   var(--font-display), 'Source Serif 4', ui-serif, Charter, Georgia, serif;
+  --font-mono:    var(--font-mono), 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @layer base {
@@ -381,8 +564,13 @@
   }
 
   html {
-    /* 13px base — native macOS UI default, not web's 16px */
-    font-size: 13px;
+    /* 16px root — Tailwind's default, what shadcn-blocks were designed
+       against. The previous 13px override was making the entire app
+       render at ~81% scale relative to shadcn demos (text-2xl etc are
+       all rem-based, so a smaller root scaled everything down). The
+       cards / numbers / spacing were all proportionally too small to
+       feel "premium." Going back to 16px lets shadcn primitives
+       render at their intended size. */
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
                  ui-sans-serif, system-ui, sans-serif;
   }
@@ -391,7 +579,6 @@
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-size: 13px;
   }
 
   /* ── Electron vibrancy unlock ───────────────────────────────────────────────
@@ -516,6 +703,10 @@
   width: 0;
   height: 0;
 }
+
+/* rv-stagger removed — was causing layout thrash on parent re-renders.
+   Modern apps that have stagger entrances trigger them imperatively
+   on mount, not via persistent CSS that fires on every render. */
 
 /* ── Chrome-style inverse-curve tab corners ───────────────────────────────
    Reference: chrome-tabs (Adam Schwartz). The active tab needs to

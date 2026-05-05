@@ -42,10 +42,7 @@ export function ScenarioDisclosure({
         variant="ghost"
         className="w-full flex items-center justify-between px-4 py-3 h-auto rounded-none"
       >
-        <span
-          className="text-[10px] uppercase tracking-widest font-medium"
-          style={{ color: "var(--rv-t3)" }}
-        >
+        <span className="text-[12px] font-medium text-muted-foreground">
           Adjust assumptions
         </span>
         <svg
