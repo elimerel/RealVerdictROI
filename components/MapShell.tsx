@@ -37,6 +37,25 @@ export default function MapShell() {
   const markersRef   = useRef<Map<string, Marker>>(new Map())
   const [resolved, setResolved] = useState<Record<string, Coords>>({})
 
+  // Theme-aware fallback bg for the canvas gap. Initialized empty
+  // (server + client first paint match), set after mount based on
+  // the active theme class. Updated on theme changes via the
+  // theme:changed broadcast that Settings already fires.
+  const [bgFallback, setBgFallback] = useState<string>("")
+  useEffect(() => {
+    const computeBg = () => {
+      if (typeof document === "undefined") return "#1a1d23"
+      const cls = document.documentElement.classList
+      return (cls.contains("theme-paper") || cls.contains("theme-light"))
+        ? "#eaeaec"
+        : "#1a1d23"
+    }
+    setBgFallback(computeBg())
+    const obs = new MutationObserver(() => setBgFallback(computeBg()))
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
+    return () => obs.disconnect()
+  }, [])
+
   const {
     deals, visibleDealIds, selectedId, cameraTarget,
     setSelectedId, _broadcastPinClick, setReady,
@@ -320,26 +339,13 @@ export default function MapShell() {
       <div
         ref={containerRef}
         className="absolute inset-0"
-        style={{
-          width:  "100%",
-          height: "100%",
-          // Fallback bg matching typical Mapbox dark tile color. If
-          // the canvas is briefly the wrong size during a route
-          // transition (chrome shrinking faster than canvas can
-          // resize), this is what shows behind it instead of an
-          // obvious bright/wrong color. Light theme overrides via
-          // an inline check on the html class — keeps the gap
-          // invisible across themes.
-          background: (() => {
-            if (typeof document === "undefined") return "#1a1d23"
-            const cls = document.documentElement.classList
-            // Light themes (paper, legacy theme-light) → cream gap;
-            // dark themes (paper-dark, anything else) → near-canvas grey.
-            return (cls.contains("theme-paper") || cls.contains("theme-light"))
-              ? "#eaeaec"
-              : "#1a1d23"
-          })(),
-        }}
+        // Fallback bg matching typical Mapbox tile colors. Resolved
+        // post-mount via theme observer (`bgFallback` state) so the
+        // server-rendered HTML matches the client's first paint —
+        // an inline `document.documentElement.classList` check at
+        // render time would always disagree with the server (no
+        // document there) and trigger a hydration mismatch.
+        style={{ width: "100%", height: "100%", background: bgFallback }}
       />
       {placedDeals.length >= 2 && (
         <Button

@@ -5,6 +5,7 @@ import { RefreshCw, Bookmark, BookmarkCheck, Eye, ExternalLink, MessagesSquare, 
 import type { ChatContext, ChatMessage, PanelResult, SourceField, SourceKind } from "@/lib/electron"
 import type { PipelineAverages } from "@/lib/pipeline"
 import { SourceMark, sourceMeta, freshnessLabel } from "@/components/source/SourceMark"
+import { BorderBeam } from "@/components/ui/border-beam"
 import { Currency } from "@/lib/format"
 import NumberFlow from "@number-flow/react"
 import { BuddyMark } from "@/components/BuddyMark"
@@ -159,6 +160,172 @@ function MetricCard({
         </Badge>
       )}
     </Card>
+  )
+}
+
+// ── Buy-bar framing strip ────────────────────────────────────────────────
+// Top-of-panel "vs your buy bar" line. Shows the deal's deltas against
+// the user's personal thresholds (set in Investment Defaults). Same
+// tone as PortfolioFramingStrip but the framing is YOUR criteria, not
+// the peer set. Hides if no thresholds are set, or if the deal lacks
+// the metrics needed to compute a delta.
+//
+// Magnitude thresholds match the workspace's buy-bar strip. The pill
+// in MetricCard ("above bar"/"below bar") and this row work together:
+// the strip gives the magnitude up front, the pill confirms inline.
+
+function BuyBarFramingStrip({
+  metrics, buyBar,
+}: {
+  metrics: PanelResult["metrics"]
+  buyBar?: {
+    minCapRate?:  number | null
+    minCashFlow?: number | null
+    minDscr?:     number | null
+  }
+}) {
+  if (!buyBar) return null
+  const { minCapRate, minCashFlow, minDscr } = buyBar
+  if (minCapRate == null && minCashFlow == null && minDscr == null) return null
+
+  type Fact = { key: string; label: string; delta: string; tone: "pos" | "neg" }
+  const facts: Fact[] = []
+
+  if (minCashFlow != null && Number.isFinite(metrics.monthlyCashFlow)) {
+    const delta = metrics.monthlyCashFlow - minCashFlow
+    if (Math.abs(delta) >= 1) {
+      const sign = delta >= 0 ? "+" : "−"
+      facts.push({
+        key: "cf", label: "Cash flow",
+        delta: `${sign}$${Math.round(Math.abs(delta)).toLocaleString()}/mo`,
+        tone:  delta >= 0 ? "pos" : "neg",
+      })
+    }
+  }
+  if (minCapRate != null && Number.isFinite(metrics.capRate)) {
+    const ppt = (metrics.capRate - minCapRate) * 100
+    if (Math.abs(ppt) >= 0.05) {
+      facts.push({
+        key: "cap", label: "Cap rate",
+        delta: ppt >= 0 ? `+${ppt.toFixed(2)} pts` : `${ppt.toFixed(2)} pts`,
+        tone:  ppt >= 0 ? "pos" : "neg",
+      })
+    }
+  }
+  if (minDscr != null && Number.isFinite(metrics.dscr)) {
+    const delta = metrics.dscr - minDscr
+    if (Math.abs(delta) >= 0.02) {
+      facts.push({
+        key: "dscr", label: "DSCR",
+        delta: delta >= 0 ? `+${delta.toFixed(2)}` : delta.toFixed(2),
+        tone:  delta >= 0 ? "pos" : "neg",
+      })
+    }
+  }
+  if (facts.length === 0) return null
+
+  return (
+    <div
+      className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-foreground/[0.07]"
+      style={{ background: "var(--rv-elev-1, transparent)" }}
+    >
+      <span className="text-[10.5px] uppercase tracking-wider font-medium text-muted-foreground">
+        Vs your buy bar
+      </span>
+      <span aria-hidden className="rounded-full bg-foreground/[0.18]" style={{ width: 4, height: 4 }} />
+      <div className="flex items-center gap-3 min-w-0 flex-wrap">
+        {facts.map((f) => (
+          <span key={f.key} className="inline-flex items-baseline gap-1 text-[11.5px] tabular-nums">
+            <span className="text-muted-foreground">{f.label}</span>
+            <span
+              className="font-medium"
+              style={{ color: f.tone === "pos" ? "var(--rv-pos)" : "var(--rv-neg)" }}
+            >
+              {f.delta}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Portfolio framing strip ──────────────────────────────────────────────
+// Top-of-panel "vs your pipeline" line. Same data source as
+// BenchmarkLine but a more prominent, panel-header-style render — sits
+// ABOVE the metric cards so the user's first read is "this deal vs your
+// typical save," not the absolute numbers in isolation. Only renders
+// when the user has 2+ saves and there's at least one meaningful delta.
+//
+// Magnitude thresholds match the workspace's portfolio context strip
+// (cap ≥ 0.10pp, cash flow ≥ $25/mo, dscr ≥ 0.05) so a tiny noise
+// difference doesn't trigger a stripe of "−$3" deltas.
+
+function PortfolioFramingStrip({
+  metrics, averages,
+}: {
+  metrics:   PanelResult["metrics"]
+  averages?: PipelineAverages
+}) {
+  if (!averages || averages.count < 2) return null
+
+  type Fact = { key: string; label: string; delta: string; tone: "pos" | "neg" }
+  const facts: Fact[] = []
+
+  const cashDelta = averages.avgCashFlow != null ? metrics.monthlyCashFlow - averages.avgCashFlow : null
+  if (cashDelta != null && Math.abs(cashDelta) >= 25) {
+    const sign = cashDelta >= 0 ? "+" : "−"
+    facts.push({
+      key: "cf", label: "Cash flow",
+      delta: `${sign}$${Math.round(Math.abs(cashDelta)).toLocaleString()}/mo`,
+      tone:  cashDelta >= 0 ? "pos" : "neg",
+    })
+  }
+  const capDelta = averages.avgCapRate != null ? metrics.capRate - averages.avgCapRate : null
+  if (capDelta != null && Math.abs(capDelta) * 100 >= 0.10) {
+    const ppt = capDelta * 100
+    facts.push({
+      key: "cap", label: "Cap rate",
+      delta: ppt >= 0 ? `+${ppt.toFixed(2)} pts` : `${ppt.toFixed(2)} pts`,
+      tone:  ppt >= 0 ? "pos" : "neg",
+    })
+  }
+  const dscrDelta = averages.avgDscr != null ? metrics.dscr - averages.avgDscr : null
+  if (dscrDelta != null && Math.abs(dscrDelta) >= 0.05) {
+    facts.push({
+      key: "dscr", label: "DSCR",
+      delta: dscrDelta >= 0 ? `+${dscrDelta.toFixed(2)}` : dscrDelta.toFixed(2),
+      tone:  dscrDelta >= 0 ? "pos" : "neg",
+    })
+  }
+  if (facts.length === 0) return null
+
+  return (
+    <div
+      className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-foreground/[0.07]"
+      style={{ background: "var(--rv-elev-1, transparent)" }}
+    >
+      <span className="text-[10.5px] uppercase tracking-wider font-medium text-muted-foreground">
+        Vs your pipeline
+      </span>
+      <span className="text-[11px] text-muted-foreground/60 tabular-nums">
+        {averages.count} {averages.count === 1 ? "save" : "saves"}
+      </span>
+      <span aria-hidden className="rounded-full bg-foreground/[0.18]" style={{ width: 4, height: 4 }} />
+      <div className="flex items-center gap-3 min-w-0 flex-wrap">
+        {facts.map((f) => (
+          <span key={f.key} className="inline-flex items-baseline gap-1 text-[11.5px] tabular-nums">
+            <span className="text-muted-foreground">{f.label}</span>
+            <span
+              className="font-medium"
+              style={{ color: f.tone === "pos" ? "var(--rv-pos)" : "var(--rv-t3)" }}
+            >
+              {f.delta}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -342,7 +509,7 @@ function ProvenanceRow({
   return (
     <div
       className={cn(
-        "group flex items-center justify-between gap-3 py-2.5 border-b border-border last:border-0",
+        "group flex items-center justify-between gap-3 py-2.5 border-b border-foreground/[0.07] last:border-0",
         canEdit && "cursor-pointer"
       )}
       onClick={canEdit ? onEdit : undefined}
@@ -514,7 +681,7 @@ function SourcesDrawer({
                   key={group.key}
                   className="rounded-[12px] overflow-hidden bg-muted/40 border border-border"
                 >
-                  <div className="flex items-center gap-3 px-4 pt-3.5 pb-3 border-b border-border">
+                  <div className="flex items-center gap-3 px-4 pt-3.5 pb-3 border-b border-foreground/[0.07]">
                     <SourceMark source={group.source} siteName={result.siteName} size="md" />
                     <div className="flex-1 min-w-0">
                       <p
@@ -539,7 +706,7 @@ function SourcesDrawer({
                         key={i}
                         className={cn(
                           "flex items-baseline justify-between gap-3 py-2.5",
-                          i < group.facts.length - 1 && "border-b border-border"
+                          i < group.facts.length - 1 && "border-b border-foreground/[0.07]"
                         )}
                       >
                         <span className="text-[12.5px] text-muted-foreground">{f.label}</span>
@@ -688,7 +855,7 @@ function AnalyzingPane() {
   return (
     <div className="flex flex-col flex-1 min-h-0 panel-enter">
       {/* Hero skeleton — map → price → cash flow → address */}
-      <div className="px-4 pt-4 pb-5 border-b border-border">
+      <div className="px-4 pt-4 pb-5 border-b border-foreground/[0.07]">
         <ShimmerBlock width="100%" height={140} radius={10} />
         <div style={{ marginTop: 14 }}>
           <ShimmerBlock width={180} height={32} radius={6} />
@@ -704,7 +871,7 @@ function AnalyzingPane() {
       </div>
 
       {/* Metrics skeleton — three cards */}
-      <div className="px-4 py-4 border-b border-border">
+      <div className="px-4 py-4 border-b border-foreground/[0.07]">
         <div className="grid grid-cols-3 gap-2">
           {[0, 1, 2].map((i) => (
             <div
@@ -733,7 +900,7 @@ function AnalyzingPane() {
           The mark is the same one in the sidebar header so the brand
           identity carries through, and the slow breath reads as
           "concentrating," not "loading." */}
-      <div className="px-4 py-3 flex items-center gap-2.5 border-b border-border">
+      <div className="px-4 py-3 flex items-center gap-2.5 border-b border-foreground/[0.07]">
         <BuddyMark size={16} state="thinking" />
         <span className="text-[11.5px] text-muted-foreground">
           Reading listing, pulling rates and comps…
@@ -838,7 +1005,7 @@ function ManualEntryPane({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex items-center justify-between gap-2 px-4 py-3 shrink-0 border-b border-border">
+      <div className="flex items-center justify-between gap-2 px-4 py-3 shrink-0 border-b border-foreground/[0.07]">
         <p className="text-[12px] font-medium text-foreground">
           Tell us about this listing
         </p>
@@ -900,7 +1067,7 @@ function ManualEntryPane({
           </div>
         </div>
       </div>
-      <div className="px-4 py-3 shrink-0 flex items-center justify-end gap-2 border-t border-border">
+      <div className="px-4 py-3 shrink-0 flex items-center justify-end gap-2 border-t border-foreground/[0.07]">
         <Button onClick={() => onSubmit(facts)} disabled={!canSubmit} variant="default" size="sm">
           Analyze
         </Button>
@@ -1185,6 +1352,69 @@ function ResultPane({
     return shellDeals.filter((d) => d.city?.trim().toLowerCase() === city).length
   }, [shellDeals, result.city])
 
+  // Portfolio reasoning — the buddy looking at THIS listing relative to
+  // YOUR pipeline. Generic AI commentary describes the listing
+  // ("3-bed condo, brand-new construction"); this reasons against the
+  // user's own data ("3rd Anchorage deal — the other two cash-flow
+  // negative at 25% down"). The differentiator. Returns 1 string or
+  // null when there's not enough comparable history.
+  const portfolioObservation = useMemo<string | null>(() => {
+    if (shellDeals.length < 2) return null
+    const cf = result.metrics?.monthlyCashFlow
+    const cap = result.metrics?.capRate
+    const city = result.city?.trim().toLowerCase()
+
+    // Same-city pattern detection — most concrete signal when the user
+    // is concentrated in a market.
+    if (city) {
+      const cityPeers = shellDeals.filter((d) => d.city?.trim().toLowerCase() === city)
+      if (cityPeers.length >= 2) {
+        const peerCfs = cityPeers
+          .map((d) => d.snapshot?.metrics?.monthlyCashFlow)
+          .filter((n): n is number => Number.isFinite(n))
+        if (peerCfs.length >= 2) {
+          const negCount = peerCfs.filter((n) => n < 0).length
+          if (negCount === peerCfs.length && cf != null && cf < 0) {
+            return `${cityPeers.length} other ${result.city} ${cityPeers.length === 2 ? "deal" : "deals"} in your pipeline — all cash-flow negative. Worth asking whether this market clears your bar.`
+          }
+          const avgCf = peerCfs.reduce((a, b) => a + b, 0) / peerCfs.length
+          if (cf != null) {
+            const delta = cf - avgCf
+            const sign = delta >= 0 ? "+" : "−"
+            return `${cityPeers.length === 1 ? "Your other" : `Your ${cityPeers.length} other`} ${result.city} ${cityPeers.length === 1 ? "deal averages" : "deals average"} ${avgCf >= 0 ? "+" : "−"}$${Math.abs(Math.round(avgCf))}/mo. This one's ${sign}$${Math.abs(Math.round(delta))} relative.`
+          }
+        }
+      }
+    }
+
+    // Portfolio-wide ranks — cash flow + cap rate against the rest.
+    const allCfs = shellDeals
+      .map((d) => d.snapshot?.metrics?.monthlyCashFlow)
+      .filter((n): n is number => Number.isFinite(n))
+    const allCaps = shellDeals
+      .map((d) => d.snapshot?.metrics?.capRate)
+      .filter((n): n is number => Number.isFinite(n))
+
+    if (cf != null && allCfs.length >= 3) {
+      const sorted = [...allCfs].sort((a, b) => a - b)
+      const rank = sorted.filter((n) => n < cf).length
+      const pct = rank / sorted.length
+      if (pct <= 0.25)  return `Cash flow puts this in the bottom quarter of your pipeline.`
+      if (pct >= 0.75)  return `Cash flow puts this in the top quarter of your pipeline.`
+    }
+
+    if (cap != null && allCaps.length >= 3) {
+      const avg = allCaps.reduce((a, b) => a + b, 0) / allCaps.length
+      const delta = cap - avg
+      if (Math.abs(delta) >= 0.005) {
+        const sign = delta > 0 ? "above" : "below"
+        return `Cap rate is ${(Math.abs(delta) * 100).toFixed(1)}pt ${sign} your portfolio average of ${(avg * 100).toFixed(1)}%.`
+      }
+    }
+
+    return null
+  }, [shellDeals, result.city, result.metrics])
+
   return (
     <div
       className="flex flex-col overflow-y-auto panel-scroll flex-1 min-h-0"
@@ -1202,7 +1432,7 @@ function ResultPane({
           as supporting context. The visual ratio is intentional: this
           section takes a third of the panel height so the "what's the
           deal" answer lands hard before the user scrolls. */}
-      <div className="px-4 pt-2 pb-5 border-b border-border">
+      <div className="px-4 pt-2 pb-5 border-b border-foreground/[0.07]">
         {(result.address || result.city) && (
           <div className="mb-4 -mx-1">
             {/* Inline = Mapbox satellite static (no third-party badge,
@@ -1332,7 +1562,7 @@ function ResultPane({
           investor to the source page. Re-analyze / settings still live
           in the slim header. */}
       {(onSave || onOpenSource || (isSaved && onMoveStage && currentStage)) && (
-        <div className="px-4 py-3 flex items-center gap-2 shrink-0 border-b border-border">
+        <div className="px-4 py-3 flex items-center gap-2 shrink-0 border-b border-foreground/[0.07]">
           {/* Saved + can move stage → StageMenu (a real dropdown that
               actually changes the deal's stage). Replaces the previous
               disabled "Watching" button which was a UI lie — it looked
@@ -1384,8 +1614,8 @@ function ResultPane({
           + portfolio benchmark line. Was three separate sections that all
           said "the AI is observing things"; now one unified surface in
           the buddy's voice (display serif). */}
-      {(result.take || result.riskFlags.length > 0 || (sameCityCount > 0 && result.city)) && (
-        <div className="px-4 py-5 border-b border-border">
+      {(result.take || result.riskFlags.length > 0 || portfolioObservation || (sameCityCount > 0 && result.city)) && (
+        <div className="px-4 py-5 border-b border-foreground/[0.07]">
           <p className="text-[11px] font-medium mb-3 flex items-center gap-1.5 text-primary">
             <Sparkles size={11} strokeWidth={2} />
             AI noticed
@@ -1408,13 +1638,36 @@ function ResultPane({
               {result.riskFlags.map((flag, i) => <RiskFlag key={i} text={flag} />)}
             </div>
           )}
-          {/* Neighborhood density — "you already track this market." Quiet
-              contextual line at the bottom of AI Noticed; previously was
-              a pill in the hero where it competed with the price for
-              attention. Lives here because it's an observation about
-              your portfolio relative to this listing — same surface
-              the rest of AI Noticed occupies. */}
-          {sameCityCount > 0 && result.city && (
+          {/* Portfolio reasoning — buddy comparing this listing against
+              the user's own pipeline. The differentiator: most apps
+              describe the listing in isolation; we put it in context
+              of what you've already saved. Cream-bordered card so
+              it reads as a separate "your pipeline says" thought. */}
+          {portfolioObservation && (
+            <div className={`relative overflow-hidden rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 ${result.take || result.riskFlags.length > 0 ? "mt-3" : ""}`}>
+              {/* Magic UI BorderBeam — sage shimmer that traces the
+                  card edge once when the reasoning lands. Signals
+                  "fresh thought from the buddy" — same gesture
+                  Linear uses to highlight new threads. Single pass
+                  (delay then static) so it doesn't perpetually pulse. */}
+              <BorderBeam size={50} duration={6} colorFrom="var(--primary)" colorTo="transparent" />
+              <p
+                className="leading-snug text-foreground relative"
+                style={{
+                  fontSize:      13,
+                  fontFamily:    "var(--rv-font-display)",
+                  fontWeight:    400,
+                  letterSpacing: "-0.008em",
+                }}
+              >
+                {portfolioObservation}
+              </p>
+            </div>
+          )}
+          {/* Neighborhood density — fallback "you already track this
+              market" line when there isn't enough data for the deeper
+              portfolio reasoning above. */}
+          {!portfolioObservation && sameCityCount > 0 && result.city && (
             <p className={`text-[12px] text-muted-foreground ${result.take || result.riskFlags.length > 0 ? "mt-3" : ""}`}>
               You already have {sameCityCount} saved deal{sameCityCount === 1 ? "" : "s"} in {result.city}.
             </p>
@@ -1422,12 +1675,21 @@ function ResultPane({
         </div>
       )}
 
+      {/* "Vs your buy bar" + "Vs your pipeline" framing strips —
+          contextual deltas BEFORE the absolute metric cards. Order
+          matches the workspace: own criteria (your buy bar) first,
+          peer set (your pipeline) second. Each strip silently hides
+          when there's nothing meaningful to surface (no thresholds
+          set / not enough peers / no deltas above noise). */}
+      <BuyBarFramingStrip metrics={metrics} buyBar={buyBar} />
+      <PortfolioFramingStrip metrics={metrics} averages={pipelineAverages} />
+
       {/* Three key metrics. Cards stay clean — trust signals live in the
           header source-stack + the provenance section below + the Sources
           drawer. When the user has tweaked any scenario input, a quiet
           "Your scenario" chip appears above the cards so the user knows
           they're looking at modeled-not-default numbers. */}
-      <div className="px-4 py-4 border-b border-border">
+      <div className="px-4 py-4 border-b border-foreground/[0.07]">
         {/* "Your scenario" banner — the unmissable cue that the metric
             cards below show modeled-not-default numbers. Sits between
             the hero and the cards so the user's eye lands here on the
@@ -1496,7 +1758,7 @@ function ResultPane({
       <button
         type="button"
         onClick={() => setDetailsOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 border-b border-border hover:bg-muted/50 transition-colors text-left"
+        className="w-full flex items-center justify-between px-4 py-3 border-b border-foreground/[0.07] hover:bg-muted/50 transition-colors text-left"
         aria-expanded={detailsOpen}
       >
         <span className="text-[12px] font-medium text-muted-foreground">
@@ -1518,7 +1780,7 @@ function ResultPane({
           {/* Portfolio benchmark line — was inline under the metric
               cards; now lives inside the details disclosure as the
               first verification surface. */}
-          <div className="px-4 py-3 border-b border-border">
+          <div className="px-4 py-3 border-b border-foreground/[0.07]">
             <BenchmarkLine
               metrics={metrics}
               averages={pipelineAverages}
@@ -1527,7 +1789,7 @@ function ResultPane({
 
           {/* Secondary metrics — GRM / break-even / rent / cash invested.
               Useful on demand, not in the first read. */}
-          <div className="px-4 py-3 grid grid-cols-2 gap-y-3 border-b border-border">
+          <div className="px-4 py-3 grid grid-cols-2 gap-y-3 border-b border-foreground/[0.07]">
             {[
               { label: "GRM",             value: `${fmtNum(metrics.grm, 1)}×` },
               { label: "Break-even occ.", value: fmtPct(metrics.breakEvenOccupancy) },
@@ -1548,7 +1810,7 @@ function ResultPane({
               its source attribution. Lives inside the details
               disclosure now so it's still inline (not hidden in a
               drawer) but doesn't compete with the first read. */}
-          <div className="px-4 py-4 border-b border-border">
+          <div className="px-4 py-4 border-b border-foreground/[0.07]">
             <p className="text-[10px] uppercase tracking-widest font-medium mb-2.5 text-muted-foreground/60">
               Numbers we used
             </p>

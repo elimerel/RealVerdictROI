@@ -4,15 +4,10 @@ import { useSidebar } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 /**
- * Sidebar toggle — single element, fixed at window x=86 / y=12.
- *
- * Lives at the WINDOW level (above sidebar + content). Never moves no
- * matter what state the sidebar is in:
- *   - sidebar full   (≥160 wide): button sits inside sidebar's top strip
- *   - sidebar icons  (80 wide):    button sits at the boundary (~6px into toolbar)
- *   - sidebar hidden (0 wide):     button sits over toolbar
- *
- * Either way, the visible window-coordinate is the same.
+ * Sidebar toggle — fixed at window x=86 / y=12, visible in BOTH states
+ * (sidebar open → click to collapse, sidebar closed → click to expand).
+ * The sidebar header pads its content past x=124 so the wordmark
+ * doesn't sit underneath the toggle when the sidebar is open.
  */
 export default function SidebarToggle() {
   const { toggleSidebar: toggle } = useSidebar()
@@ -21,10 +16,16 @@ export default function SidebarToggle() {
       <TooltipTrigger
         onClick={toggle}
         aria-label="Toggle sidebar"
-        className="rv-sidebar-toggle fixed z-50 inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+        // top=5 centers the 32px toggle at y=21 — matching the 42px
+        // AppTopBar center + the traffic lights' new y=15 center.
+        // All three (traffic lights / toggle / topbar widgets) now
+        // sit on the same vertical line. z=60 keeps the toggle above
+        // the topbar (z=50) so it's never covered.
+        className="rv-sidebar-toggle fixed inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
         style={{
-          top:             12,
+          top:             5,
           left:            86,
+          zIndex:          60,
           WebkitAppRegion: "no-drag",
         } as React.CSSProperties}
       >

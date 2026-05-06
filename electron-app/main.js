@@ -569,7 +569,11 @@ function createAppWindow() {
     vibrancy: "sidebar",
     visualEffectState: "active",
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    // y=15 centers the 12px traffic lights at y=21 — matching the
+    // 42px AppTopBar's vertical center. Was y=18 (centered at 24)
+    // which made traffic lights sit 3px below every other element
+    // in the bar.
+    trafficLightPosition: { x: 16, y: 15 },
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -822,36 +826,30 @@ function shrinkToLogin() {
 // WebContentsView
 // ---------------------------------------------------------------------------
 
-// Toolbar height in CSS pixels — must match the React Toolbar's height
-// (52px). If this drifts, browserView overlaps the bottom strip of the
-// toolbar and intercepts clicks meant for the URL bar / nav buttons.
-// Chrome heights above the embedded BrowserView. Must match the
-// renderer's layout exactly:
-//   - AppTopBar: 52px (always present, holds URL toolbar in Browse).
-//   - BrowseTabsRow: 40px (always 40 in Browse mode — collapses to 0
-//     on other routes, but BrowserView is only shown on Browse so
-//     we always assume the 40 here).
-// Total chrome above the BrowserView = 110px in Browse:
-//   36px tab strip + 42px URL toolbar + 32px bookmarks bar.
-//   Wexond / classic-Chrome proportions — denser, more tool-like.
-const TOOLBAR_H        = 42
-const TAB_STRIP_H      = 36
-const BOOKMARKS_BAR_H  = 32
+// Chrome height above the embedded BrowserView.
+//   - AppTopBar: 42px (always present in Browse — holds URL toolbar)
+//   - TabStrip:  36px ONLY when > 1 tab is open (auto-hidden for
+//                the single-tab common case so the chrome stays
+//                lean — power users get tabs on demand via the "+"
+//                button on the URL bar)
+const TOOLBAR_H   = 42
+const TAB_STRIP_H = 36
 
-// Total chrome height above the embedded BrowserView in Browse mode.
-// AppTopBar + BrowseTabsRow + BookmarksBar all live at the layout
-// level and are unconditionally laid out when in Browse, so chrome
-// is always 124px when the BrowserView is shown.
 function activeChromeHeight() {
-  return TAB_STRIP_H + TOOLBAR_H + BOOKMARKS_BAR_H
+  // tabStripVisible is published by the renderer via setLayout when
+  // the user opens a 2nd tab (or closes back to 1). Default false
+  // means single-tab common case → no extra chrome.
+  return TOOLBAR_H + (tabStripVisible ? TAB_STRIP_H : 0)
 }
 
 // Cached layout state. React (the renderer) pushes settled values via
 // `browser:set-layout`; main animates browserView's bounds to match.
-// These are the ONLY animation drivers in the system — sidebar/panel
-// animations themselves run as pure CSS in the React tree.
-let sidebarWidth = 220
-let panelWidth   = 0
+// Sidebar default 256 matches shadcn Sidebar's --sidebar-width (the
+// renderer pushes the live value on open/collapse, this is just the
+// "before-renderer-publishes" fallback).
+let sidebarWidth     = 256
+let panelWidth       = 0
+let tabStripVisible  = false
 // Start parked. The native BrowserView is composited above the renderer,
 // so any incidental applyBrowserViewLayout() before the renderer
 // explicitly calls browser:show would put it on screen — regardless of
@@ -1337,6 +1335,11 @@ function readLayoutInto(layout) {
   let pw = panelWidth
   if (layout && typeof layout.sidebarWidth === "number") sb = Math.max(0, layout.sidebarWidth)
   if (layout && typeof layout.panelWidth   === "number") pw = Math.max(0, layout.panelWidth)
+  // Tab strip visibility is stateful — set on the module-level flag
+  // here so activeChromeHeight() reads the latest value.
+  if (layout && typeof layout.tabStripVisible === "boolean") {
+    tabStripVisible = layout.tabStripVisible
+  }
   return { sb, pw }
 }
 

@@ -75,7 +75,10 @@ export function PipelineDealTable({
   onToggleSelect,
 }: PipelineDealTableProps) {
   const [sorting, setSorting] = React.useState<SortingState>([
-    { id: "created_at", desc: true },
+    // Default: newest first. The "age" column's accessorKey is
+    // created_at, but its `id` is "age" (id wins over accessorKey for
+    // TanStack's sorting state lookup), so we reference "age" here.
+    { id: "age", desc: true },
   ])
 
   const columns = React.useMemo<ColumnDef<SavedDeal>[]>(() => [
@@ -233,7 +236,7 @@ export function PipelineDealTable({
           {table.getRowModel().rows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={columns.length} className="h-24 text-center text-sm text-muted-foreground">
-                No deals match the current filters.
+                Nothing matches what you're filtering for.
               </TableCell>
             </TableRow>
           ) : (

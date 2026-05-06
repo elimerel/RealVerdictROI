@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { useSearchParams } from "next/navigation"
 import { useTopBarSlots } from "@/lib/topBarSlots"
 import { Slider } from "@/components/ui/slider"
 import { Card } from "@/components/ui/card"
@@ -1046,12 +1047,42 @@ function AboutSection() {
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
+// Tabs that the page understands. Used both for the rail and to gate
+// the ?tab= deep-link parameter (unknown values fall back to default).
+const SETTINGS_TABS = [
+  "appearance", "map", "investment", "account",
+  "privacy", "shortcuts", "about", "advanced",
+] as const
+type SettingsTab = typeof SETTINGS_TABS[number]
+
 // Named export — imported by AppLayout for always-mounted rendering.
 export function SettingsPage() {
   const { settings: settingsSlot } = useTopBarSlots()
 
+  // Deep-link support — `/settings?tab=investment` opens the workspace
+  // straight on Investment Defaults (used by the buy-bar onboarding
+  // nudge in the per-deal workspace). Settings is always-mounted, so
+  // we listen reactively to the URL via useSearchParams; landing here
+  // from another route updates the active tab without a remount.
+  const searchParams = useSearchParams()
+  const urlTab = (searchParams?.get("tab") ?? "") as SettingsTab
+  const initialTab: SettingsTab = SETTINGS_TABS.includes(urlTab) ? urlTab : "appearance"
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
+  // Sync to URL changes after mount.
+  useEffect(() => {
+    if (urlTab && SETTINGS_TABS.includes(urlTab) && urlTab !== activeTab) {
+      setActiveTab(urlTab)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlTab])
+
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-background">
+    <div
+      className="flex flex-col h-full overflow-hidden bg-background"
+      // AlwaysMountedRoutes' layer is now pe:none; routes opt into
+      // pe:auto here. Settings always wants pe:auto for its content.
+      style={{ pointerEvents: "auto" }}
+    >
       {/* Title portals into the persistent AppTopBar's settings slot
           so the bar renders our content without re-mounting on
           navigation. The portal is conditional on the slot ref being
@@ -1075,7 +1106,8 @@ export function SettingsPage() {
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="max-w-[1080px] mx-auto h-full px-8 pt-10 pb-12">
           <Tabs
-            defaultValue="appearance"
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as SettingsTab)}
             orientation="vertical"
             className="h-full !flex-row gap-10"
           >

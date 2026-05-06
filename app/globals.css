@@ -260,9 +260,17 @@
    - All shadows soft + warm (TweakCN export — soft drop shadows for
      popovers only, none on resting surfaces) */
 .theme-paper {
-  /* Surfaces — TweakCN cream + white. White cards on cream paper
-     read as documents on a desk. */
-  --rv-bg:      oklch(0.9761 0.0041 91.4461);
+  /* Surfaces — Linear contrast direction: BODY is the brightest plane,
+     chrome (sidebar + topbar) recedes to a warm cream tone. The
+     previous "white cards on cream body" inverted Linear's pattern —
+     the cream body read as the darker thing because cards/popovers/
+     inputs were all brighter than the body. Now: body is near-white
+     (with a faint cream warmth retained from the old palette), cards
+     are pure white (a hair above body), chrome (--sidebar, set later
+     in this block) sits clearly below at oklch(0.94). The hierarchy
+     reads: card > body > chrome — instead of the old card > chrome >
+     body inversion. */
+  --rv-bg:      oklch(0.9920 0.0035 91.4461);
   --rv-surface: oklch(1.0000 0 0);
   --rv-raised:  oklch(1.0000 0 0);
   --rv-overlay: oklch(1.0000 0 0);
@@ -340,8 +348,10 @@
 
   /* TweakCN shadcn tokens — explicit values so the new tokens
      (--accent, --secondary, --ring etc.) get the cream/sage palette
-     directly rather than via the --rv-* alias chain. */
-  --background:           oklch(0.9761 0.0041 91.4461);
+     directly rather than via the --rv-* alias chain. Bumped from the
+     old 0.9761 cream to 0.9920 near-white so the body reads as the
+     brightest plane — see the --rv-bg comment above for rationale. */
+  --background:           oklch(0.9920 0.0035 91.4461);
   --foreground:           oklch(0.2181 0.0041 84.5884);
   --card:                 oklch(1.0000 0 0);
   --card-foreground:      oklch(0.2181 0.0041 84.5884);
@@ -361,18 +371,35 @@
   --input:                oklch(0.9099 0.0112 89.7280);
   --ring:                 oklch(0.4878 0.0635 159.5243);
 
-  /* Sidebar — TweakCN exported a solid-sage active state
-     (sidebar-primary: sage, sidebar-primary-foreground: white) which
-     renders as a heavy green block. Toned down here to a tinted
-     state: sage-on-tinted-cream, like Mercury's nav. */
-  --sidebar:                    oklch(0.9761 0.0041 91.4461);
+  /* Sidebar — Linear / Mercury / Notion contrast direction: chrome
+     RECEDES, content steps forward. Body is now the brightest plane
+     (--background L=0.992) so the sidebar's warm cream chrome reads
+     clearly as a separate surface beneath the work area.
+
+     Lightness math: --background L=0.9920; sidebar L=0.9420 puts the
+     sidebar ~5% darker, matching Linear's gap. Chroma at 0.0080 keeps
+     the warm tint visible (a flat-gray darkening would feel ashen).
+     The active-state (sidebar-primary) stays a sage-tinted wash so
+     selection still pops against the deeper chrome. */
+  --sidebar:                    oklch(0.9420 0.0080 91.4461);
   --sidebar-foreground:         oklch(0.2181 0.0041 84.5884);
-  --sidebar-primary:            oklch(0.4878 0.0635 159.5243 / 0.12);
+  --sidebar-primary:            oklch(0.4878 0.0635 159.5243 / 0.14);
   --sidebar-primary-foreground: oklch(0.4878 0.0635 159.5243);
-  --sidebar-accent:             oklch(0.9099 0.0112 89.7280);
+  --sidebar-accent:             oklch(0.8920 0.0120 89.7280);
   --sidebar-accent-foreground:  oklch(0.4878 0.0635 159.5243);
-  --sidebar-border:             oklch(0.9099 0.0112 89.7280);
+  --sidebar-border:             oklch(0.8820 0.0110 89.7280);
   --sidebar-ring:               oklch(0.4878 0.0635 159.5243);
+}
+
+/* Skeleton pulse — for loading-state placeholders. Subtle opacity
+   wave that staggers via animation-delay across rows. Premium apps
+   use this instead of spinners — content "breathes in" as it loads. */
+@keyframes rv-skeleton-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+.rv-skeleton-pulse {
+  animation: rv-skeleton-pulse 1.6s cubic-bezier(0.32, 0.72, 0, 1) infinite;
 }
 
 /* ── Paper Dark — sibling to .theme-paper ──────────────────────────────
@@ -479,8 +506,12 @@
   --input:                oklch(0.2820 0.0061 78.2283);
   --ring:                 oklch(0.4878 0.0635 159.5243);
 
-  /* Sidebar — same family, dark-canvas variant */
-  --sidebar:                    oklch(0.2181 0.0041 84.5884);
+  /* Sidebar — bumped to oklch(0.27...) which is a notch lighter
+     than the card tone (0.2488) so the chrome reads clearly above
+     the body. Was 0.2488 (matching --card) but the 0.03 lightness
+     gap to the canvas (0.2181) was too subtle to register in dark
+     mode — sidebar visually blended with the deal list. */
+  --sidebar:                    oklch(0.2700 0.0063 78.2094);
   --sidebar-foreground:         oklch(0.9761 0.0041 91.4461);
   --sidebar-primary:            oklch(0.4878 0.0635 159.5243 / 0.18);
   --sidebar-primary-foreground: oklch(0.4878 0.0635 159.5243);
@@ -501,6 +532,22 @@
 
 
 @theme inline {
+  /* Locked type scale — premium apps pick a small set and stick to
+     it. We use these and only these. The "almost the same size"
+     noise (12 / 12.5 / 13 / 13.5 / 14 / 14.5 / 15) reads as
+     uncrafted; the Linear / Mercury approach is fewer steps with
+     bigger jumps. Reference these as text-{xs|sm|...} via Tailwind
+     OR as inline `fontSize: 11/12/13/14/16/22/30/42` for hero
+     numbers. */
+  --text-xs:    11px;
+  --text-sm:    12px;
+  --text-base:  13px;   /* body default — was 14, drops a notch for density */
+  --text-md:    14px;
+  --text-lg:    16px;
+  --text-xl:    22px;   /* sub-hero (cash flow alongside price) */
+  --text-2xl:   30px;   /* KPI card hero */
+  --text-3xl:   42px;   /* panel price hero */
+
   --color-background:                var(--background);
   --color-foreground:                var(--foreground);
   --color-card:                      var(--card);
@@ -520,10 +567,29 @@
   --color-border:                    var(--border);
   --color-input:                     var(--input);
   --color-ring:                      var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* Locked radius rhythm — Linear/Mercury picks 2-3 specific values
+     and uses them everywhere. We pick: 6px (sm — small chips, dense
+     pills), 8px (md/lg — buttons, inputs, the default), 12px (xl —
+     cards, surfaces, dialogs). No in-between values. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Apple-spring easing — every premium app uses a spring, not a
+     linear ease. This is the curve Apple ships in iOS / macOS for
+     UI transitions. Apply via `transition-timing-function:
+     var(--ease-spring)` or `transition: ... var(--ease-spring)`.
+     Linear / Mercury / Vercel all default to this curve. */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* Hairline border alpha — premium apps use ~6-10% foreground for
+     borders, not the louder default. Scoped tokens so we can opt
+     selected surfaces into the lighter weight without rewriting every
+     border on the app. */
+  --color-hairline:        oklch(from var(--foreground) l c h / 0.07);
+  --color-hairline-strong: oklch(from var(--foreground) l c h / 0.12);
   --color-sidebar:                       var(--sidebar);
   --color-sidebar-foreground:            var(--sidebar-foreground);
   --color-sidebar-primary:               var(--sidebar-primary);
@@ -1008,19 +1074,28 @@
   scrollbar-color: transparent transparent;
 }
 .panel-scroll:hover {
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  /* Hairline foreground (theme-aware) instead of hard-coded white.
+     In paper-light, this is a faint warm-charcoal alpha; in
+     paper-dark, a faint cream alpha. Matches the rest of our
+     border tokens. */
+  scrollbar-color: oklch(from var(--foreground) l c h / 0.18) transparent;
 }
-.panel-scroll::-webkit-scrollbar       { width: 8px; height: 8px; }
+.panel-scroll::-webkit-scrollbar       { width: 6px; height: 6px; }
 .panel-scroll::-webkit-scrollbar-track { background: transparent; }
 .panel-scroll::-webkit-scrollbar-thumb {
   background:       transparent;
-  border-radius:    4px;
-  border:           2px solid transparent;
+  border-radius:    99px;
+  border:           1.5px solid transparent;
   background-clip:  content-box;
-  transition:       background-color 200ms ease-out;
+  transition:       background-color 200ms cubic-bezier(0.32,0.72,0,1);
 }
 .panel-scroll:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.18);
+  background-color: oklch(from var(--foreground) l c h / 0.16);
+}
+.panel-scroll::-webkit-scrollbar-thumb:hover {
+  /* When the cursor is ON the scrollbar specifically, sage tint —
+     subtle but communicates "you're grabbing me." Apple's pattern. */
+  background-color: oklch(from var(--primary) l c h / 0.45);
 }
 
 /* ── Fully invisible scroll — for surfaces that scroll but should NEVER

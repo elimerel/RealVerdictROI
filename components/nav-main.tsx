@@ -1,5 +1,6 @@
 "use client"
 
+import { usePathname } from "next/navigation"
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -20,6 +21,11 @@ export function NavMain({
   }[]
   onQuickCreate?: () => void
 }) {
+  const pathname = usePathname()
+  // Active match: exact path or a sub-route prefix (e.g. /pipeline?stage=watching
+  // still highlights Pipeline). Routes whose href is "#" never match.
+  const isActiveItem = (url: string) =>
+    url !== "#" && (pathname === url || pathname.startsWith(url + "/") || pathname.startsWith(url + "?"))
   return (
     <SidebarGroup>
       <SidebarGroupContent className="flex flex-col gap-2">
@@ -40,6 +46,7 @@ export function NavMain({
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
                 tooltip={item.title}
+                isActive={isActiveItem(item.url)}
                 render={<a href={item.url} />}
               >
                 {item.icon}

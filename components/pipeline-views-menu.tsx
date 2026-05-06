@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -126,61 +127,67 @@ export function PipelineViewsMenu({ currentStage, onApplyView }: PipelineViewsMe
         <ChevronDown size={13} strokeWidth={2.2} className="text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" sideOffset={6} className="min-w-56">
-        <DropdownMenuLabel className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
-          Built-in views
-        </DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => onApplyView(null)}>
-          <Check
-            size={13}
-            className={cn(
-              activeBuiltIn === "all" ? "opacity-100 text-primary" : "opacity-0"
-            )}
-          />
-          All active
-        </DropdownMenuItem>
-        {DEAL_STAGES.map((s) => (
-          <DropdownMenuItem key={s} onClick={() => onApplyView(s)}>
+        {/* base-ui requires Label inside a Group context. Each section's
+            label + items get their own DropdownMenuGroup wrapper. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+            Built-in views
+          </DropdownMenuLabel>
+          <DropdownMenuItem onClick={() => onApplyView(null)}>
             <Check
               size={13}
               className={cn(
-                activeBuiltIn === s ? "opacity-100 text-primary" : "opacity-0"
+                activeBuiltIn === "all" ? "opacity-100 text-primary" : "opacity-0"
               )}
             />
-            {STAGE_LABEL[s]}
+            All active
           </DropdownMenuItem>
-        ))}
+          {DEAL_STAGES.map((s) => (
+            <DropdownMenuItem key={s} onClick={() => onApplyView(s)}>
+              <Check
+                size={13}
+                className={cn(
+                  activeBuiltIn === s ? "opacity-100 text-primary" : "opacity-0"
+                )}
+              />
+              {STAGE_LABEL[s]}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
 
         {savedViews.length > 0 && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
-              Saved views
-            </DropdownMenuLabel>
-            {savedViews.map((v) => (
-              <DropdownMenuItem
-                key={v.id}
-                onClick={() => onApplyView(v.stage)}
-                // Don't auto-close on the trash click; we render that
-                // button as a child that stops propagation.
-                className="group/sv"
-              >
-                <Check size={13} className="opacity-0" />
-                <span className="flex-1 truncate">{v.name}</span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    persistRemove(v.id)
-                  }}
-                  className="opacity-0 group-hover/sv:opacity-60 hover:!opacity-100 transition-opacity"
-                  title="Delete view"
-                  aria-label={`Delete view ${v.name}`}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+                Saved views
+              </DropdownMenuLabel>
+              {savedViews.map((v) => (
+                <DropdownMenuItem
+                  key={v.id}
+                  onClick={() => onApplyView(v.stage)}
+                  // Don't auto-close on the trash click; we render that
+                  // button as a child that stops propagation.
+                  className="group/sv"
                 >
-                  <Trash2 size={12} />
-                </button>
-              </DropdownMenuItem>
-            ))}
+                  <Check size={13} className="opacity-0" />
+                  <span className="flex-1 truncate">{v.name}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      persistRemove(v.id)
+                    }}
+                    className="opacity-0 group-hover/sv:opacity-60 hover:!opacity-100 transition-opacity"
+                    title="Delete view"
+                    aria-label={`Delete view ${v.name}`}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
           </>
         )}
 

@@ -18,7 +18,6 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { usePathname } from "next/navigation"
 import { useTopBarSlots } from "@/lib/topBarSlots"
-import { useSidebar } from "@/components/ui/sidebar"
 
 type Mode = "browse" | "pipeline" | "settings" | "other"
 
@@ -39,71 +38,66 @@ export default function AppTopBar({
   const pathname = usePathname()
   const mode = modeForPath(pathname)
   const { setBrowse, setPipeline, setSettings, setBrowseAux } = useTopBarSlots()
-  // shadcn's useSidebar exposes `open` (boolean) — same shape as before.
-  const { open: sidebarOpen } = useSidebar()
-  // When the sidebar is OPEN (default state), the floating
-  // SidebarToggle is hidden behind it, so the brand zone only needs
-  // to clear the macOS traffic lights (~80px). When CLOSED, the
-  // toggle floats at x=86..114 and we need 124px to keep toolbar
-  // content from sliding under it. The previous fixed 124px created
-  // a dead 44px gap on the left for the common case (sidebar open).
-  const brandZonePadL = sidebarOpen ? 80 : 124
+  // SidebarToggle is now always visible (was previously hidden when
+  // sidebar was open), so the brand zone always needs to clear the
+  // toggle's right edge (x=118) plus a small gap. 124px covers
+  // traffic lights (16-80) + toggle (86-118) + 6px breathing room.
+  const brandZonePadL = 124
 
   // Persist mode for cross-fade easing — both old and new layers stay
   // mounted; only opacity flips.
   const [, setPrev] = useState<Mode>(mode)
   useEffect(() => { setPrev(mode) }, [mode])
 
+  // Drag architecture:
+  // The <header> is the SINGLE drag declaration. Its bbox covers the
+  // entire 42px × full-width title-bar rectangle. Per Chromium's
+  // draggable-region union, every pixel inside that bbox is drag
+  // EXCEPT where a descendant explicitly declares
+  // WebkitAppRegion: "no-drag" — those rectangles are carved out.
+  //
+  // Critical: do NOT declare drag on intermediate wrappers (brand
+  // zone, adaptive center, aux slot, global cluster). Doing so adds
+  // their bboxes to the drag union BEFORE descendants' no-drag rects
+  // are subtracted — which in practice works the same as the
+  // header's drag, BUT introduces edge cases where the visible
+  // button bbox is smaller than its parent's flex height, leaving
+  // strips ABOVE/BELOW each button as drag region. Clicks on those
+  // strips fail (drag intent without movement). Single drag at the
+  // outer-most level avoids this entirely.
+  //
+  // Each interactive widget (button, input, custom click div) MUST
+  // declare its own WebkitAppRegion: "no-drag" to be clickable.
   return (
     <header
       className="shrink-0 relative flex items-stretch select-none"
       style={{
-        // 42px — Wexond / classic-Chrome toolbar height. Reads as
-        // utilitarian rather than consumer-soft. The bookmarks bar
-        // (32) sits underneath; tab strip (36) sits above. Total
-        // chrome stack: 110px.
         height:          42,
-        background:      "var(--rv-surface)",
-        // No border, no shadow. The previous hairline + shadow
-        // combination read as a faint lighter line between chrome
-        // and the panel/list — what the user described as a "gap."
-        // The tone difference between --rv-surface (chrome) and
-        // --rv-bg (canvas) is enough boundary on its own.
+        // Chrome tone — matches the sidebar so the entire chrome
+        // (topbar + sidebar) reads as ONE recessed surface, with
+        // body content brightest. Was `--rv-surface` (pure white in
+        // light mode) which made the topbar BRIGHTER than the body
+        // — Linear/Mercury have chrome receding, not popping.
+        background:      "var(--sidebar)",
         zIndex:          50,
         WebkitAppRegion: "drag",
       } as React.CSSProperties}
     >
-      {/* Brand zone — left, fixed. The traffic-lights area on macOS
-          sits over this region; brand mark stamps app identity right
-          next to them. */}
       <div
         className="flex items-center shrink-0"
         style={{
-          // Sidebar-aware: 80px clears just the traffic lights when
-          // the sidebar is open (toggle is hidden behind sidebar);
-          // 124px clears traffic lights + toggle when sidebar is
-          // collapsed. Animated alongside the sidebar's own width
-          // transition so the chrome contracts in lockstep.
           paddingLeft:  brandZonePadL,
           paddingRight: 12,
           gap:          10,
           transition:   "padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1)",
-          WebkitAppRegion: "no-drag",
         } as React.CSSProperties}
       >
         {brand}
       </div>
 
-      {/* Adaptive center — three overlapping mode layers. Each layer
-          owns a portal-target div that the route portals its content
-          into. Inactive layers stay mounted (so portal targets stay
-          stable in the DOM) but get pointer-events:none + opacity 0. */}
-      <div
-        className="flex-1 relative min-w-0"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
+      <div className="flex-1 relative min-w-0">
         <ModeLayer active={mode === "browse"}>
-          <div ref={setBrowse} className="flex items-center w-full h-full" />
+          <div ref={setBrowse}   className="flex items-center w-full h-full" />
         </ModeLayer>
         <ModeLayer active={mode === "pipeline"}>
           <div ref={setPipeline} className="flex items-center w-full h-full" />
@@ -113,10 +107,13 @@ export default function AppTopBar({
         </ModeLayer>
       </div>
 
-      {/* Browse-aux slot + Global cluster wrapped together so they
-          read as a single Chrome-style right cluster. Tight 4px gap
-          between buttons — that visual rhythm is what makes the
-          group feel like a unit, not a row of detached chrome. */}
+      {/* Aux slot + global cluster — explicit no-drag carve-outs.
+          The header's drag rect would otherwise include the buttons
+          portaled here (Save deal / Watch / Open / Stage menu /
+          PanelToggle), making them un-clickable. Carving the whole
+          right cluster out of the drag region keeps every button
+          inside reliably clickable without each one having to
+          re-declare no-drag. */}
       <div
         ref={setBrowseAux}
         className="flex items-center shrink-0"
@@ -125,6 +122,7 @@ export default function AppTopBar({
           WebkitAppRegion: "no-drag",
         } as React.CSSProperties}
       />
+
       <div
         className="flex items-center shrink-0"
         style={{

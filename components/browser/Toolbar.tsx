@@ -79,6 +79,12 @@ interface ToolbarProps {
   onReload:      () => void
   onNavigate:    (url: string) => void
   urlbarRef?:    React.RefObject<HTMLInputElement | null>
+  /** "+" button — opens a new browser tab. Tab strip auto-shows
+   *  whenever there's > 1 tab, so the strip stays out of the
+   *  chrome until the user explicitly chooses to multi-tab. */
+  onNewTab?:     () => void
+  /** Number of tabs — drives the "+" button's tooltip + small count. */
+  tabCount?:     number
 }
 
 export default function Toolbar({
@@ -89,6 +95,8 @@ export default function Toolbar({
   onReload,
   onNavigate,
   urlbarRef,
+  onNewTab,
+  tabCount,
 }: ToolbarProps) {
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState("")
@@ -219,13 +227,19 @@ export default function Toolbar({
     <div
       className="flex items-center w-full select-none"
       style={{
-        // Toolbar is now hosted inside AppTopBar's slot — the chrome
-        // (bg, hairline, shadow, height) is provided by AppTopBar.
-        // Toolbar just contributes its content (nav buttons + URL
-        // input). Filling width and height of the slot.
-        height:       "100%",
-        paddingLeft:  toolbarPadL,
-        paddingRight: 8,
+        // Toolbar is hosted inside AppTopBar's drag region. The header
+        // is the SINGLE drag declaration in the chrome — its bbox
+        // covers everything in the title bar. Each interactive child
+        // below carries its own explicit no-drag, which carves out
+        // those rectangles from the drag region.
+        // Adding drag here too made the wrapper claim drag rights
+        // BEFORE Chromium's region union ran, which prevented inner
+        // no-drag rects from carving out cleanly — the top portion of
+        // each button (above its visible bbox) became drag and clicks
+        // landed as drag-attempts instead of clicks.
+        height:           "100%",
+        paddingLeft:      toolbarPadL,
+        paddingRight:     8,
       } as React.CSSProperties}
     >
       <div className="flex items-center gap-1 flex-1 pr-2">
@@ -328,11 +342,29 @@ export default function Toolbar({
           )}
         </div>
 
+        {/* New-tab button — opens a new browser tab. */}
+        {onNewTab && (
+          <NavBtn
+            onClick={onNewTab}
+            title={tabCount && tabCount > 1 ? `New tab (${tabCount} open)` : "New tab"}
+          >
+            <PlusIcon />
+          </NavBtn>
+        )}
+
         {/* PanelToggle moved out — now lives in AppTopBar's globalCluster
             so the Analysis button sits at the FAR RIGHT of the window
             (against the right edge), not bunched against the URL bar.
             URL bar gets the full center width. */}
       </div>
     </div>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   )
 }

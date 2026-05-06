@@ -155,7 +155,25 @@ export default function ActivityFeed({ limit = 12 }: Props) {
   // Loading state — don't render anything until we know whether there's
   // activity to show. The feed is conditional from the parent's POV.
   if (events === null) return null
-  if (events.length === 0) return null
+  if (events.length === 0) {
+    return (
+      // Empty state lifted onto a Card surface so it sits above the
+      // body bg with a clear edge. Dashed border + sage-tinted icon
+      // make it read as "intentionally blank, here's what'd appear"
+      // rather than "broken / forgot to render."
+      <div className="rounded-xl border border-dashed border-border bg-card/50 px-6 py-12 flex flex-col items-center justify-center text-center gap-3">
+        <div className="size-9 rounded-full bg-primary/10 inline-flex items-center justify-center">
+          <Bookmark size={15} strokeWidth={2} className="text-primary" />
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <p className="text-[12.5px] font-medium text-foreground">Quiet in here.</p>
+          <p className="text-[11.5px] leading-relaxed text-muted-foreground max-w-[260px]">
+            Saves, stage moves, and price drops will show up here when there's something to say.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div

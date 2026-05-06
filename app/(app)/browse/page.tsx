@@ -13,6 +13,7 @@ import Panel, { type PanelContentState, type ManualFacts } from "@/components/pa
 // chrome padding from sidebar state (tabs live above the sidebar in
 // BrowseTabsRow now).
 import { Bookmark, BookmarkCheck, ExternalLink, RefreshCw, PanelRight, GitCompareArrows, FilePlus } from "lucide-react"
+import { useSidebar } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -65,6 +66,7 @@ const SPLITTER_W      = 4
 // refresh to catch any external changes (saves from another tab, etc.).
 let _cachedStartCtx: StartScreenContext | null = null
 let _cachedActiveDeals: SavedDeal[] = []
+let _cachedAllDeals: SavedDeal[] = []
 
 // Tracks whether the StartScreen's intro animations have already played
 // in this session. After the first play, subsequent mounts skip them so
@@ -126,6 +128,23 @@ function BrowsePageInner() {
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [isAddDealMode, router])
+  // Live sidebar state — drives the sidebar width pushed to main.
+  // Open: 256px (matches shadcn --sidebar-width). Collapsed/offcanvas:
+  // 0px. Re-publishes whenever the sidebar toggles so the embedded
+  // BrowserView slides in/out alongside the sidebar animation.
+  const { open: sidebarOpen } = useSidebar()
+  const readSidebarWidth = useCallback(() => {
+    if (!sidebarOpen) return 0
+    if (typeof document === "undefined") return 256
+    const v = getComputedStyle(document.documentElement)
+      .getPropertyValue("--sidebar-width").trim()
+    if (!v) return 256
+    // Value is e.g. "16rem" or "256px" — resolve to pixels.
+    if (v.endsWith("rem")) return parseFloat(v) * 16
+    if (v.endsWith("px"))  return parseFloat(v)
+    return 256
+  }, [sidebarOpen])
+
   // Browse stays mounted at layout level even when the user is on
   // Pipeline / Settings (always-mounted routes architecture). The
   // embedded BrowserView is a NATIVE Chromium overlay composited
@@ -246,7 +265,7 @@ function BrowsePageInner() {
       // if the user landed on Pipeline / Settings first — main parks it
       // at 1×1 until we explicitly show it, so this is cheap and means
       // the first /browse navigation doesn't pay the create cost.
-      api.createBrowser({ panelWidth: reservedRight }).then(() => {
+      api.createBrowser({ sidebarWidth: readSidebarWidth(), panelWidth: reservedRight }).then(() => {
         if (!cancelled) setBrowserReady(true)
       })
     }
@@ -284,8 +303,17 @@ function BrowsePageInner() {
   // than the still-sliding panel is the tradeoff, and it reads cleanly.
   useEffect(() => {
     if (!browserReady || !api || !routeActive) return
-    api.setLayout({ panelWidth: reservedRight, animate: false })
-  }, [api, browserReady, reservedRight, routeActive])
+    // Push sidebar + panel widths AND tab-strip visibility so main can
+    // size the BrowserView to fit the actual chrome. tabStripVisible
+    // crosses 1 ↔ >1 tabs, growing the chrome by 36px when shown.
+    const sidebarW = readSidebarWidth()
+    api.setLayout({
+      sidebarWidth:    sidebarW,
+      panelWidth:      reservedRight,
+      tabStripVisible: tabs.length > 1,
+      animate:         false,
+    })
+  }, [api, browserReady, reservedRight, routeActive, sidebarOpen, tabs.length])
 
   // Hide the embedded WebContentsView whenever the start screen is showing
   // (no URL loaded). The native view is composed *over* React's DOM, so even
@@ -306,9 +334,9 @@ function BrowsePageInner() {
     if (!hasUrl) {
       api.hideBrowser()
     } else {
-      api.showBrowser({ panelWidth: reservedRight })
+      api.showBrowser({ sidebarWidth: readSidebarWidth(), panelWidth: reservedRight })
     }
-  }, [api, browserReady, nav.url, tabs, activeTabId, routeActive, reservedRight])
+  }, [api, browserReady, nav.url, tabs, activeTabId, routeActive, reservedRight, sidebarOpen])
 
   // Subscribe to tab state. Main broadcasts on every change (create, close,
   // activate, navigate). We mirror it locally for the strip + active-tab
@@ -618,6 +646,7 @@ function BrowsePageInner() {
       last_reanalyzed_at:  null,
       snapshot:            result,
       scenario,
+      chat:                null,
     }
     setSavedByUrl((prev) => ({ ...prev, [url]: optimistic }))
     setPendingScenario((prev) => {
@@ -645,16 +674,16 @@ function BrowsePageInner() {
     }
     if (!detail) {
       detail = savedCount === 1
-        ? "Your first deal."
-        : `${savedCount} in your pipeline now.`
+        ? "Your first one. Welcome in."
+        : `${savedCount} in your pipeline now — I'll keep watching.`
     }
 
     showToast({
-      message: "Saved to Watching.",
+      message: savedCount === 1 ? "Got it. First deal saved." : "Got it. Watching.",
       detail,
       tone:    "pos",
       action:  {
-        label:   "View →",
+        label:   "Show me →",
         onClick: () => router.push("/pipeline"),
       },
     })
@@ -996,6 +1025,11 @@ function BrowsePageInner() {
   // The start screen renders these as the visual centerpiece — the user's
   // own portfolio is the surface, not a generic greeting + launcher.
   const [activeDeals, setActiveDeals] = useState<SavedDeal[]>(_cachedActiveDeals)
+  // Full pipeline (all stages) — Browse start-screen KPI cards compute
+  // over this so the numbers match Pipeline's "All active" header.
+  // activeDeals stays the truncated Watching/Interested/Offered preview
+  // for the list display.
+  const [allDeals, setAllDeals] = useState<SavedDeal[]>(_cachedAllDeals)
 
   // ── Persistent map shell wiring ────────────────────────────────────
   // Browse keeps the scrim ALMOST opaque so the map reads as an ambient
@@ -1049,9 +1083,15 @@ function BrowsePageInner() {
       fetchPipeline().then((deals) => {
         if (cancelled) return
         const ACTIVE: DealStage[] = ["watching", "interested", "offered"]
-        const next = deals.filter((d) => ACTIVE.includes(d.stage)).slice(0, 5)
-        _cachedActiveDeals = next
-        setActiveDeals(next)
+        const activeSubset = deals.filter((d) => ACTIVE.includes(d.stage))
+        const previewSlice = activeSubset.slice(0, 5)
+        _cachedActiveDeals = previewSlice
+        _cachedAllDeals    = activeSubset  // KPI cards compute over the
+        // FULL active set (matches Pipeline's "All active" filter — also
+        // excludes Won/Passed). Was stats over the .slice(0,5) preview,
+        // which made Browse and Pipeline disagree on totals.
+        setActiveDeals(previewSlice)
+        setAllDeals(activeSubset)
       }).catch(() => {})
     }
     refresh()
@@ -1079,10 +1119,13 @@ function BrowsePageInner() {
     // pattern Cursor / Linear / VS Code use.
     <div
       className="flex w-full h-full overflow-hidden relative"
-      // No explicit pointerEvents — AlwaysMountedRoutes' active layer
-      // sets pe:auto, inactive sets pe:none. Re-enabling here would
-      // make this content intercept clicks on /pipeline / /settings
-      // because Browse stays mounted underneath them.
+      // pe:auto explicitly — AlwaysMountedRoutes' layer is now pe:none
+      // (changed so Pipeline's Map view can let drags fall through to
+      // MapShell). Browse needs pe:auto on its outer wrapper to
+      // capture clicks for its UI. Inactive routes still get pe:none
+      // via LAYER_HIDDEN, so Browse-while-on-Pipeline doesn't catch
+      // pipeline clicks.
+      style={{ pointerEvents: routeActive ? "auto" : "none" }}
     >
 
       {/* Panel-action buttons portaled into the AppTopBar's browseAux
@@ -1139,15 +1182,23 @@ function BrowsePageInner() {
       {/* Left column — browser content (tabs + toolbar are now both
           portaled into the persistent shell chrome above). */}
       <div className="flex flex-col flex-1 min-w-0">
-        {/* TabStrip portals into BrowseTabsRow's slot — the row
-            ABOVE AppTopBar — restoring Chrome's "tabs above URL"
-            ordering. State + handlers stay here in BrowsePageInner;
-            DOM destination is the shell. */}
-        {browseTabsSlot && createPortal(
+        {/* TabStrip — INLINE inside the Browse content (not portaled
+            into a persistent shell row). Renders at the top of the
+            Browse body, below the AppTopBar. main.js's
+            activeChromeHeight() accounts for this 36px row when
+            positioning the BrowserView. The earlier portal target
+            (`browseTabsSlot`) was a leftover from the persistent
+            BrowseTabsRow which no longer mounts — making the
+            TabStrip silently never render. */}
+        {tabs.length > 1 && (
+        <div
+          className="shrink-0 flex items-stretch border-b border-foreground/[0.07]"
+          style={{ height: 36, background: "var(--rv-surface)" }}
+        >
           <TabStrip
             tabs={tabs}
             activeId={activeTabId}
-            paddingLeft={tabStripPadL}
+            paddingLeft={0}
             onActivate={(id) => {
               setActiveTabId(id)
               void api?.activateTab(id)
@@ -1161,8 +1212,8 @@ function BrowsePageInner() {
               })
               void api?.reorderTabs(orderedIds)
             }}
-          />,
-          browseTabsSlot,
+          />
+        </div>
         )}
         {/* Toolbar (URL bar + back/forward/reload) portals into the
             persistent AppTopBar's browse slot — so the URL bar IS
@@ -1177,6 +1228,8 @@ function BrowsePageInner() {
             onReload={reload}
             onNavigate={navigate}
             urlbarRef={urlbarRef}
+            onNewTab={() => api?.newTab()}
+            tabCount={tabs.length}
           />,
           browseTopBarSlot,
         )}
@@ -1202,6 +1255,7 @@ function BrowsePageInner() {
                   onNavigate={navigate}
                   ctx={startCtx}
                   activeDeals={activeDeals}
+                  allDeals={allDeals}
                   onSaveCurrent={saveCurrentListing}
                   canSave={!!nav.url && panelContent.phase === "ready" && !isCurrentSaved}
                   onCompare={() => router.push("/pipeline")}
@@ -1607,6 +1661,10 @@ function TypingSubhead({ text, className, animate = true, style }: { text: strin
 // dominate the page before anything else.
 
 function HeroStatsStrip({
+  // `activeDeals` here is the full active-pipeline set (Watching +
+  // Interested + Offered) — same scope as Pipeline's "All active"
+  // header filter. Was previously the truncated .slice(0,5) preview,
+  // which caused Browse and Pipeline to disagree on stats.
   activeDeals, ctx,
 }: {
   activeDeals: SavedDeal[]
@@ -2032,6 +2090,7 @@ function StartScreen({
   onNavigate,
   ctx,
   activeDeals,
+  allDeals,
   onSaveCurrent,
   canSave,
   onCompare,
@@ -2042,10 +2101,13 @@ function StartScreen({
 }: {
   onNavigate: (url: string) => void
   ctx: StartScreenContext | null
-  /** User's active saved deals (Watching/Interested/Offered), newest first.
-   *  Surfaced as the visual centerpiece so the start screen reads as the
-   *  user's own workstation instead of a generic launcher. */
+  /** Truncated 5-deal preview list for the visual centerpiece (the
+   *  "Your pipeline · 5 active" card with row-by-row deals). */
   activeDeals: SavedDeal[]
+  /** Full active-pipeline set (Watching+Interested+Offered, untruncated)
+   *  used for the HeroStatsStrip KPI cards. Same scope as Pipeline's
+   *  "All active" header so the totals agree across routes. */
+  allDeals: SavedDeal[]
   /** Action button row — Mercury-style dashboard top strip. Each handler
    *  is optional + gated by its `can*` flag. */
   onSaveCurrent?: () => void
@@ -2232,7 +2294,7 @@ function StartScreen({
                 spacing for the breathable workstation feel. */}
             {activeDeals.length > 0 && (
               <div className={`${introCls("rv-grid")} mt-6`}>
-                <HeroStatsStrip activeDeals={activeDeals} ctx={ctx} />
+                <HeroStatsStrip activeDeals={allDeals} ctx={ctx} />
               </div>
             )}
 

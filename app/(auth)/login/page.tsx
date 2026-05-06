@@ -3,6 +3,7 @@ import { headers } from "next/headers"
 import LoginForm from "./LoginForm"
 import { supabaseEnv } from "@/lib/supabase/config"
 import { getCurrentUser } from "@/lib/supabase/server"
+import { BuddyMark } from "@/components/BuddyMark"
 
 export default async function LoginPage({
   searchParams,
@@ -31,29 +32,54 @@ export default async function LoginPage({
   if (isElectron) {
     return (
       <div
-        className="flex flex-col items-center justify-center min-h-screen px-5 py-6 dark"
+        className="relative flex flex-col items-center justify-center min-h-screen px-5 py-6 dark"
         style={{
           background: "transparent", // window vibrancy reads through
           color:      "rgba(245,245,247,0.95)",
           fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, ui-sans-serif, system-ui, sans-serif",
         }}
       >
-        {/* Wordmark only — no icon. Matches the in-app chrome's restraint. */}
-        <div className="mb-7 flex flex-col items-center gap-1">
-          <span
-            className="text-[15px] font-semibold tracking-[-0.015em]"
-            style={{ color: "rgba(245,245,247,0.96)" }}
-          >
-            RealVerdict
-          </span>
-          <span className="text-[11px]" style={{ color: "rgba(235,235,245,0.45)" }}>
-            Real estate investing, reimagined
-          </span>
+        {/* Drag strip — covers the full top 42px of the window so the
+            user can move the Electron login window like any normal Mac
+            app (titleBarStyle is hiddenInset, so without an explicit
+            drag region the window is undraggable). Inputs + buttons
+            below this strip carry their own no-drag implicitly (native
+            elements). */}
+        <div
+          className="absolute top-0 left-0 right-0 h-[42px]"
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        />
+
+        {/* Brand stack — BuddyMark + wordmark + serif tagline. The
+            mark gets a moment of presence (with the breathing
+            animation built into BuddyMark) before the user touches
+            the form. Serif tagline matches the Browse start-screen's
+            voice — "Good afternoon, Eli" lives in the same family. */}
+        <div className="mb-9 flex flex-col items-center gap-3 relative">
+          <BuddyMark size={36} state="rest" tone="primary" />
+          <div className="flex flex-col items-center gap-1.5">
+            <span
+              className="text-[18px] font-semibold tracking-[-0.018em]"
+              style={{ color: "rgba(245,245,247,0.96)" }}
+            >
+              RealVerdict
+            </span>
+            <span
+              className="text-[13px] italic"
+              style={{
+                fontFamily: "var(--rv-font-display), Georgia, serif",
+                color:      "rgba(235,235,245,0.55)",
+                letterSpacing: "-0.005em",
+              }}
+            >
+              Pick up where you left off.
+            </span>
+          </div>
         </div>
 
         {oauthError && (
           <div
-            className="mb-3 w-full max-w-xs rounded-[8px] px-3 py-2 text-[11.5px]"
+            className="mb-3 w-full max-w-xs rounded-[8px] px-3 py-2 text-[11.5px] relative"
             style={{
               background: "rgba(255,87,87,0.10)",
               border:     "0.5px solid rgba(255,87,87,0.25)",
@@ -64,11 +90,13 @@ export default async function LoginPage({
           </div>
         )}
 
-        {supabaseEnv().configured ? (
-          <LoginForm redirectTo={redirectTo} initialMode={initialMode} compact />
-        ) : (
-          <UnconfiguredNotice />
-        )}
+        <div className="relative w-full flex flex-col items-center">
+          {supabaseEnv().configured ? (
+            <LoginForm redirectTo={redirectTo} initialMode={initialMode} compact />
+          ) : (
+            <UnconfiguredNotice />
+          )}
+        </div>
       </div>
     )
   }
@@ -82,19 +110,25 @@ export default async function LoginPage({
   // hero, all colors via theme tokens (paper / paper-dark works for free).
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-16">
-      <div className="w-full max-w-sm flex flex-col gap-6">
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex size-9 items-center justify-center rounded-[10px] bg-primary text-primary-foreground shadow-sm">
-            <svg width="18" height="18" viewBox="0 0 14 14" fill="none" aria-hidden>
-              <path d="M7 1L3 8h4l-1 5 5-7H7l1-5z" fill="currentColor" />
-            </svg>
+      <div className="w-full max-w-sm flex flex-col gap-7">
+        <div className="flex flex-col items-center gap-3">
+          <BuddyMark size={36} state="rest" tone="primary" />
+          <div className="flex flex-col items-center gap-1.5">
+            <h1 className="text-[18px] font-semibold tracking-[-0.018em] text-foreground">
+              RealVerdict
+            </h1>
+            <p
+              className="text-[13px] italic text-muted-foreground"
+              style={{
+                fontFamily: "var(--rv-font-display), Georgia, serif",
+                letterSpacing: "-0.005em",
+              }}
+            >
+              {initialMode === "signup"
+                ? "Your junior analyst is waiting."
+                : "Pick up where you left off."}
+            </p>
           </div>
-          <h1 className="text-[16px] font-semibold tracking-tight text-foreground">
-            RealVerdict
-          </h1>
-          <p className="text-[12.5px] text-muted-foreground">
-            {initialMode === "signup" ? "Create your account" : "Sign in to continue"}
-          </p>
         </div>
 
         {supabaseEnv().configured ? (

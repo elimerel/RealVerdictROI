@@ -22,6 +22,16 @@ import {
 } from "@/components/ui/sidebar"
 import { EllipsisVerticalIcon, CircleUserRoundIcon, CreditCardIcon, BellIcon, LogOutIcon } from "lucide-react"
 
+/** First two initials from a name string. "RealVerdict" → "RV";
+ *  "Eli Merel" → "EM"; "eli@example.com" → "EL". Falls back to "?". */
+function initialsFor(name: string): string {
+  if (!name) return "?"
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return "?"
+}
+
 export function NavUser({
   user,
 }: {
@@ -41,9 +51,13 @@ export function NavUser({
               <SidebarMenuButton size="lg" className="aria-expanded:bg-muted" />
             }
           >
-            <Avatar className="size-8 rounded-lg grayscale">
-              <AvatarImage src={user.avatar} alt={user.name} />
-              <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+            <Avatar className="size-8 rounded-lg">
+              {user.avatar && !user.avatar.includes("shadcn") && (
+                <AvatarImage src={user.avatar} alt={user.name} />
+              )}
+              <AvatarFallback className="rounded-lg bg-primary/10 text-primary text-[11px] font-semibold">
+                {initialsFor(user.name)}
+              </AvatarFallback>
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">{user.name}</span>
@@ -63,8 +77,12 @@ export function NavUser({
               <DropdownMenuLabel className="p-0 font-normal">
                 <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                   <Avatar className="size-8">
-                    <AvatarImage src={user.avatar} alt={user.name} />
-                    <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+                    {user.avatar && !user.avatar.includes("shadcn") && (
+                      <AvatarImage src={user.avatar} alt={user.name} />
+                    )}
+                    <AvatarFallback className="rounded-lg bg-primary/10 text-primary text-[11px] font-semibold">
+                      {initialsFor(user.name)}
+                    </AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-medium">{user.name}</span>

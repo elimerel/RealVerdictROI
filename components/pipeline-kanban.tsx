@@ -248,7 +248,17 @@ export function PipelineKanban({ deals, onSelect, onMoveStage }: KanbanProps) {
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
     >
-      <div className="flex gap-4 overflow-x-auto pb-4 px-1">
+      {/* Right-edge mask hints there's more content offscreen when the
+          board exceeds viewport width. The CSS mask fades the rightmost
+          24px to transparent, so the user reads "more →" without
+          needing a separate arrow chrome. */}
+      <div
+        className="flex gap-4 overflow-x-auto pb-4 px-1"
+        style={{
+          maskImage: "linear-gradient(to right, black calc(100% - 24px), transparent 100%)",
+          WebkitMaskImage: "linear-gradient(to right, black calc(100% - 24px), transparent 100%)",
+        }}
+      >
         {DEAL_STAGES.map((stage) => (
           <Lane key={stage} stage={stage} deals={byStage[stage]} onSelect={onSelect} />
         ))}

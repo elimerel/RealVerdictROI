@@ -52,11 +52,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
-      <SidebarHeader>
+      {/* SidebarHeader: needs paddingLeft to clear the floating
+          SidebarToggle (fixed at window x=86, ~32px wide → ends at
+          x=118). Padding 124px keeps the wordmark out from under the
+          toggle. Drag region so empty space around the wordmark moves
+          the window — the wordmark link opts into no-drag itself. */}
+      <SidebarHeader
+        style={{
+          WebkitAppRegion: "drag",
+          paddingLeft:     124,
+        } as React.CSSProperties}
+      >
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               className="data-[slot=sidebar-menu-button]:p-1.5!"
+              style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               render={<a href="/pipeline" />}
             >
               <BuddyMark size={20} />

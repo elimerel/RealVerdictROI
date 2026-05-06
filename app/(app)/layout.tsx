@@ -10,7 +10,6 @@ import { PanelStateProvider } from "@/components/panel/context"
 // inside the Toolbar now, so it sits naturally in the chrome.
 import CommandPalette from "@/components/command-palette"
 import ToastHost from "@/components/ToastHost"
-import MapShell from "@/components/MapShell"
 import { MapShellProvider, useMapShell } from "@/lib/mapShell"
 import { fetchPipeline, DEALS_CHANGED_EVENT } from "@/lib/pipeline"
 import AppTopBar from "@/components/AppTopBar"
@@ -28,6 +27,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { BrowsePage as BrowsePageRaw } from "./browse/page"
 import { PipelinePage as PipelinePageRaw } from "./pipeline/page"
 import { SettingsPage as SettingsPageRaw } from "./settings/page"
+import { DealWorkspace } from "./pipeline/[id]/page"
 
 // Memoize the three always-mounted pages so AlwaysMountedRoutes'
 // pathname re-render doesn't cascade into a full re-render of all
@@ -95,23 +95,33 @@ function ThemeHydrator() {
  *  Next.js renders for the matched route is a stub returning null. */
 function AlwaysMountedRoutes() {
   const pathname = usePathname()
+  // Detect the per-deal workspace (/pipeline/<uuid>) — a 4th layer that
+  // sits above the Pipeline index. When active, the index hides and
+  // the workspace component renders with the deal id parsed from the
+  // path. Pipeline (the index) takes any /pipeline route that isn't
+  // /pipeline/<id>; the workspace takes /pipeline/<id>.
+  const dealWorkspaceMatch = pathname.match(/^\/pipeline\/([^/]+)$/)
+  const dealId = dealWorkspaceMatch ? dealWorkspaceMatch[1] : null
   const route =
-    pathname.startsWith("/pipeline") ? "pipeline"
+    dealId                          ? "deal"
+    : pathname.startsWith("/pipeline") ? "pipeline"
     : pathname.startsWith("/settings") ? "settings"
     : "browse"
   // Stamp a data attribute on <body> so route-dependent chrome (the
   // sidebar's top strip color) can adapt via CSS.
   useEffect(() => {
     if (typeof document === "undefined") return
-    document.body.dataset.rvRoute = route
+    // Per-deal workspace counts as the pipeline section for chrome
+    // purposes (sidebar nav still highlights Pipeline).
+    document.body.dataset.rvRoute = route === "deal" ? "pipeline" : route
   }, [route])
-  // Memoize the three layer styles so a route flip only mutates the two
-  // affected entries (the leaving + entering route), not all three. With
-  // fresh objects every render React sees three new style props on every
-  // pathname change and reapplies inline styles to all three layers.
+  // Memoize the four layer styles so a route flip only mutates the
+  // affected entries. Without this React sees fresh style objects on
+  // every pathname change and reapplies inline styles to all layers.
   const browseStyle   = useMemo(() => layerStyleFor(route === "browse"),   [route])
   const pipelineStyle = useMemo(() => layerStyleFor(route === "pipeline"), [route])
   const settingsStyle = useMemo(() => layerStyleFor(route === "settings"), [route])
+  const dealStyle     = useMemo(() => layerStyleFor(route === "deal"),     [route])
   return (
     <div
       className="relative flex flex-col flex-1 min-h-0"
@@ -120,6 +130,7 @@ function AlwaysMountedRoutes() {
       <div style={browseStyle}><BrowsePage /></div>
       <div style={pipelineStyle}><PipelinePage /></div>
       <div style={settingsStyle}><SettingsPage /></div>
+      <div style={dealStyle}><DealWorkspace dealId={dealId} /></div>
     </div>
   )
 }
@@ -134,9 +145,21 @@ const LAYER_BASE: React.CSSProperties = {
   display:       "flex",
   flexDirection: "column",
   minHeight:     0,
+  // 160ms opacity crossfade on route change. Apple-spring curve
+  // (cubic-bezier(0.32,0.72,0,1)) so the fade SETTLES, not snaps.
+  // Inactive layers are fully transparent (visibility:hidden cuts
+  // hit-testing); active is opaque. Without this, route changes
+  // hard-flickered between always-mounted layers.
+  transition:    "opacity 160ms cubic-bezier(0.32, 0.72, 0, 1)",
 }
-const LAYER_VISIBLE: React.CSSProperties = { ...LAYER_BASE, visibility: "visible", pointerEvents: "auto" }
-const LAYER_HIDDEN:  React.CSSProperties = { ...LAYER_BASE, visibility: "hidden",  pointerEvents: "none" }
+// LAYER_VISIBLE used to set pointerEvents:"auto" — but that meant the
+// layer wrapper caught clicks even when an inner descendant set pe:none
+// (Pipeline's Map view tried to let drags fall through to MapShell).
+// Now: pe:none on the layer too. Each route's outer wrapper sets pe:auto
+// itself; Pipeline can additionally toggle to pe:none in Map view to
+// punch through to the persistent map.
+const LAYER_VISIBLE: React.CSSProperties = { ...LAYER_BASE, visibility: "visible", pointerEvents: "none", opacity: 1 }
+const LAYER_HIDDEN:  React.CSSProperties = { ...LAYER_BASE, visibility: "hidden",  pointerEvents: "none", opacity: 0 }
 function layerStyleFor(active: boolean) {
   return active ? LAYER_VISIBLE : LAYER_HIDDEN
 }
@@ -228,48 +251,35 @@ function GoogleMapsPrefetch() {
   )
 }
 
-/** MapShellLayer — the persistent map. Position-FIXED to the viewport
- *  so its size is constant across route changes (Mapbox doesn't get
- *  resize events when chrome animates above).
+/** MapShellLayer — REMOVED from the persistent shell.
  *
- *  No scrim layer anymore. The previous design used a route-controlled
- *  opacity overlay (0 in Pipeline, ~0.86 in Browse) to fade the map
- *  down where it shouldn't dominate. That opacity transition was
- *  flickering on every route change — too many animations
- *  competing. Replaced by structural opacity: routes that don't want
- *  the map (Browse, Settings) just render opaque content over it.
- *  Pipeline keeps its transparent middle column so the map remains
- *  the canvas there. Simpler, no transition glitches.
- */
-function MapShellLayer() {
-  // Map shell now lives inside SidebarInset (the right column), which
-  // is already positioned next to the full-height sidebar. We just
-  // fill the parent — no manual `left` offset needed.
-  const pathname = usePathname()
-  // Settings doesn't use the map at all. Skipping the mount here saves a
-  // full Mapbox GL instance + tile fetches + a constant ResizeObserver.
-  if (pathname.startsWith("/settings")) return null
-  return (
-    <div className="absolute inset-0" style={{ zIndex: 0 }}>
-      <MapShell />
-    </div>
-  )
-}
+ *  Originally Mapbox lived here (mounted always, fixed-position) so
+ *  Browse could show it as an ambient backdrop AND Pipeline could
+ *  use it as the canvas for the deal list's map view, sharing the
+ *  same instance for free continuity between the two routes.
+ *
+ *  After the CRM rebuild, Browse no longer shows the map at all and
+ *  Pipeline only shows it when viewMode === "map". Keeping a Mapbox
+ *  GL instance + tile requests + ResizeObserver running constantly
+ *  for a surface that's invisible 95% of the time was wasteful —
+ *  ~30-40MB and constant GPU work for nothing.
+ *
+ *  MapShell now mounts INSIDE the Pipeline page, conditional on Map
+ *  view. The MapShellProvider context (deals, selectedId, etc.)
+ *  stays at app-shell level so other components can publish to it
+ *  without depending on Map-view being open. */
 
 /** TopBarGlobalCluster — pinned to the FAR right of the AppTopBar.
- *  Houses persistent controls. The Chrome reference for this region
- *  is profile/extensions/menu — a small rhythm of round icon
- *  buttons that anchors the right side of the chrome. We keep ours
- *  sparse but real: PanelToggle on Browse (the analysis surface) +
- *  a profile avatar that links to Settings on every route. No
- *  decorative-only icons. */
+ *  Houses persistent controls. ProfileAvatar removed: NavUser in the
+ *  sidebar footer (bottom-left) is the canonical user surface, having
+ *  it in two places was redundant chrome. PanelToggle stays for
+ *  Browse only. */
 function TopBarGlobalCluster() {
   const pathname = usePathname()
   const inBrowse = pathname.startsWith("/browse")
   return (
     <>
       {inBrowse && <PanelToggle />}
-      <ProfileAvatar />
     </>
   )
 }
@@ -344,7 +354,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 always starts at y=42 regardless of route. */}
             <div
               className="flex flex-col w-screen h-screen overflow-hidden"
-              style={{ background: "var(--rv-bg)" }}
+              // Outer shell uses the chrome tone (matches the topbar
+              // and sidebar) so the main content can sit inside as a
+              // rounded "panel," with the chrome wrapping it like a
+              // tray. Linear / Notion / Mercury all use this — content
+              // floats inside chrome rather than running edge-to-edge.
+              // Was --rv-bg (now near-white) which gave the layout no
+              // separation between content and chrome.
+              style={{ background: "var(--sidebar)" }}
             >
               {/* AppTopBar — persistent global chrome, full window
                   width, ~42px. Traffic light region clears via
@@ -352,7 +369,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <AppTopBar globalCluster={<TopBarGlobalCluster />} />
               <div className="flex flex-1 min-h-0 overflow-hidden">
                 <AppSidebar />
-                <SidebarInset className="flex flex-col min-w-0 h-full overflow-hidden">
+                <SidebarInset
+                  className="flex flex-col min-w-0 h-full overflow-hidden"
+                  // Override shadcn's default bg-background — the
+                  // chrome (--sidebar tone, painted on the outer
+                  // shell) needs to show through the inner main's
+                  // margins so the content panel reads as floating
+                  // inside a chrome tray.
+                  style={{ background: "transparent" }}
+                >
                   {/* Browser chrome rows (tabs + bookmarks) removed
                       from the persistent shell entirely. The shell is
                       now ONE row on every route — Pipeline / Settings
@@ -361,11 +386,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       (⌘T new, ⌘W close, ⌘1..9 switch); the URL bar
                       in AppTopBar handles navigation. Bookmarks live
                       on the Browse start screen. */}
-                  <main className="flex flex-col flex-1 min-w-0 min-h-0 relative">
-                    {/* Persistent map + scrim sit behind the routed content,
-                        so navigating between Browse and Pipeline never
-                        re-mounts the map. */}
-                    <MapShellLayer />
+                  <main
+                    className="flex flex-col flex-1 min-w-0 min-h-0 relative overflow-hidden"
+                    style={{
+                      // Content "panel" — sits inside the chrome tray
+                      // with small margins so the chrome (--sidebar
+                      // color from the outer shell) shows around it.
+                      // Rounded on the inner-facing corners; right edge
+                      // stays flush with the window unless we add a
+                      // right margin too. Linear pattern: content lifts
+                      // off the chrome instead of running edge-to-edge.
+                      marginTop:    6,
+                      marginRight:  6,
+                      marginBottom: 6,
+                      borderRadius: 10,
+                      // The body bg paints inside the rounded corners
+                      // so the panel has its own clean white surface
+                      // independent of children.
+                      background:   "var(--background)",
+                      // Subtle hairline reinforces the panel edge
+                      // without competing with the rounding.
+                      boxShadow:    "0 0 0 0.5px var(--rv-border)",
+                    }}
+                  >
+                    {/* MapShell removed from here — Pipeline mounts it
+                        inside its own body when Map view is active. */}
                     <div
                       className="relative flex flex-col flex-1 min-h-0"
                       style={{ zIndex: 2, pointerEvents: "none" }}

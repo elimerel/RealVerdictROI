@@ -26,6 +26,9 @@ import {
   Bell,
   BellOff,
   Sparkles,
+  Search,
+  ArrowDownUp,
+  Maximize2,
 } from "lucide-react"
 import { SourceMark } from "@/components/source/SourceMark"
 import { Currency } from "@/lib/format"
@@ -47,6 +50,7 @@ import { hasActiveScenario, recomputeMetrics, type ScenarioOverrides } from "@/l
 import { ScenarioDisclosure } from "@/components/panel/ScenarioDisclosure"
 import PropertyMap from "@/components/PropertyMap"
 import { useMapShell } from "@/lib/mapShell"
+import MapShell from "@/components/MapShell"
 import { useBuyBar } from "@/lib/useBuyBar"
 import { geocode } from "@/lib/mapbox"
 import Panel from "@/components/panel"
@@ -55,11 +59,11 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import ActivityFeed from "@/components/ActivityFeed"
 import { BuddyMark } from "@/components/BuddyMark"
-import { PipelineVelocityChart } from "@/components/pipeline-velocity-chart"
 import { PipelineDealTable } from "@/components/pipeline-deal-table"
 import { PipelineKanban } from "@/components/pipeline-kanban"
 import { PipelineBulkBar } from "@/components/pipeline-bulk-bar"
 import { PipelineViewsMenu } from "@/components/pipeline-views-menu"
+import { ViewToggle } from "@/components/view-toggle"
 
 // ── Format helpers ────────────────────────────────────────────────────────
 
@@ -84,6 +88,71 @@ const cashFlowTone = (v: number | null | undefined) =>
   v < 0     ? "var(--rv-neg)" :
               "var(--rv-t2)"
 
+// ── Pipeline sort options ──────────────────────────────────────────
+// User-selectable ordering applied within each stage group. Default
+// ("recent") matches how Linear / Mercury order — most-recently-touched
+// items at the top so the user's eye lands on what they just worked on.
+type SortKey =
+  | "recent"        // updated_at desc  (default)
+  | "saved-new"     // created_at desc  ("Recently saved")
+  | "saved-old"     // created_at asc   ("Oldest saved")
+  | "cashflow"      // monthlyCashFlow desc (best CF first)
+  | "cap"           // capRate desc
+  | "price-asc"     // list_price asc
+  | "price-desc"    // list_price desc
+
+const SORT_KEYS: SortKey[] = ["recent", "saved-new", "saved-old", "cashflow", "cap", "price-asc", "price-desc"]
+
+const SORT_LABEL: Record<SortKey, string> = {
+  "recent":     "Recent activity",
+  "saved-new":  "Recently saved",
+  "saved-old":  "Oldest saved",
+  "cashflow":   "Cash flow (high → low)",
+  "cap":        "Cap rate (high → low)",
+  "price-asc":  "Price (low → high)",
+  "price-desc": "Price (high → low)",
+}
+
+/** Returns a comparator function for the given sort key. NaN/null
+ *  values sink to the bottom regardless of direction so "missing data"
+ *  never beats "real data" in either direction. */
+function sortComparator(key: SortKey): (a: SavedDeal, b: SavedDeal) => number {
+  const ts = (s: string | null | undefined) => (s ? new Date(s).getTime() : 0)
+  const num = (n: number | null | undefined) => (n != null && Number.isFinite(n) ? n : null)
+
+  switch (key) {
+    case "saved-new":  return (a, b) => ts(b.created_at) - ts(a.created_at)
+    case "saved-old":  return (a, b) => ts(a.created_at) - ts(b.created_at)
+    case "cashflow":   return (a, b) => {
+      const av = num(a.snapshot?.metrics?.monthlyCashFlow)
+      const bv = num(b.snapshot?.metrics?.monthlyCashFlow)
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      return bv - av
+    }
+    case "cap": return (a, b) => {
+      const av = num(a.snapshot?.metrics?.capRate)
+      const bv = num(b.snapshot?.metrics?.capRate)
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      return bv - av
+    }
+    case "price-asc":
+    case "price-desc": return (a, b) => {
+      const av = num(a.list_price)
+      const bv = num(b.list_price)
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      return key === "price-asc" ? av - bv : bv - av
+    }
+    case "recent":
+    default: return (a, b) => ts(b.updated_at) - ts(a.updated_at)
+  }
+}
+
 function timeInStage(updatedAt: string): string {
   const ms = Date.now() - new Date(updatedAt).getTime()
   const days = Math.floor(ms / 86400000)
@@ -96,40 +165,39 @@ function timeInStage(updatedAt: string): string {
 // ── List row ───────────────────────────────────────────────────────────────
 
 function DealListRow({
-  deal, active, multiSelected, compareMode, onSelect, onContextMenuAdd, onDragStartRow, onDragEndRow,
+  deal, active, multiSelected, compareMode, dense, hideStagePill, onSelect, onDoubleSelect, onContextMenuAdd, onDragStartRow, onDragEndRow,
 }: {
   deal:           SavedDeal
   active:         boolean
   multiSelected:  boolean
-  /** When true, the row reveals a checkbox on its left edge and clicks
-   *  toggle selection rather than navigating. Drives the "selection
-   *  mode" feel — clear visual signal you're in a different state. */
   compareMode:    boolean
+  /** Dense single-line layout (Linear-style columns) when true.
+   *  Stacked / Mercury-row layout when false (Map view's narrow pane). */
+  dense?:         boolean
+  /** Suppress the inline stage pill in dense mode. Set when the parent
+   *  is grouping rows by stage — the group header already names it. */
+  hideStagePill?: boolean
   onSelect:       (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => void
-  /** Right-click adds (or removes) the row from the compare set. Same
-   *  effect as ⌘-clicking, but discoverable without the keyboard hint —
-   *  matches the "right-click to do the secondary thing" mac convention. */
+  onDoubleSelect: () => void
   onContextMenuAdd: () => void
-  /** Drag-up to compare — fired on dragstart/dragend so the parent can
-   *  reveal a drop target at the top of the list. */
   onDragStartRow: (id: string) => void
   onDragEndRow:   () => void
 }) {
   const cashFlow = deal.snapshot?.metrics?.monthlyCashFlow ?? null
+  const capRate  = deal.snapshot?.metrics?.capRate ?? null
   const address  = [deal.address, deal.city, deal.state].filter(Boolean).join(", ")
-  const headline: React.ReactNode = deal.list_price != null
-    ? <Currency value={deal.list_price} whole />
-    : (address || "Saved deal")
-  const sub = deal.list_price != null && address ? address : (deal.site_name ?? null)
-
-  // Selection visual: in compare mode, multi-selected rows get a confident
-  // accent tint with an accent left bar — clearly different from an "active
-  // detail focus" tint. Outside compare mode, the focal row gets the same
-  // accent treatment. Reads as: "this row is one of the things I picked."
   const bg =
     multiSelected ? "var(--rv-accent-dim)" :
     active        ? "var(--rv-accent-dim)" :
                     "transparent"
+
+  // Stage tone for the inline pill (dense mode).
+  const stageTone =
+    deal.stage === "watching"   ? "bg-muted text-muted-foreground" :
+    deal.stage === "interested" ? "bg-primary/10 text-primary"     :
+    deal.stage === "offered"    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+    deal.stage === "won"        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
+                                   "bg-muted text-muted-foreground"
 
   return (
     <button
@@ -141,27 +209,61 @@ function DealListRow({
       }}
       onDragEnd={() => onDragEndRow()}
       onClick={(e) => onSelect({ metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey })}
+      onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); onDoubleSelect() }}
       onContextMenu={(e) => { e.preventDefault(); onContextMenuAdd() }}
-      className="relative flex items-start gap-3 text-left select-none w-full"
+      className={cn(
+        "relative block text-left select-none w-full group/row",
+        // Outer button is just the click target + side gutters. The
+        // hover/selected highlight paints on the INNER div below so
+        // it reads as an inset rounded surface, not a full-bleed bar
+        // — Linear's row pattern. Stacked (Map) rows keep full-bleed
+        // hairline separation since the narrow pane has no breathing
+        // room for inset margins.
+      )}
       style={{
-        padding:       "12px 16px",
-        background:    bg,
-        transition:    "background 120ms cubic-bezier(0.4,0,0.2,1)",
-        borderLeft:    `2px solid ${multiSelected || active ? "var(--rv-accent)" : "transparent"}`,
-        borderBottom:  "0.5px solid var(--rv-border)",
+        paddingInline: dense ? 8 : 0,
       }}
       onMouseEnter={(e) => {
-        if (!active && !multiSelected) e.currentTarget.style.background = "var(--rv-elev-2)"
+        const inner = e.currentTarget.querySelector<HTMLElement>("[data-row-inner]")
+        if (inner && !active && !multiSelected) inner.style.background = "var(--rv-elev-2)"
       }}
       onMouseLeave={(e) => {
-        if (!active && !multiSelected) e.currentTarget.style.background = "transparent"
+        const inner = e.currentTarget.querySelector<HTMLElement>("[data-row-inner]")
+        if (inner && !active && !multiSelected) inner.style.background = "transparent"
       }}
     >
-      {/* Selection checkbox — only rendered in compare mode. Animates in
-          via width transition so the row content slides right to make
-          room rather than jumping. Filled-accent check when selected,
-          empty circle outline when not. Clear, scannable selection state
-          that matches Apple Mail / Notion bulk-select conventions. */}
+      <div
+        data-row-inner
+        className={cn(
+          "relative",
+          dense ? "flex items-center gap-3" : "flex items-start gap-3"
+        )}
+        style={{
+          paddingBlock:  dense ? 6 : 9,
+          paddingInline: dense ? 8 : 14,
+          background:    bg,
+          transition:    "background 140ms cubic-bezier(0.32,0.72,0,1)",
+          borderRadius:  dense ? 6 : 0,
+          borderBottom:  dense ? "none" : "0.5px solid oklch(from var(--foreground) l c h / 0.05)",
+        }}
+      >
+        {/* Left accent bar — RealVerdict's sage indicator for active /
+            multi-selected. Positioned absolutely so the rounded
+            highlight stays clean (a 2px border on a rounded element
+            would clip at the corners). */}
+        {(multiSelected || active) && (
+          <span
+            aria-hidden
+            className="absolute"
+            style={{
+              left: 2, top: 5, bottom: 5,
+              width: 2,
+              background: "var(--rv-accent)",
+              borderRadius: 99,
+            }}
+          />
+        )}
+      {/* Compare-mode checkbox */}
       <span
         aria-hidden
         className="shrink-0 self-center flex items-center justify-center rounded-full transition-transform duration-150"
@@ -186,86 +288,210 @@ function DealListRow({
         )}
       </span>
 
-      {/* Source brand-mark — at-a-glance signal of where this deal came
-          from (Z = Zillow, R = Redfin, RC = Realtor.com, etc.). Lives at
-          the start of the row so the user can scan the strip and group
-          deals by source without reading. */}
-      <span className="mt-[3px] shrink-0">
-        <SourceMark source="listing" siteName={deal.site_name} />
+      {/* Source mark — full brand logo on every row. The 6px-dot
+          experiment lost the at-a-glance "this is from Zillow / Redfin"
+          signal that the logos actually carry. Dense rows use a slightly
+          larger logo (18px vs the previous 16px) so the brand reads
+          cleanly without feeling toy-sized. */}
+      <span className={cn("shrink-0", dense ? "self-center" : "mt-[3px]")}>
+        <SourceMark source="listing" siteName={deal.site_name} size={dense ? "md" : "sm"} />
       </span>
 
-      {/* Mercury-row layout: identity column (address + price + meta) on
-          the left, cash-flow chip on the right. The address is the
-          row's identity (what an investor remembers); price is the
-          supporting figure; stage + property type are quiet meta. The
-          cash-flow chip is the at-a-glance signal — sage tint if
-          positive, brick tint if negative. Reads at scan-speed
-          without becoming a CSV dump. */}
-      <div className="flex items-start justify-between gap-3 min-w-0 flex-1">
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          {/* Address — primary identity. Falls back to the price when
-              we don't have an address (rare, but property listings
-              with sparse extraction can lack one). */}
-          <p className="text-[13px] font-medium leading-tight truncate text-foreground">
-            {address || (deal.list_price != null ? <Currency value={deal.list_price} whole /> : "Saved deal")}
-          </p>
-          {/* Supporting line: price + property type. The price is muted
-              because the address has already been read; the supporting
-              line is for "what is this listing." */}
-          <p className="text-[11.5px] leading-tight truncate text-muted-foreground tabular-nums">
-            {deal.list_price != null && address && (
-              <>
-                <Currency value={deal.list_price} whole />
-                {(deal.tags?.[0] || deal.snapshot?.propertyType) && <span className="text-muted-foreground/60"> · </span>}
-              </>
-            )}
-            {deal.tags?.[0] ?? deal.snapshot?.propertyType ?? deal.site_name ?? null}
-          </p>
-          {/* Stage chip — colored dot matches the map pin so List ↔ Map
-              maintains visual identity. Smaller and quieter than the
-              cash flow chip on the right. */}
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] rounded-full px-2 py-[1px] text-muted-foreground bg-muted self-start mt-0.5">
-            <span
-              aria-hidden
-              className="rounded-full shrink-0"
-              style={{
-                width:  5,
-                height: 5,
-                background: STAGE_COLOR[deal.stage],
-              }}
-            />
-            {STAGE_LABEL[deal.stage]}
-          </span>
-        </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          {/* Cash-flow chip — sage tint when positive, brick tint when
-              negative. The at-a-glance answer: "is this deal making or
-              losing me money?" Larger than other meta because it's the
-              load-bearing signal in the row. */}
-          {cashFlow != null && (
+      {dense ? (
+        // === Dense single-line layout (Deals view, full-width pane) ===
+        // Linear/Pipedrive scannable rows. Address takes flex space,
+        // everything else right-aligned in fixed-width columns so the
+        // user's eye can sweep down and compare without re-aligning.
+        <>
+          {/* Address — primary identity, takes available space */}
+          <div className="flex-1 min-w-0 flex items-baseline gap-2">
+            <span className="text-[13px] font-medium truncate text-foreground">
+              {deal.address ?? "—"}
+            </span>
+            <span className="text-[11.5px] truncate text-muted-foreground/80 shrink-0">
+              {[deal.city, deal.state].filter(Boolean).join(", ")}
+            </span>
+          </div>
+
+          {/* Stage pill — suppressed when the parent is grouping by
+              stage (the group header already names it). Linear pattern:
+              don't repeat the group label on every row inside it. */}
+          {!hideStagePill && (
             <span
               className={cn(
-                "inline-flex items-baseline gap-0.5 rounded-full px-2.5 py-[3px] text-[12px] font-medium tabular-nums",
-                cashFlow >= 0
-                  ? "bg-emerald-500/10 text-emerald-700"
-                  : "bg-rose-500/10 text-rose-700"
+                "shrink-0 inline-flex items-center text-[10.5px] font-medium rounded-full px-2 py-[1px] capitalize",
+                stageTone
               )}
+              style={{ width: 78, justifyContent: "center" }}
             >
-              <Currency value={cashFlow} signed />
-              <span className="text-[10px] opacity-70 font-normal">/mo</span>
+              {STAGE_LABEL[deal.stage]}
             </span>
           )}
-          {/* Time-in-stage — small + muted. Useful for "is this getting
-              stale" reads without being prominent. */}
+
+          {/* List price */}
+          <span className="shrink-0 text-[12px] tabular-nums text-foreground text-right" style={{ width: 80 }}>
+            {deal.list_price != null ? <Currency value={deal.list_price} compact /> : "—"}
+          </span>
+
+          {/* Cash flow — monochrome per Linear restraint. Positive
+              numbers get the sage accent (it's the only color the app
+              ever uses for "good"); negative + null read in muted
+              foreground tones, NOT alarming red. The minus sign +
+              tabular-nums alignment carry the "negative" signal —
+              repainting 90% of rows red was overworking color. */}
           <span
-            className="text-[10px] tabular-nums text-muted-foreground/60"
+            className="shrink-0 text-[12px] font-medium tabular-nums text-right"
+            style={{
+              width: 90,
+              color:
+                cashFlow == null ? "var(--rv-t4)" :
+                cashFlow >= 0    ? "var(--rv-pos)" :
+                                    "var(--rv-t3)",
+            }}
+          >
+            {cashFlow != null ? <><Currency value={cashFlow} signed /><span className="text-[10px] font-normal text-muted-foreground/70">/mo</span></> : "—"}
+          </span>
+
+          {/* Cap rate */}
+          <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground text-right" style={{ width: 56 }}>
+            {capRate != null && Number.isFinite(capRate) ? `${(capRate * 100).toFixed(2)}%` : "—"}
+          </span>
+
+          {/* Age in stage */}
+          <span
+            className="shrink-0 text-[11px] tabular-nums text-muted-foreground/60 text-right"
+            style={{ width: 36 }}
             title={`In ${STAGE_LABEL[deal.stage]} since ${new Date(deal.updated_at).toLocaleDateString()}`}
           >
             {timeInStage(deal.updated_at)}
           </span>
+        </>
+      ) : (
+        // === Stacked layout (Map view, narrow pane) ===
+        <div className="flex items-start justify-between gap-3 min-w-0 flex-1">
+          <div className="flex flex-col gap-1 min-w-0 flex-1">
+            <p className="text-[13px] font-medium leading-tight truncate text-foreground">
+              {address || (deal.list_price != null ? <Currency value={deal.list_price} whole /> : "Saved deal")}
+            </p>
+            <p className="text-[11.5px] leading-tight truncate text-muted-foreground tabular-nums">
+              {deal.list_price != null && address && (
+                <>
+                  <Currency value={deal.list_price} whole />
+                  {(deal.tags?.[0] || deal.snapshot?.propertyType) && <span className="text-muted-foreground/60"> · </span>}
+                </>
+              )}
+              {deal.tags?.[0] ?? deal.snapshot?.propertyType ?? deal.site_name ?? null}
+            </p>
+            <span className="inline-flex items-center gap-1.5 text-[10.5px] rounded-full px-2 py-[1px] text-muted-foreground bg-muted self-start mt-0.5">
+              <span aria-hidden className="rounded-full shrink-0" style={{ width: 5, height: 5, background: STAGE_COLOR[deal.stage] }} />
+              {STAGE_LABEL[deal.stage]}
+            </span>
+          </div>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            {cashFlow != null && (
+              <span
+                className={cn(
+                  "inline-flex items-baseline gap-0.5 rounded-full px-2.5 py-[3px] text-[12px] font-medium tabular-nums",
+                  cashFlow >= 0
+                    ? "bg-emerald-500/10 text-emerald-700"
+                    : "bg-rose-500/10 text-rose-700"
+                )}
+              >
+                <Currency value={cashFlow} signed />
+                <span className="text-[10px] opacity-70 font-normal">/mo</span>
+              </span>
+            )}
+            <span
+              className="text-[10px] tabular-nums text-muted-foreground/60"
+              title={`In ${STAGE_LABEL[deal.stage]} since ${new Date(deal.updated_at).toLocaleDateString()}`}
+            >
+              {timeInStage(deal.updated_at)}
+            </span>
+          </div>
         </div>
+      )}
       </div>
     </button>
+  )
+}
+
+// ── Sort dropdown ─────────────────────────────────────────────────────────
+// Linear-style. Quiet trigger reading "Sort: <current label>" with a small
+// chevron; opens a menu with the seven sort options. Closes on outside
+// click. The user can swap the ordering inside each stage group without
+// having to touch the views menu.
+
+function SortMenu({
+  sortKey, onChange,
+}: {
+  sortKey:  SortKey
+  onChange: (k: SortKey) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false) }
+    document.addEventListener("mousedown", onDoc)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("mousedown", onDoc)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [open])
+
+  return (
+    <div
+      ref={ref}
+      className="relative inline-flex"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+    >
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-[12px] tracking-tight text-muted-foreground hover:text-foreground transition-colors px-1.5 py-1 rounded-md"
+        title="Sort deals within each stage"
+      >
+        <ArrowDownUp size={11} strokeWidth={2} />
+        <span>{SORT_LABEL[sortKey]}</span>
+        <ChevronDown size={11} strokeWidth={2} />
+      </button>
+      {open && (
+        <div
+          className="absolute z-30 right-0 top-full mt-1 flex flex-col rv-menu-pop border border-border"
+          style={{
+            background: "var(--rv-popover-bg)",
+            backdropFilter: "blur(14px) saturate(160%)",
+            WebkitBackdropFilter: "blur(14px) saturate(160%)",
+            borderRadius: 8,
+            boxShadow: "var(--rv-shadow-outer-md)",
+            minWidth: 200,
+            padding: 4,
+          }}
+        >
+          {SORT_KEYS.map((k) => (
+            <Button
+              key={k}
+              onClick={() => { onChange(k); setOpen(false) }}
+              variant="ghost"
+              size="sm"
+              className="justify-start"
+              style={{ color: k === sortKey ? "var(--rv-accent)" : "var(--rv-t2)" }}
+            >
+              {SORT_LABEL[k]}
+              {k === sortKey && (
+                <span
+                  className="ml-auto inline-block w-1.5 h-1.5 rounded-full align-middle"
+                  style={{ background: "var(--rv-accent)" }}
+                />
+              )}
+            </Button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -289,7 +515,11 @@ function StageMenu({
   }, [open])
 
   return (
-    <div ref={ref} className="relative inline-flex">
+    <div
+      ref={ref}
+      className="relative inline-flex"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+    >
       <button
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1.5 rounded-[7px] text-[12px] font-medium tracking-tight transition-colors text-primary bg-primary/10 border border-primary/20 hover:bg-primary/15"
@@ -465,6 +695,24 @@ function DealDetail({
           with its hero, no preceding strip. */}
       {auxSlot && routeActive && createPortal(
         <div className="flex items-center gap-2">
+          {/* Open workspace — primary action, leftmost slot in the
+              action row so it's the first thing the user reads.
+              Routes to the per-deal workspace where the AI buddy
+              lives in a dedicated column. The previous tucked-away
+              "Open in full" pill in the panel's top-right floating
+              chrome wasn't discoverable; users (including the
+              builder) didn't notice it. This puts the move into the
+              persistent topbar action row alongside Watch / Stage /
+              Open. */}
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => router.push(`/pipeline/${deal.id}`)}
+            icon={<Maximize2 size={11} strokeWidth={2} />}
+            title="Open the full deal workspace — analyze, run scenarios, talk to the buddy"
+          >
+            Open workspace
+          </Button>
           <Button
             variant={deal.watching ? "primary" : "secondary"}
             size="sm"
@@ -1069,36 +1317,18 @@ function ComparisonView({
 
   return (
     <div
-      className="flex flex-col h-full overflow-hidden"
-      // Transparent + pe:none so the empty middle column lets drags
-      // fall through to the persistent MapShell underneath. Each
-      // opaque surface inside (header, list, splitter, detail rail,
-      // compare panes) opts back in with pointer-events: auto.
-      style={{ background: "transparent", pointerEvents: "none" }}
+      className="flex flex-col h-full overflow-hidden bg-background"
+      // Used to be transparent + pe:none for the old 45% middle-column
+      // overlay layout where this view sat over the MapShell. The new
+      // full-canvas wrapper owns its own background and pointer events,
+      // so this opts in fully — fixes the scroll-wheel-falling-through
+      // bug where the user couldn't scroll the comparison content.
+      style={{ pointerEvents: "auto" }}
     >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between gap-3 px-6 py-4 shrink-0 bg-background"
-        style={{
-          borderBottom:  "0.5px solid var(--rv-border)",
-          position:      "relative",
-          zIndex:        3,
-          pointerEvents: "auto",
-        }}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <GitCompareArrows size={14} strokeWidth={1.7} className="text-primary" />
-          <h2 className="text-[14px] font-semibold tracking-tight text-foreground">
-            Side-by-side
-          </h2>
-          <span className="text-[12px] text-muted-foreground/60">
-            {deals.length} deals
-          </span>
-        </div>
-        <Button onClick={onClear} variant="ghost" size="xs">
-          Done comparing
-        </Button>
-      </div>
+      {/* Internal header removed — the parent CompareWorkspace
+          wrapper renders its own header (Back · "Comparing N deals" ·
+          Clear) above this component, so duplicating it here was just
+          two stacked title strips. */}
 
       <div className="flex-1 min-h-0 overflow-y-auto panel-scroll">
         {/* AI narration — prominent hero card above the table. The buddy
@@ -1334,28 +1564,29 @@ function DetailEmpty({ filtered, hasAny }: { filtered: number; hasAny: boolean }
       {!hasAny ? (
         <>
           <p className="text-[14px] font-medium text-foreground">
-            Your pipeline is empty
+            Nothing here yet.
           </p>
           <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px] text-muted-foreground">
-            Save a listing from Browse to start your pipeline. ⌘S on any listing while it's analyzed.
+            Find a listing, hit Save, and I'll start watching it for you.
           </p>
         </>
       ) : filtered === 0 ? (
         <>
           <p className="text-[14px] font-medium text-foreground">
-            Nothing in this stage
+            Quiet stage.
           </p>
           <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px] text-muted-foreground">
-            Switch stages from the sidebar — or save more deals from Browse.
+            Nothing's here right now. Other stages might have moves —
+            try the view selector at the top.
           </p>
         </>
       ) : (
         <>
           <p className="text-[14px] font-medium text-foreground">
-            Pick a deal
+            Pick one to dig in.
           </p>
           <p className="text-[12.5px] mt-2 leading-relaxed max-w-[300px] text-muted-foreground">
-            Click any row on the left to see the full snapshot.
+            I'll pull the numbers, the comps, and what looks weird.
           </p>
         </>
       )}
@@ -1430,21 +1661,28 @@ function PipelinePageInner() {
    *  layout that committed to neither — the user picks what they're
    *  looking at. Persists across route changes via localStorage so it
    *  feels like a stable preference rather than session-local state. */
-  const [viewMode, setViewMode] = useState<"deals" | "table" | "kanban" | "map">(() => {
-    if (typeof window === "undefined") return "deals"
-    const saved = localStorage.getItem("rv-pipeline-view")
-    if (saved === "map" || saved === "table" || saved === "kanban" || saved === "deals") return saved
-    return "deals"
-  })
+  // viewMode initial state must match between server and client to avoid
+  // hydration mismatches. Reading localStorage in the initializer caused
+  // the server to render viewMode="deals" while the client read a saved
+  // "map" — the wrapper div's className + pointerEvents differed and
+  // React threw a hydration error. Now we always start at "deals" and
+  // hydrate from localStorage in a post-mount effect (one extra render
+  // on first paint, but no hydration warning and no flash since the
+  // chrome is identical for the milliseconds between renders).
+  const [viewMode, setViewMode] = useState<"deals" | "table" | "kanban" | "map">("deals")
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("rv-pipeline-view")
+      if (saved === "map" || saved === "table" || saved === "kanban" || saved === "deals") {
+        if (saved !== "deals") setViewMode(saved)
+      }
+    } catch { /* private mode */ }
+    // Run only once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   useEffect(() => {
     try { localStorage.setItem("rv-pipeline-view", viewMode) } catch { /* private mode */ }
   }, [viewMode])
-  /** Expanded summary in the page header — by default we show just the
-   *  deal count; clicking the chevron reveals the avg cash flow and
-   *  total exposure inline. Keeps the header clean for routine browsing
-   *  but lets the user drill in when they want the at-a-glance numbers. */
-  const [summaryExpanded, setSummaryExpanded] = useState<boolean>(false)
-
   // ── Watch check progress ──────────────────────────────────────────────
   const [checking, setChecking] = useState(false)
   const [checkResult, setCheckResult] = useState<string | null>(null)
@@ -1475,18 +1713,97 @@ function PipelinePageInner() {
     return () => window.removeEventListener("focus", onFocus)
   }, [refresh, isActive])
 
-  // Filtered list — selected stage from URL, defaulting to "active" (no Won/Passed)
+  // Free-text search across the deal list. Empty string = no filter.
+  // Matches case-insensitively against address / city / state / zip /
+  // tags / site name. Persists in component state only (clears on
+  // navigation) — most users don't want yesterday's search re-applied.
+  const [searchQuery, setSearchQuery] = useState<string>("")
+
+  // Filtered list — selected stage from URL, defaulting to "active" (no
+  // Won/Passed), then narrowed further by the free-text search query.
   const filtered = useMemo<SavedDeal[]>(() => {
     if (!deals) return []
-    if (stageFilter) return deals.filter((d) => d.stage === stageFilter)
-    return deals.filter((d) => d.stage !== "won" && d.stage !== "passed")
-  }, [deals, stageFilter])
+    let out = stageFilter
+      ? deals.filter((d) => d.stage === stageFilter)
+      : deals.filter((d) => d.stage !== "won" && d.stage !== "passed")
+    const q = searchQuery.trim().toLowerCase()
+    if (q) {
+      out = out.filter((d) => {
+        const haystack = [
+          d.address, d.city, d.state, d.zip, d.site_name,
+          ...(d.tags ?? []),
+        ].filter(Boolean).join(" ").toLowerCase()
+        return haystack.includes(q)
+      })
+    }
+    return out
+  }, [deals, stageFilter, searchQuery])
 
-  // Auto-select the first row when the list changes if nothing is selected
-  // OR the previously selected deal is no longer in the filtered set.
-  // If a `?id=` deep-link is present and matches a loaded deal, that wins
-  // over the auto-first-row pick. Once consumed, we strip it from the URL
-  // so a refresh doesn't re-trigger.
+  // Sort key — applied within each stage group. Persisted to localStorage
+  // so the user's preference survives reloads. Default: recent activity
+  // (most-recently-touched deals surface first).
+  const [sortKey, setSortKey] = useState<SortKey>(() => {
+    if (typeof window === "undefined") return "recent"
+    const raw = (typeof localStorage !== "undefined" && localStorage.getItem("rv:pipeline:sort")) || ""
+    return SORT_KEYS.includes(raw as SortKey) ? (raw as SortKey) : "recent"
+  })
+  useEffect(() => {
+    try { localStorage.setItem("rv:pipeline:sort", sortKey) } catch {}
+  }, [sortKey])
+
+  // Group filtered deals by stage. Linear-pattern: rendering as
+  // `▾ Watching 9 / ▾ Interested 1 / …` group headers retires the
+  // per-row "Stage" column and pill. Within a group, sort by the
+  // user-selected sort key. Stage order matches DEAL_STAGES.
+  const grouped = useMemo<{ stage: DealStage; deals: SavedDeal[] }[]>(() => {
+    const buckets: Record<DealStage, SavedDeal[]> = {
+      watching: [], interested: [], offered: [], won: [], passed: [],
+    }
+    for (const d of filtered) buckets[d.stage].push(d)
+    return DEAL_STAGES
+      .map((stage) => ({
+        stage,
+        deals: buckets[stage].sort(sortComparator(sortKey)),
+      }))
+      .filter((g) => g.deals.length > 0)
+  }, [filtered, sortKey])
+
+  // Collapsed-stage state. Persisted in localStorage so opening the
+  // Pipeline tomorrow keeps yesterday's scoping. Default: every group
+  // expanded.
+  const [collapsedStages, setCollapsedStages] = useState<Set<DealStage>>(() => {
+    if (typeof window === "undefined") return new Set()
+    try {
+      const raw = localStorage.getItem("rv:pipeline:collapsed-stages")
+      if (!raw) return new Set()
+      const parsed = JSON.parse(raw) as DealStage[]
+      return new Set(parsed.filter((s) => DEAL_STAGES.includes(s)))
+    } catch { return new Set() }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "rv:pipeline:collapsed-stages",
+        JSON.stringify(Array.from(collapsedStages))
+      )
+    } catch {}
+  }, [collapsedStages])
+  const toggleStage = useCallback((s: DealStage) => {
+    setCollapsedStages((prev) => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }, [])
+
+  // Selection rules:
+  //  - `?id=` deep-link wins (open Pipeline with a specific deal selected,
+  //    e.g. "save in Add deal mode" auto-routes here with id pre-filled)
+  //  - If the currently-selected deal disappears from the filtered set,
+  //    drop the selection (don't slide to the next row — that's surprising)
+  //  - Otherwise leave selection alone. NO auto-first-row pick on initial
+  //    load — first paint shows nothing in the detail panel, the user
+  //    scans their pipeline and clicks what they want.
   useEffect(() => {
     if (filtered.length === 0) { setSelId(null); return }
     if (idParam) {
@@ -1497,8 +1814,8 @@ function PipelinePageInner() {
         return
       }
     }
-    if (!selId || !filtered.find((d) => d.id === selId)) {
-      setSelId(filtered[0].id)
+    if (selId && !filtered.find((d) => d.id === selId)) {
+      setSelId(null)
     }
   }, [filtered, selId, idParam, deals, router, stageFilter])
 
@@ -1562,6 +1879,15 @@ function PipelinePageInner() {
     if (compareMode && compareIds.size === 0) setCompareMode(false)
   }, [compareMode, compareIds.size])
 
+  // Esc handlers for compare phases. The escape stack is LIFO, so when
+  // the user is in the comparison workspace AND has a deal selected,
+  // Esc closes the deal first (registered later above), then a second
+  // Esc backs out of the comparison.
+  // - Comparison full-canvas → Esc returns to picking with selections preserved
+  // - Picking phase           → Esc cancels (clears mode + selections)
+  useEscape(!compareMode && compareDeals.length >= 2, () => setCompareMode(true))
+  useEscape(compareMode, () => { setCompareMode(false); setCompareIds(new Set()) })
+
   const onRowClick = useCallback(
     (id: string, mods: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => {
       // Plain click is "additive" when EITHER the user explicitly turned on
@@ -1587,6 +1913,22 @@ function PipelinePageInner() {
     },
     [selId, compareMode]
   )
+
+  // Double-click handler — single-click selects the row (current behavior).
+  // Double-click ALSO flies the map camera to the deal at street zoom,
+  // and switches the view to Map mode if currently in Deals view so the
+  // zoom is visible. This is the "show me this on the map" gesture —
+  // analogous to double-clicking a folder in Finder to open it.
+  const onRowDoubleClick = useCallback((id: string) => {
+    const deal = (deals ?? []).find((d) => d.id === id)
+    if (!deal) return
+    // Linear pattern: single-click previews (slide-out), double-click
+    // opens the focused workspace at /pipeline/[id]. The previous
+    // behavior was a map-camera fly-to, which conflated "look at this
+    // location" with "work on this deal" — those are different intents
+    // and double-click belongs to the focus one.
+    router.push(`/pipeline/${deal.id}`)
+  }, [deals, router])
 
   // Right-click handler — toggle the row in/out of the compare set without
   // any modifier key. Same effect as ⌘-click but discoverable from a plain
@@ -1687,7 +2029,7 @@ function PipelinePageInner() {
     try {
       const summary = await runWatchChecks()
       if (summary.changed === 0) {
-        setCheckResult(`No price changes across ${summary.checked} watched ${summary.checked === 1 ? "deal" : "deals"}.`)
+        setCheckResult(`Nothing's moved. Checked ${summary.checked} ${summary.checked === 1 ? "deal" : "deals"}.`)
       } else {
         const totalDelta = summary.changes.reduce((acc, c) => acc + c.delta, 0)
         const sign = totalDelta >= 0 ? "+" : ""
@@ -1722,7 +2064,15 @@ function PipelinePageInner() {
     // (Browse's URL toolbar lives in the same adaptive-center area
     // via the browse slot). The intermittent "URL bar dead" bug.
     <div className="flex items-center w-full px-3 gap-3">
-        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-3 min-w-0">
+        {/* Title group — wrapper marks no-drag so the cluster of
+            interactive controls (PipelineViewsMenu trigger + count
+            button) reads as one click target. Drag handles come from
+            the empty strips above/below this group within the 42px
+            bar (this group is ~26px tall, centered). */}
+        <div
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          className="flex items-center gap-3 min-w-0"
+        >
           <div className="flex items-baseline gap-2.5 min-w-0">
             <PipelineViewsMenu
               currentStage={stageFilter}
@@ -1730,346 +2080,174 @@ function PipelinePageInner() {
                 router.push("/pipeline" + (stage ? `?stage=${stage}` : ""))
               }}
             />
-            {/* Click-to-expand summary. Default state: just the deal
-                count + a small chevron. Expanded: also shows avg cash
-                flow and total exposure inline. Keeps the header clean
-                for routine browsing without hiding the numbers entirely
-                from power users. */}
-            <button
-              onClick={() => setSummaryExpanded((v) => !v)}
-              className="inline-flex items-baseline gap-1.5 text-[12px] tabular-nums truncate transition-colors"
+            {/* Quiet stat trail — always-visible single line of muted
+                12px text. Replaces the old 4-card stat strip + click-
+                to-expand toggle. Linear/Mercury restraint: count, then
+                exposure / avg cash flow / avg cap, separated by middot.
+                Lives in the title bar so the page body opens straight
+                onto the deal list with no preamble. */}
+            <div
+              className="inline-flex items-baseline gap-1.5 text-[12px] tabular-nums truncate"
               style={{ color: "var(--rv-t4)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t2)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)" }}
-              title={summaryExpanded ? "Hide pipeline summary" : "Show pipeline summary"}
             >
               <span>{total === 1 ? "1 deal" : `${total} deals`}</span>
-              {summaryExpanded && stats.avgCashFlow != null && (
+              {stats.exposure != null && (
                 <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <span>avg </span>
-                  <span style={{ color: stats.avgCashFlow < 0 ? "var(--rv-neg)" : "var(--rv-t3)" }}>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span><Currency value={stats.exposure} compact /></span>
+                </>
+              )}
+              {stats.avgCashFlow != null && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span style={{ color: stats.avgCashFlow < 0 ? "var(--rv-neg)" : "var(--rv-t4)" }}>
                     <Currency value={Math.round(stats.avgCashFlow)} signed />/mo
                   </span>
                 </>
               )}
-              {summaryExpanded && stats.exposure != null && (
+              {stats.avgCap != null && (
                 <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <span><Currency value={stats.exposure} compact /> exposure</span>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span>{(stats.avgCap * 100).toFixed(2)}%</span>
                 </>
               )}
-              <ChevronDown
-                size={11}
-                strokeWidth={2}
-                style={{
-                  marginLeft: 2,
-                  transform: summaryExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                  transition: "transform 160ms cubic-bezier(0.32,0.72,0,1)",
-                  alignSelf: "center",
-                }}
-              />
-            </button>
+              {watchedCount > 0 && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span>{watchedCount} watching</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
-        {/* Canvas toggle — Deals (default, dashboard view) vs. Map
-            (geographic view). Lives early in the header so it reads
-            as a primary mode-switch, not buried after the Compare
-            button. Hidden when the comparison view is active (the
-            map is irrelevant when comparing). */}
-        {compareDeals.length < 2 && (
-          <div
-            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-            className="ml-2 inline-flex items-center rounded-full border border-border bg-muted p-0.5"
-            role="tablist"
-            aria-label="View mode"
-          >
-            <button
-              role="tab"
-              aria-selected={viewMode === "deals"}
-              onClick={() => setViewMode("deals")}
-              className={cn(
-                "px-3 h-7 text-[12px] font-medium tracking-tight rounded-full transition-colors",
-                viewMode === "deals"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Deals
-            </button>
-            <button
-              role="tab"
-              aria-selected={viewMode === "table"}
-              onClick={() => setViewMode("table")}
-              className={cn(
-                "px-3 h-7 text-[12px] font-medium tracking-tight rounded-full transition-colors",
-                viewMode === "table"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Table
-            </button>
-            <button
-              role="tab"
-              aria-selected={viewMode === "kanban"}
-              onClick={() => setViewMode("kanban")}
-              className={cn(
-                "px-3 h-7 text-[12px] font-medium tracking-tight rounded-full transition-colors",
-                viewMode === "kanban"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Kanban
-            </button>
-            <button
-              role="tab"
-              aria-selected={viewMode === "map"}
-              onClick={() => setViewMode("map")}
-              className={cn(
-                "px-3 h-7 text-[12px] font-medium tracking-tight rounded-full transition-colors",
-                viewMode === "map"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Map
-            </button>
-          </div>
-        )}
-        {/* Compare control — three visual states:
-              - idle (not in mode, no selection): a confident accent-tinted
-                button so the feature reads as a real call-to-action, not
-                just another header chip
-              - compare mode active: live selection counter + primary
-                "Compare N" CTA (when ≥ 2 selected) + neutral Cancel
-              - lingering selection from right-click / ⌘-click outside
-                mode: "Comparing N" status + Clear */}
-        {(compareMode || compareIds.size > 0 || total > 1) && (
-          <div
-            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-            className="ml-4 inline-flex items-center gap-2"
-          >
-            {compareMode ? (
-              <>
-                {/* 4 slot dots that fill in as the user picks deals. Reads
-                    at a glance: how many you have vs the cap. */}
-                <div className="flex items-center gap-1 mr-1">
-                  {[0, 1, 2, 3].map((i) => (
-                    <span
-                      key={i}
-                      style={{
-                        width:  6, height: 6, borderRadius: 99,
-                        background: i < compareIds.size ? "var(--rv-accent)" : "var(--rv-elev-3)",
-                        border:     i < compareIds.size ? "none" : "0.5px solid var(--rv-border)",
-                        transition: "background-color 160ms ease",
-                      }}
-                    />
-                  ))}
-                </div>
-                <span className="text-[11.5px] tracking-tight tabular-nums text-muted-foreground">
-                  {compareIds.size === 0
-                    ? "Select listings"
-                    : compareIds.size === 1
-                    ? "1 picked · need one more"
-                    : `${compareIds.size} of 4 picked`}
-                </span>
-                <Button
-                  onClick={() => { setCompareMode(false); setCompareIds(new Set()) }}
-                  variant="ghost"
-                  size="xs"
-                >
-                  Cancel
-                </Button>
-                {compareIds.size >= 2 && (
-                  <Button
-                    onClick={() => setCompareMode(false)}
-                    variant="default"
-                    size="sm"
-                    title="View the side-by-side comparison"
-                  >
-                    Compare {compareIds.size}
-                  </Button>
-                )}
-              </>
-            ) : compareIds.size > 0 ? (
-              <>
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-medium tabular-nums text-primary bg-primary/10"
-                  style={{
-                    border: "0.5px solid rgba(48,164,108,0.22)",
-                  }}
-                >
-                  <GitCompareArrows size={11} strokeWidth={2} />
-                  {compareIds.size === 1 ? "1 selected" : `Comparing ${compareIds.size}`}
-                </span>
-                <Button
-                  onClick={() => setCompareIds(new Set())}
-                  variant="ghost"
-                  size="xs"
-                >
-                  Clear
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setCompareMode(true)}
-                title="Pick 2-4 deals to see them side-by-side"
-                icon={<GitCompareArrows size={11} strokeWidth={2} />}
-              >
-                Compare
-              </Button>
-            )}
-          </div>
-        )}
+        {/* View-toggle pills, Compare control, and Watch button were
+            here previously — they've moved to the Pipeline sub-bar
+            (rendered below in the body) so the title bar holds only
+            the page identity (view selector + count). The bar reads
+            calmer + has more drag area, and the route-specific tools
+            sit closer to the data they control. */}
         <span className="flex-1" style={{ WebkitAppRegion: "drag" } as React.CSSProperties} />
-        {watchedCount > 0 && (
-          <div
-            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-            className="flex items-center gap-2"
-          >
-            {checkResult && (
-              <span className="text-[11.5px] tracking-tight rv-watch-toast text-muted-foreground">
-                {checkResult}
-              </span>
-            )}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onCheckUpdates}
-              disabled={checking}
-              title={`Re-check ${watchedCount} watched ${watchedCount === 1 ? "deal" : "deals"} for price changes`}
-              icon={
-                <RefreshCw
-                  size={11}
-                  strokeWidth={2}
-                  className={checking ? "animate-spin" : ""}
-                  style={{ animationDuration: checking ? "1s" : undefined }}
-                />
-              }
-            >
-              {checking ? `Checking ${watchedCount}…` : `Check ${watchedCount}`}
-            </Button>
-          </div>
-        )}
       </div>
+  )
+
+  // Sub-bar — Pipeline-specific controls (view-toggle, Compare, Watch).
+  // Renders inline in the body (NOT in the AppTopBar slot) right above
+  // the data view, so route-specific tools live with the data they
+  // operate on. Always visible regardless of viewMode so the user can
+  // switch views from anywhere.
+  const pipelineSubBar = (
+    <div
+      className="shrink-0 flex items-center gap-3 px-4 border-b border-foreground/[0.07] bg-background"
+      style={{ height: 40, pointerEvents: "auto" }}
+    >
+      {/* View-toggle pill — Deals / Table / Kanban / Map */}
+      {compareDeals.length < 2 && (
+        // Sliding-indicator view toggle. The active "pill" is a single
+        // absolutely-positioned div that animates between tabs with
+        // Apple-spring instead of swapping bg classes per-tab. Linear,
+        // Vercel and Stripe all use this pattern — the motion makes
+        // mode switching feel physical.
+        <ViewToggle
+          modes={["deals", "table", "kanban", "map"]}
+          active={viewMode}
+          onChange={(m) => setViewMode(m as typeof viewMode)}
+        />
+      )}
+
+      {/* Compare entry — single button. The picking state (progress
+          dots, "X of 4 picked", Compare CTA) moved out of the sub-bar
+          and into the floating CompareSelectionBar at the bottom of
+          the page so the sub-bar stays calm. Pressed → enters compare
+          mode; the bottom bar appears, rows become pickable. */}
+      {!compareMode && compareIds.size === 0 && total > 1 && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setCompareMode(true)}
+          title="Pick 2–4 deals to see them side-by-side"
+          icon={<GitCompareArrows size={11} strokeWidth={2} />}
+        >
+          Compare
+        </Button>
+      )}
+
+      {/* Spacer + Sort + Watch on the right */}
+      <span className="flex-1" />
+      {viewMode === "deals" && filtered.length > 1 && (
+        <SortMenu sortKey={sortKey} onChange={setSortKey} />
+      )}
+      {watchedCount > 0 && (
+        <div className="flex items-center gap-2">
+          {checkResult && (
+            <span className="text-[11.5px] tracking-tight rv-watch-toast text-muted-foreground">
+              {checkResult}
+            </span>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onCheckUpdates}
+            disabled={checking}
+            title={`Re-check ${watchedCount} watched ${watchedCount === 1 ? "deal" : "deals"} for price changes`}
+            icon={
+              <RefreshCw
+                size={11}
+                strokeWidth={2}
+                className={checking ? "animate-spin" : ""}
+                style={{ animationDuration: checking ? "1s" : undefined }}
+              />
+            }
+          >
+            {checking ? `Checking ${watchedCount}…` : `Check ${watchedCount}`}
+          </Button>
+        </div>
+      )}
+    </div>
   )
 
   return (
     <div
-      // Cream surface guarantees the dark MapShell (which lives behind
-      // every route) never bleeds through to the user. The Map view
-      // explicitly sets transparent middle column when it wants the
-      // map visible; the rest of Pipeline stays opaque.
-      className="flex flex-col h-full overflow-hidden relative bg-background"
+      // Map view: outer wrapper transparent so the persistent MapShell
+      // (z=0 behind every route) shows through the middle column.
+      // Other views: opaque cream so the map doesn't bleed through.
+      // Earlier this was always `bg-background` opaque, which made
+      // Map view render solid black (the wrapper hid the map
+      // entirely, regardless of the inner middle column's transparency).
+      className={cn(
+        "flex flex-col h-full overflow-hidden relative",
+        viewMode !== "map" && "bg-background"
+      )}
+      style={{
+        // AlwaysMountedRoutes' layer is now pe:none — routes opt into
+        // pe:auto on their own outer wrapper. Pipeline does that here,
+        // EXCEPT in Map view where we want pe:none so drags fall
+        // through to the persistent MapShell behind. Internal Pipeline
+        // surfaces (deal list, splitter, detail rail, bulk bar) re-
+        // enable pe:auto explicitly inside.
+        pointerEvents: viewMode === "map" ? "none" : "auto",
+      }}
     >
       {/* Pipeline header content portals into the persistent
           AppTopBar's pipeline slot so the bar adapts without
           re-mounting. Page renders body only. */}
       {pipelineTopBarSlot && createPortal(pipelineHeaderContent, pipelineTopBarSlot)}
 
-      {/* Compare-mode banner — slides in to make the mode change
-          obvious. Stays out of the layout when not in mode
-          (max-height 0). */}
-      <div style={{ pointerEvents: "auto" }}>
-        <CompareModeBanner active={compareMode} count={compareIds.size} />
-      </div>
+      {/* Compare-mode banner — REMOVED. The picking state is now
+          announced by the floating CompareSelectionBar at the bottom
+          (no layout push) + the picked rows highlighting in the list.
+          The banner duplicated information without adding direction. */}
 
-      {/* Stats strip — Mercury-style portfolio summary across the top
-          of the Deals canvas. Four cards: Active / Exposure / Avg cash
-          flow / Avg cap rate. Only renders in Deals mode (Map mode is
-          for geographic exploration; numbers there would compete) and
-          only when there are filtered deals to summarize. Computed from
-          the same `stats` object the topbar header already uses, so the
-          numbers are consistent with the inline summary expander. */}
-      {viewMode === "deals" && filtered.length > 0 && (
-        <div
-          className="shrink-0 px-6 pt-5 pb-4 bg-background border-b border-border"
-          style={{ pointerEvents: "auto" }}
-        >
-          {/* Stagger fade animation removed — it cost 380ms of perceived
-              lag on every Pipeline mount before the user could see the
-              stat cards. Always-mounted-routes flips visibility on
-              every nav, which means this animation re-played on every
-              Browse → Pipeline switch. Not worth the snappy nav. */}
-          <div className="grid grid-cols-1 gap-4 max-w-[1280px] mx-auto *:data-[slot=card]:bg-linear-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs sm:grid-cols-2 xl:grid-cols-4">
-            <Card className="@container/card">
-              <CardHeader>
-                <CardDescription>Active deals</CardDescription>
-                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-                  {String(stats.active)}
-                </CardTitle>
-                {watchedCount > 0 && (
-                  <CardAction>
-                    <Badge variant="outline">{watchedCount} watching</Badge>
-                  </CardAction>
-                )}
-              </CardHeader>
-              <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent pt-0 text-sm">
-                <div className="text-muted-foreground">In your pipeline right now</div>
-              </CardFooter>
-            </Card>
-            <Card className="@container/card">
-              <CardHeader>
-                <CardDescription>Total exposure</CardDescription>
-                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-                  {stats.exposure != null ? fmtCurrencyCompact(stats.exposure) : "—"}
-                </CardTitle>
-              </CardHeader>
-              <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent pt-0 text-sm">
-                <div className="text-muted-foreground">Across saved deals</div>
-              </CardFooter>
-            </Card>
-            <Card className="@container/card">
-              <CardHeader>
-                <CardDescription>Avg cash flow</CardDescription>
-                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-                  {stats.avgCashFlow != null
-                    ? `${stats.avgCashFlow >= 0 ? "+" : "−"}$${Math.abs(Math.round(stats.avgCashFlow)).toLocaleString("en-US")}`
-                    : "—"}
-                  {stats.avgCashFlow != null && (
-                    <span className="ml-1 text-base font-normal text-muted-foreground">/mo</span>
-                  )}
-                </CardTitle>
-                {stats.avgCashFlow != null && (
-                  <CardAction>
-                    <Badge variant="outline">
-                      {stats.avgCashFlow >= 0 ? <TrendingUpIcon /> : <TrendingDownIcon />}
-                      {stats.avgCashFlow >= 0 ? "Positive" : "Negative"}
-                    </Badge>
-                  </CardAction>
-                )}
-              </CardHeader>
-              <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent pt-0 text-sm">
-                <div className="text-muted-foreground">Per door, after expenses</div>
-              </CardFooter>
-            </Card>
-            <Card className="@container/card">
-              <CardHeader>
-                <CardDescription>Avg cap rate</CardDescription>
-                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-                  {stats.avgCap != null ? `${(stats.avgCap * 100).toFixed(2)}%` : "—"}
-                </CardTitle>
-              </CardHeader>
-              <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent pt-0 text-sm">
-                <div className="text-muted-foreground">Weighted mean across pipeline</div>
-              </CardFooter>
-            </Card>
-          </div>
+      {/* Pipeline sub-bar — view-toggle, Compare control, Watch button.
+          Always visible (regardless of viewMode) since it's the
+          "what view do I want" surface. Sits on the body bg below
+          the title bar. */}
+      {pipelineSubBar}
 
-          {/* Pipeline velocity — area chart of deals added per day on top
-              of the running total. Shows up only when there's at least
-              one saved deal (otherwise it's an empty rectangle). */}
-          {filtered.length > 0 && (
-            <div className="max-w-[1280px] mx-auto mt-4">
-              <PipelineVelocityChart deals={deals ?? []} />
-            </div>
-          )}
-        </div>
-      )}
+      {/* Stat strip + velocity disclosure removed entirely. Stats now
+          live as a quiet single-line trail in the title bar (12px,
+          muted). Velocity moved off this page — it's an Insights-class
+          surface, not something the user studies while triaging deals.
+          The page body opens straight to the deal list. */}
 
       {/* Body — list (always) + map (always) + detail rail (slides in)
           OR comparison view (replaces map when comparing 2+).
@@ -2115,25 +2293,41 @@ function PipelinePageInner() {
         )}
 
         {!error && deals === null && (
-          // Loading / not-signed-in state. The route renders before
-          // auth resolves; without this the body was empty (showing the
-          // dark MapShell behind it). Cream surface + breathing buddy
-          // mark keeps the user from seeing a black void.
-          <div className="flex items-center justify-center w-full bg-background" style={{ pointerEvents: "auto" }}>
-            <div className="flex flex-col items-center gap-4 max-w-[320px] text-center">
-              <div className="flex aspect-square size-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
-                <BuddyMark size={22} state="thinking" />
-              </div>
-              <p
-                className="text-foreground"
-                style={{ fontFamily: "var(--rv-font-display)", fontSize: 16, fontWeight: 500, letterSpacing: "-0.012em" }}
-              >
-                Loading your pipeline…
-              </p>
-              <p className="text-[12px] leading-relaxed text-muted-foreground">
-                If you're not signed in yet, head to Browse and sign in to sync your saved deals.
-              </p>
+          // Loading state — skeleton-shaped placeholders matching the
+          // real layout (deal list rows on the left, generous middle
+          // column, detail rail on the right). Replaces the centered
+          // BuddyMark spinner. Premium pattern: when content is on its
+          // way, show what it WILL look like, not a loading indicator.
+          <div className="flex w-full bg-background" style={{ pointerEvents: "auto" }}>
+            {/* Left list — 6 row skeletons. Sits on the body bg
+                (--background) — the LISTINGS are work content, not
+                chrome, so they share the bright work-surface plane.
+                Was previously --sidebar (chrome tone) which made the
+                whole list feel recessed instead of foreground. */}
+            <div
+              className="shrink-0 flex flex-col h-full overflow-hidden bg-background"
+              style={{
+                width:        listW,
+              }}
+            >
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-start gap-3 px-4 py-3 border-b border-foreground/[0.04] rv-skeleton-pulse"
+                  style={{ animationDelay: `${i * 80}ms` }}
+                >
+                  <div className="size-7 rounded-md bg-foreground/[0.06] shrink-0" />
+                  <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                    <div className="h-3 w-3/4 rounded bg-foreground/[0.08]" />
+                    <div className="h-2.5 w-1/2 rounded bg-foreground/[0.05]" />
+                  </div>
+                  <div className="h-3 w-12 rounded bg-foreground/[0.06]" />
+                </div>
+              ))}
             </div>
+            {/* Middle column — empty (matches layout when no selection) */}
+            <div className="flex-1" />
+            {/* Right rail — collapsed (matches no-selection state) */}
           </div>
         )}
 
@@ -2183,25 +2377,161 @@ function PipelinePageInner() {
           </div>
         )}
 
-        {!error && deals !== null && viewMode !== "table" && viewMode !== "kanban" && (
-          <>
-            {/* LEFT — always-visible deal list. Resizable via splitter. */}
+        {/* MapShell — mounted ONLY when Map view is active. The Mapbox
+            GL instance is heavy (~30-40MB + tile requests + GPU work)
+            and used to live as a persistent app-shell layer for
+            Browse + Pipeline ambient backdrops. After the rebuild,
+            it's only ever visible here, so we mount on demand and
+            tear down when leaving Map view. The MapShellProvider
+            context above stays alive at app level so other code can
+            publish deals/selection without depending on the map
+            being mounted. */}
+        {!error && deals !== null && viewMode === "map" && (
+          // z=-1 puts the map BEHIND the static flex children below
+          // (deal list pane, detail panel). Otherwise CSS stacking
+          // paints positioned z=0 elements ON TOP of static block
+          // children — the map would cover the deal list, which read
+          // as the deal list being "see-through" (it was hidden, not
+          // transparent). With z=-1 the map is the backdrop; the
+          // opaque deal list + detail panel cover their portions and
+          // the transparent middle column lets the map show through.
+          <div
+            className="absolute inset-0"
+            style={{ zIndex: -1, pointerEvents: "auto" }}
+          >
+            <MapShell />
+          </div>
+        )}
+
+        {/* COMPARISON WORKSPACE — full pipeline body.
+            Renders only after the user explicitly clicks "Compare N"
+            from the floating selection bar (compareMode flips false
+            with 2+ selections preserved). The previous design squeezed
+            the comparison into a 45% slice of a 3-column layout, which
+            cropped content off-screen. Now ComparisonView gets the full
+            canvas with a slim header strip for back-out + meta.
+            Back returns to picking mode with selections preserved so
+            the user can swap a deal out and re-enter comparison. */}
+        {!error && deals !== null && !compareMode && compareDeals.length >= 2 && (
+          <div
+            className="flex flex-col w-full h-full bg-background"
+            style={{ pointerEvents: "auto" }}
+          >
             <div
-              className="shrink-0 flex flex-col h-full overflow-hidden"
+              className="shrink-0 flex items-center gap-3 px-4 border-b border-foreground/[0.07]"
+              style={{ height: 40 }}
+            >
+              <button
+                onClick={() => setCompareMode(true)}
+                className="inline-flex items-center gap-1.5 text-[12px] tracking-tight text-muted-foreground hover:text-foreground transition-colors px-1.5 py-1 rounded-md"
+                title="Back to picking (Esc)"
+              >
+                <ChevronRight
+                  size={13}
+                  strokeWidth={2.2}
+                  style={{ transform: "rotate(180deg)" }}
+                />
+                <span>Back</span>
+              </button>
+              <span
+                aria-hidden
+                className="size-1 rounded-full bg-foreground/[0.18]"
+                style={{ width: 4, height: 4 }}
+              />
+              <span className="text-[12px] tracking-tight text-foreground">
+                Comparing {compareDeals.length} deals
+              </span>
+              <span className="flex-1" />
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => { setCompareMode(false); setCompareIds(new Set()) }}
+              >
+                Clear
+              </Button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <ComparisonView
+                deals={compareDeals}
+                onClear={() => setCompareIds(new Set())}
+                onRemove={(id) => setCompareIds((prev) => {
+                  const next = new Set(prev)
+                  next.delete(id)
+                  return next
+                })}
+                onOpenInBrowse={(url) => router.push(`/browse?url=${encodeURIComponent(url)}`)}
+              />
+            </div>
+          </div>
+        )}
+
+        {!error && deals !== null && !(!compareMode && compareDeals.length >= 2) && viewMode !== "table" && viewMode !== "kanban" && (
+          <>
+            {/* LEFT — deal list.
+                In Deals view: takes the full available width (no
+                middle column / no splitter — the previous empty
+                middle was wasted space + the user's eye competed
+                between three regions). The detail rail still slides
+                in from the right when a deal is selected.
+                In Map view: fixed-width pane next to the splitter
+                and map middle column. */}
+            <div
+              className={cn(
+                "flex flex-col h-full overflow-hidden bg-background",
+                viewMode === "map" ? "shrink-0" : "flex-1 min-w-0"
+              )}
               style={{
-                width:        listW,
-                background:   "var(--rv-bg)",
-                // Right-edge hairline only — was a 30px-blur drop
-                // shadow whose vertical blur extended above the
-                // list's top edge, painting a faint dark band right
-                // below the AppTopBar that read as a hairline gap.
-                // Pure 1px hairline gives the same boundary
-                // separation against the map without bleeding
-                // upward.
-                boxShadow:    "1px 0 0 rgba(255,255,255,0.06)",
+                // Body bg, NOT --sidebar — the listings are work
+                // content, not chrome. See the loading-state comment
+                // above for full rationale.
+                ...(viewMode === "map" ? { width: listW } : null),
+                boxShadow:    viewMode === "map" ? "1px 0 0 rgba(255,255,255,0.06)" : undefined,
                 pointerEvents: "auto",
               }}
             >
+              {/* Search bar — filters the deal list by address / city /
+                  state / zip / tag / source. Sticky at top of the list
+                  pane so it stays visible while the user scrolls. */}
+              <div className="shrink-0 px-3 py-2 border-b border-border bg-background">
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={`Search ${(deals?.length ?? 0)} deal${deals?.length === 1 ? "" : "s"}…`}
+                    className="w-full h-8 pl-8 pr-7 text-[12.5px] rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-2 focus:ring-ring/40 placeholder:text-muted-foreground"
+                    aria-label="Search deals"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 size-4 inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                      aria-label="Clear search"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {/* Column headers — only in dense (Deals) mode. Stage
+                  column is GONE: deals are now grouped by stage with
+                  collapsible group headers, so per-row stage data would
+                  duplicate the header. Three columns of metrics +
+                  address. */}
+              {viewMode === "deals" && filtered.length > 0 && (
+                <div
+                  className="shrink-0 flex items-center gap-3 text-[10.5px] uppercase tracking-wider font-medium text-muted-foreground border-b border-foreground/[0.07] bg-background"
+                  style={{ padding: "6px 16px", paddingLeft: 8 + 8 + 28 + 12 /* outer + inner + sourcemark + gap, matches row's address text start */ }}
+                >
+                  <div className="flex-1 min-w-0">Address</div>
+                  <span className="shrink-0 text-right" style={{ width: 80 }}>Price</span>
+                  <span className="shrink-0 text-right" style={{ width: 90 }}>Cash flow</span>
+                  <span className="shrink-0 text-right" style={{ width: 56 }}>Cap</span>
+                  <span className="shrink-0 text-right" style={{ width: 36 }}>Age</span>
+                </div>
+              )}
               <div className="flex-1 overflow-y-auto panel-scroll relative">
                 <CompareDropZone
                   visible={draggingDealId !== null}
@@ -2209,7 +2539,68 @@ function PipelinePageInner() {
                 />
                 {filtered.length === 0 ? (
                   <ListEmpty stageTitle={stageTitle} hasAny={(deals?.length ?? 0) > 0} onClearStage={() => router.push("/pipeline")} />
+                ) : viewMode === "deals" ? (
+                  // Grouped rendering — Linear pattern. Each non-empty
+                  // stage gets a collapsible header (▸ Watching 9) above
+                  // its rows. Group order matches DEAL_STAGES.
+                  grouped.map(({ stage, deals: stageDeals }) => {
+                    const collapsed = collapsedStages.has(stage)
+                    return (
+                      <div key={stage}>
+                        <button
+                          onClick={() => toggleStage(stage)}
+                          className="w-full flex items-center gap-2 text-left transition-colors hover:bg-foreground/[0.03]"
+                          style={{
+                            padding: "6px 16px",
+                            background: "var(--rv-elev-1, transparent)",
+                            borderBottom: "0.5px solid oklch(from var(--foreground) l c h / 0.05)",
+                          }}
+                          title={collapsed ? `Show ${STAGE_LABEL[stage]}` : `Hide ${STAGE_LABEL[stage]}`}
+                        >
+                          <ChevronDown
+                            size={11}
+                            strokeWidth={2.4}
+                            className="text-muted-foreground"
+                            style={{
+                              transform: collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                              transition: "transform 160ms cubic-bezier(0.32,0.72,0,1)",
+                            }}
+                          />
+                          <span
+                            aria-hidden
+                            className="rounded-full shrink-0"
+                            style={{ width: 6, height: 6, background: STAGE_COLOR[stage] }}
+                          />
+                          <span className="text-[12px] font-medium text-foreground">
+                            {STAGE_LABEL[stage]}
+                          </span>
+                          <span className="text-[11.5px] tabular-nums text-muted-foreground/70">
+                            {stageDeals.length}
+                          </span>
+                        </button>
+                        {!collapsed && stageDeals.map((deal) => (
+                          <DealListRow
+                            key={deal.id}
+                            deal={deal}
+                            active={compareIds.size < 2 && selId === deal.id}
+                            multiSelected={compareIds.has(deal.id)}
+                            compareMode={compareMode}
+                            dense
+                            hideStagePill
+                            onSelect={(mods) => onRowClick(deal.id, mods)}
+                            onDoubleSelect={() => onRowDoubleClick(deal.id)}
+                            onContextMenuAdd={() => onRowToggleCompare(deal.id)}
+                            onDragStartRow={onRowDragStart}
+                            onDragEndRow={onRowDragEnd}
+                          />
+                        ))}
+                      </div>
+                    )
+                  })
                 ) : (
+                  // Map view — narrow pane keeps the flat list (stacked
+                  // rows). Group headers would chop the limited vertical
+                  // space too aggressively here.
                   filtered.map((deal) => (
                     <DealListRow
                       key={deal.id}
@@ -2217,7 +2608,9 @@ function PipelinePageInner() {
                       active={compareIds.size < 2 && selId === deal.id}
                       multiSelected={compareIds.has(deal.id)}
                       compareMode={compareMode}
+                      dense={false}
                       onSelect={(mods) => onRowClick(deal.id, mods)}
+                      onDoubleSelect={() => onRowDoubleClick(deal.id)}
                       onContextMenuAdd={() => onRowToggleCompare(deal.id)}
                       onDragStartRow={onRowDragStart}
                       onDragEndRow={onRowDragEnd}
@@ -2226,112 +2619,34 @@ function PipelinePageInner() {
                 )}
               </div>
             </div>
-            {/* Splitter — drag to resize the list pane */}
-            <div
-              onPointerDown={onSplitDown}
-              onPointerMove={onSplitMove}
-              onPointerUp={onSplitUp}
-              onPointerCancel={onSplitUp}
-              className={cn(
-                "rv-splitter shrink-0 cursor-col-resize select-none",
-                // In Deals mode the splitter inherits the same opaque
-                // bg as the surrounding columns so the map doesn't peek
-                // through the 4px resize gap. In Map mode it stays
-                // transparent so drags can fall through to the map
-                // (the splitter still resizes the list overlay).
-                viewMode === "deals" && "bg-background"
-              )}
-              style={{ width: 4, pointerEvents: "auto" }}
-              title="Drag to resize"
-            />
-
-            {/* MIDDLE — map + (in compare mode) selecting/comparison pane.
-                The detail rail is hoisted OUT to be a top-level sibling so
-                it spans the full pipeline body height — same architecture
-                as the Browse panel. The map keeps the leftover space.
-                pointer-events:none lets drags fall through to the map
-                shell underneath; the compare panes (when present) re-
-                enable pointer-events on themselves. */}
-            <div
-              className={`flex flex-1 min-w-0 h-full ${compareDeals.length >= 2 ? "flex-col" : "flex-row"}`}
-              style={{ pointerEvents: "none" }}
-            >
+            {/* Splitter — only in Map view (where the list pane is
+                resizable next to the map). In Deals view the list
+                takes the full width and there's no splitter. */}
+            {viewMode === "map" && (
               <div
-                className={cn(
-                  compareDeals.length >= 2 ? "shrink-0 w-full" : "flex-1 min-w-0 h-full",
-                  // Deals view: opaque cream surface — hides the map.
-                  // Map view: transparent — the persistent MapShell
-                  // shows through.
-                  viewMode === "deals" && "bg-background"
-                )}
-                style={{
-                  ...(compareDeals.length >= 2 ? { height: "45%" } : null),
-                  pointerEvents: viewMode === "map" ? "none" : "auto",
-                }}
-              >
-                {/* Deals view: Pipeline Pulse feed. The middle column
-                    used to be the ambient map; now in Deals mode it's
-                    the buddy's surface — recent activity across the
-                    pipeline (saves, stage moves, watch alerts) so the
-                    user has a "what changed" read every time they open
-                    Pipeline. Generous spacing, max-width so the column
-                    doesn't sprawl on wide windows.
+                onPointerDown={onSplitDown}
+                onPointerMove={onSplitMove}
+                onPointerUp={onSplitUp}
+                onPointerCancel={onSplitUp}
+                className="rv-splitter shrink-0 cursor-col-resize select-none"
+                style={{ width: 4, pointerEvents: "auto" }}
+                title="Drag to resize"
+              />
+            )}
 
-                    Map view: transparent (renders nothing here, the
-                    map shows through). */}
-                {viewMode === "deals" && compareDeals.length < 2 && !compareMode && (
-                  // Middle column when no deal is selected and not in
-                  // compare mode. The old PipelinePulseHeader +
-                  // PipelinePulseObservations have been retired —
-                  // the SectionCards header + velocity chart at the top
-                  // of the page now carry the same "what's happening"
-                  // signal, so showing them here too was duplicate
-                  // chrome that pushed the actual deal list off-screen.
-                  // Activity feed stays — it's the only buddy-style
-                  // surface that shows per-deal events (stage moves,
-                  // watch alerts) which the header cards can't.
-                  <div className="h-full overflow-y-auto panel-scroll">
-                    <div className="max-w-[480px] mx-auto px-8 py-10">
-                      <ActivityFeed limit={8} />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {compareDeals.length >= 2 ? (
-                <div
-                  className="flex-1 min-h-0 w-full"
-                  style={{ borderTop: "0.5px solid var(--rv-border)", pointerEvents: "auto" }}
-                >
-                  <ComparisonView
-                    deals={compareDeals}
-                    onClear={() => setCompareIds(new Set())}
-                    onRemove={(id) => setCompareIds((prev) => {
-                      const next = new Set(prev)
-                      next.delete(id)
-                      return next
-                    })}
-                    onOpenInBrowse={(url) => router.push(`/browse?url=${encodeURIComponent(url)}`)}
-                  />
-                </div>
-              ) : compareMode ? (
-                <div
-                  className="shrink-0 h-full bg-background"
-                  style={{
-                    width:        320,
-                    boxShadow:    "-1px 0 0 rgba(255,255,255,0.06)",
-                    pointerEvents: "auto",
-                  }}
-                >
-                  <CompareSelectingPane
-                    picked={(deals ?? []).filter((d) => compareIds.has(d.id))}
-                    onRemove={(id) => setCompareIds((prev) => {
-                      const next = new Set(prev); next.delete(id); return next
-                    })}
-                  />
-                </div>
-              ) : null}
-            </div>
+            {/* MIDDLE — only renders in Map view (the map shows through
+                the transparent column). The compare-mode side pane and
+                the 45%-height comparison-in-the-middle hack are gone:
+                the comparison now takes the full pipeline body (handled
+                by the COMPARISON WORKSPACE block above), and picking
+                state is carried by the floating selection bar at the
+                bottom + the dense list rows highlighting as picked. */}
+            {viewMode === "map" && (
+              <div
+                className="flex flex-1 min-w-0 h-full"
+                style={{ pointerEvents: "none" }}
+              />
+            )}
 
             {/* RIGHT — full-height detail rail. Sibling of the list and
                 map area, NOT nested inside the map column, so it spans the
@@ -2340,7 +2655,7 @@ function PipelinePageInner() {
                 the focus then). */}
             {!compareMode && compareDeals.length < 2 && (
               <div
-                className="shrink-0 h-full bg-background"
+                className="shrink-0 h-full bg-background relative"
                 style={{
                   width:        selected ? 460 : 0,
                   overflow:     "hidden",
@@ -2349,6 +2664,35 @@ function PipelinePageInner() {
                   pointerEvents: "auto",
                 }}
               >
+                {/* Close (X) — floats top-right of the rail. The
+                    "Open in full" pill that used to live next to it
+                    is now the prominent "Open workspace" primary
+                    button in the topbar action row (more discoverable
+                    than a hidden floating chrome control). */}
+                {selected && (
+                  <button
+                    onClick={() => setSelId(null)}
+                    aria-label="Close"
+                    title="Close (Esc)"
+                    className="absolute z-20 inline-flex items-center justify-center rounded-full transition-colors"
+                    style={{
+                      top: 10,
+                      right: 10,
+                      width: 26,
+                      height: 26,
+                      background: "var(--rv-popover-bg)",
+                      backdropFilter: "blur(10px) saturate(160%)",
+                      WebkitBackdropFilter: "blur(10px) saturate(160%)",
+                      border: "0.5px solid var(--rv-border)",
+                      color: "var(--rv-t2)",
+                      boxShadow: "var(--rv-shadow-outer-sm)",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-t1)" }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t2)" }}
+                  >
+                    <X size={13} strokeWidth={2.2} />
+                  </button>
+                )}
                 {selected ? (
                   <DealDetail deal={selected} onChange={onDealChange} />
                 ) : (
@@ -2360,13 +2704,71 @@ function PipelinePageInner() {
         )}
       </div>
 
+      {/* Compare-mode selection bar — floats at bottom-center while
+          the user is picking deals to compare. Replaces the old top
+          banner + side selecting pane. Linear/Stripe pattern: a quiet
+          floating bar that owns the picking state without pushing the
+          layout around. Stays visible while picking 2-4; clicking
+          Compare commits and launches the full-canvas comparison. */}
+      {compareMode && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-3 py-2 rounded-full"
+          style={{
+            bottom: 20,
+            background: "var(--rv-popover-bg)",
+            backdropFilter: "blur(14px) saturate(160%)",
+            WebkitBackdropFilter: "blur(14px) saturate(160%)",
+            border: "0.5px solid var(--rv-border)",
+            boxShadow: "var(--rv-shadow-outer-md)",
+            pointerEvents: "auto",
+          }}
+        >
+          <div className="flex items-center gap-1 pl-1">
+            {[0, 1, 2, 3].map((i) => (
+              <span
+                key={i}
+                style={{
+                  width: 6, height: 6, borderRadius: 99,
+                  background: i < compareIds.size ? "var(--rv-accent)" : "var(--rv-elev-3)",
+                  border: i < compareIds.size ? "none" : "0.5px solid var(--rv-border)",
+                  transition: "background-color 160ms ease",
+                }}
+              />
+            ))}
+          </div>
+          <span className="text-[12px] tracking-tight tabular-nums text-foreground">
+            {compareIds.size === 0
+              ? "Click deals to compare"
+              : compareIds.size === 1
+              ? "1 picked · pick one more"
+              : `${compareIds.size} of 4 picked`}
+          </span>
+          <Button
+            onClick={() => { setCompareMode(false); setCompareIds(new Set()) }}
+            variant="ghost"
+            size="xs"
+          >
+            Cancel
+          </Button>
+          {compareDeals.length >= 2 && (
+            <Button
+              onClick={() => setCompareMode(false)}
+              variant="default"
+              size="sm"
+              icon={<GitCompareArrows size={11} strokeWidth={2} />}
+              title={`Compare ${compareDeals.length} side-by-side`}
+            >
+              Compare {compareDeals.length}
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Bulk action bar — floats at bottom-center whenever 1+ deals
-          are checked (table multi-select, compare-mode click-toggle,
-          or right-click "add to compare"). Surfaces actions that
-          previously lived only in per-row context menus: Compare (2-4),
-          Move stage, Delete. Position: fixed → renders above any view
-          mode without participating in layout. */}
-      {compareIds.size > 0 && (
+          are checked OUTSIDE compare mode (table multi-select or
+          right-click "add to compare"). When compareMode is active,
+          the dedicated CompareSelectionBar above takes over instead. */}
+      {!compareMode && compareIds.size > 0 && (
         <PipelineBulkBar
           count={compareIds.size}
           canCompare={compareIds.size >= 2 && compareIds.size <= 4}
@@ -2674,135 +3076,12 @@ function fmtCurrencyCompact(n: number): string {
   return `$${Math.round(n).toLocaleString("en-US")}`
 }
 
-function CompareModeBanner({ active, count }: { active: boolean; count: number }) {
-  const message = count === 0
-    ? "Pick 2 to 4 deals from the list — click rows, right-click, or drag up."
-    : count === 1
-    ? "1 picked. Add at least one more to start comparing."
-    : count >= 4
-    ? "4 of 4 picked. Tap Compare in the header to view side-by-side."
-    : `${count} of 4 picked. Tap Compare in the header when you're ready.`
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        maxHeight:    active ? 38 : 0,
-        opacity:      active ? 1 : 0,
-        overflow:     "hidden",
-        background:   "rgba(48,164,108,0.10)",
-        // Border collapses to 0 when inactive — was 0.5px solid
-        // transparent which still claimed 0.5px of layout space
-        // (transparent borders DO take up box-model space). That
-        // 0.5px sliver was the "hairline gap" between the AppTopBar
-        // and the list/rail in Pipeline. Now: no border = no space.
-        borderBottom: active ? "0.5px solid rgba(48,164,108,0.22)" : "none",
-        transition:   "max-height 220ms cubic-bezier(0.32,0.72,0,1), opacity 200ms cubic-bezier(0.32,0.72,0,1)",
-      }}
-    >
-      <div className="flex items-center gap-2 px-4 h-[38px]">
-        <span
-          className="dot-pulse shrink-0"
-          style={{
-            width: 6, height: 6, borderRadius: 99,
-            background: "var(--rv-accent)",
-          }}
-        />
-        <span className="text-[12px] tracking-tight text-muted-foreground">
-          {message}
-        </span>
-      </div>
-    </div>
-  )
-}
+// CompareModeBanner removed — picking state lives in the floating
+// CompareSelectionBar at the bottom now (no layout push).
 
-/** Detail pane content while compareMode is active and the user hasn't
- *  picked enough deals yet. Replaces the stale single-deal detail with a
- *  visual representation of what's about to be compared — picked-deal
- *  cards plus empty placeholder slots — so the right side of the screen
- *  becomes part of the selection task instead of displaying unrelated
- *  context. */
-function CompareSelectingPane({
-  picked, onRemove,
-}: {
-  picked:   SavedDeal[]
-  onRemove: (id: string) => void
-}) {
-  return (
-    <div className="h-full overflow-y-auto panel-scroll flex flex-col items-center justify-center gap-6 px-8 bg-background">
-      <div className="flex flex-col items-center gap-3 text-center max-w-[420px]">
-        <div
-          className="flex items-center justify-center rounded-full text-primary bg-primary/10"
-          style={{
-            width: 44, height: 44,
-            border: "0.5px solid rgba(48,164,108,0.26)",
-          }}
-        >
-          <GitCompareArrows size={20} strokeWidth={1.8} />
-        </div>
-        <p className="text-[15px] font-semibold tracking-tight text-foreground">
-          {picked.length === 0
-            ? "Pick deals to compare"
-            : "Add at least one more"}
-        </p>
-        <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-          {picked.length === 0
-            ? "Click any row in the list, right-click to add it, or drag a row up. You can compare up to 4 deals at a time."
-            : "Compare needs 2 or more deals to show side-by-side."}
-        </p>
-      </div>
-      {/* Slot strip — 4 placeholder cards that fill in as the user picks */}
-      <div className="flex items-stretch gap-2.5 w-full max-w-[560px]">
-        {[0, 1, 2, 3].map((i) => {
-          const deal = picked[i]
-          return (
-            <div
-              key={i}
-              className="flex-1 flex flex-col items-center justify-center gap-1.5 rounded-[10px] transition-opacity duration-150"
-              style={{
-                minHeight:  88,
-                padding:    "10px 8px",
-                background: deal ? "var(--rv-elev-2)" : "transparent",
-                border:     deal
-                  ? "0.5px solid rgba(48,164,108,0.30)"
-                  : "1px dashed var(--rv-border-mid, var(--rv-border))",
-              }}
-            >
-              {deal ? (
-                <>
-                  <p className="text-[12px] font-semibold tabular-nums truncate w-full text-center text-foreground">
-                    {deal.list_price != null
-                      ? <Currency value={deal.list_price} whole />
-                      : "—"}
-                  </p>
-                  <p
-                    className="text-[10.5px] truncate w-full text-center leading-tight text-muted-foreground"
-                    title={[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
-                  >
-                    {deal.address ?? deal.site_name ?? "Saved deal"}
-                  </p>
-                  <button
-                    onClick={() => onRemove(deal.id)}
-                    className="text-[10px] tracking-tight transition-colors mt-1"
-                    style={{ color: "var(--rv-t4)" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = "var(--rv-neg)" }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = "var(--rv-t4)" }}
-                  >
-                    Remove
-                  </button>
-                </>
-              ) : (
-                <span className="text-[11px] text-muted-foreground/60">
-                  Slot {i + 1}
-                </span>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
+// CompareSelectingPane removed — picking happens directly on the
+// dense list (rows highlight as picked) with the floating
+// CompareSelectionBar at the bottom as the status surface.
 
 /** Drop target rendered above the deal list whenever a row is being
  *  dragged. Releasing on it adds the dragged row to the compare set. The
@@ -2879,12 +3158,12 @@ function ListEmpty({
             letterSpacing: "-0.012em",
           }}
         >
-          {hasAny ? `Nothing in ${stageTitle}` : "Your pipeline is empty"}
+          {hasAny ? `Quiet in ${stageTitle.toLowerCase()}.` : "Nothing here yet."}
         </p>
         <p className="text-[12px] leading-relaxed text-muted-foreground">
           {hasAny
-            ? "Switch stages from the header — or save more deals from Browse."
-            : "Open Browse, find a listing on Zillow / Redfin / anywhere, hit Save."}
+            ? "Other stages might have moves — try the view selector at the top."
+            : "Find a listing on Zillow, Redfin, anywhere. Hit Save and I'll start watching."}
         </p>
       </div>
       {hasAny && (
@@ -2892,7 +3171,7 @@ function ListEmpty({
           onClick={onClearStage}
           className="mt-2 text-[12px] font-medium underline-offset-4 text-primary hover:underline"
         >
-          See all active →
+          Show me everything active →
         </button>
       )}
     </div>

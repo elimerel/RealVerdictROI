@@ -7,6 +7,7 @@
 import { createClient } from "@/lib/supabase/client"
 import type { PanelResult } from "@/lib/electron"
 import type { ScenarioOverrides } from "@/lib/scenario"
+import type { ChatMessage } from "@/lib/electron"
 
 // ── Cross-component change events ─────────────────────────────────────────
 // Fires whenever the local pipeline state changes (save, move, re-analyze,
@@ -72,6 +73,9 @@ export interface SavedDeal {
   /** User's "what if I offered $440k?" override layer. NULL = no scenario,
    *  render the snapshot. Sparse — only includes keys the user changed. */
   scenario:            ScenarioOverrides | null
+  /** Persisted AI chat thread for the per-deal workspace. NULL or [] =
+   *  fresh thread. Migration 014_deal_chat.sql adds the column. */
+  chat:                ChatMessage[] | null
   tags:                string[]
   notes:               string | null
   watching:            boolean
@@ -400,9 +404,68 @@ export async function updateDealScenario(
 
 export async function updateDealNotes(dealId: string, notes: string): Promise<boolean> {
   const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
   const { error } = await supabase.from("saved_deals").update({ notes }).eq("id", dealId)
   if (error) {
     console.error("[pipeline] updateDealNotes error:", error)
+    return false
+  }
+  // Log a note_edited event so the workspace's Activity tab shows
+  // notes activity. Callers are responsible for deduping (only call
+  // when content actually changed); the existing note save paths blur-
+  // and-only-save-if-different so we don't get a flood of events.
+  void supabase.from("deal_events").insert({
+    user_id: user.id,
+    deal_id: dealId,
+    kind:    "note_edited",
+    payload: { length: notes.length },
+  })
+  return true
+}
+
+/** Log a chat_cleared event for the activity timeline. Fire-and-forget;
+ *  failures are silent. Called by the workspace after the user clicks
+ *  "Clear conversation" in the buddy tab. */
+export async function logChatCleared(dealId: string): Promise<void> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  void supabase.from("deal_events").insert({
+    user_id: user.id,
+    deal_id: dealId,
+    kind:    "chat_cleared",
+    payload: {},
+  })
+}
+
+// Same graceful-degrade pattern as scenarios — if migration 014 hasn't
+// been applied yet, persistence silently no-ops and the workspace
+// keeps the in-memory thread alive for the session.
+let _chatColumnMissing = false
+
+export async function updateDealChat(
+  dealId:   string,
+  messages: ChatMessage[],
+): Promise<boolean> {
+  if (_chatColumnMissing) return false
+  // Cap thread length so the row doesn't grow unbounded. 100 turns is
+  // generous; older messages drop off the front.
+  const value = messages.length > 100 ? messages.slice(-100) : messages
+  const supabase = createClient()
+  const { error } = await supabase
+    .from("saved_deals")
+    .update({ chat: value })
+    .eq("id", dealId)
+  if (error) {
+    if (error.code === "PGRST204") {
+      _chatColumnMissing = true
+      console.warn(
+        "[pipeline] chat column missing — apply supabase/migrations/014_deal_chat.sql to enable persistence. Chat will work in memory but not persist."
+      )
+      return false
+    }
+    console.error("[pipeline] updateDealChat error:", error)
     return false
   }
   return true
@@ -797,6 +860,7 @@ interface LogVisitInput {
 export type ActivityEventKind =
   | "saved" | "stage_changed" | "reanalyzed" | "tags_updated"
   | "price_changed" | "scenario_changed" | "scenario_cleared"
+  | "note_edited"   | "chat_cleared"
 
 export interface ActivityEvent {
   id:        string
@@ -840,6 +904,38 @@ export async function fetchActivityFeed(limit = 30): Promise<ActivityEvent[]> {
     deal:    Array.isArray(row.deal)
       ? (row.deal[0] ?? null)
       : (row.deal ?? null),
+  })) as ActivityEvent[]
+}
+
+/** Per-deal activity timeline. Used by the workspace's Activity tab to
+ *  show "what's happened to this listing" since save: stage moves,
+ *  re-analyses, scenario changes, price drops. Newest-first. Returns
+ *  ActivityEvent shape minus the joined deal context — the workspace
+ *  already knows the deal it's looking at. */
+export async function fetchDealActivity(dealId: string, limit = 50): Promise<ActivityEvent[]> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data, error } = await supabase
+    .from("deal_events")
+    .select("id, at, kind, payload")
+    .eq("user_id", user.id)
+    .eq("deal_id", dealId)
+    .order("at", { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    console.error("[pipeline] fetchDealActivity error:", error)
+    return []
+  }
+
+  return (data ?? []).map((row) => ({
+    id:      row.id as string,
+    at:      row.at as string,
+    kind:    row.kind as ActivityEventKind,
+    payload: (row.payload ?? null) as Record<string, unknown> | null,
+    deal:    null,
   })) as ActivityEvent[]
 }
 

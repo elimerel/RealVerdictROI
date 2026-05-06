@@ -13,9 +13,13 @@ export interface ElectronBounds {
 // applies bounds instantly (used during live sidebar drags); otherwise
 // main runs an Apple-spring tween to the new target.
 export interface BrowserLayout {
-  sidebarWidth?: number
-  panelWidth?:   number
-  animate?:      boolean
+  sidebarWidth?:    number
+  panelWidth?:      number
+  /** Whether the inline TabStrip is currently visible above the
+   *  BrowserView. Renderer publishes this whenever tab count crosses
+   *  the 1 ↔ >1 boundary so main can grow/shrink the chrome region. */
+  tabStripVisible?: boolean
+  animate?:         boolean
 }
 
 /** Per-tab summary used by the TabStrip. The full nav state for the active
